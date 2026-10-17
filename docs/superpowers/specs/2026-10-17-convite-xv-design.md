@@ -100,17 +100,17 @@ Projeto Railway com **3 serviços** [call, decorrente de Railway + WhatsApp não
 Público:
 - `/c/[token]` — convite do convidado (Abertura → Hero → O dia → RSVP → Presentes → Pix → Encerramento, em uma página com âncoras/seções). Token inválido → página neutra "Convite não encontrado".
 - `/c/[token]/opengraph-image` — imagem da carta. [call] Mesma imagem para todos (sem nome), para não vazar nomes em prévias encaminhadas.
-- `/c/[token]/agenda.ics` — evento para "Adicionar à agenda" [design].
+- `/c/[token]/calendar.ics` — evento para "Adicionar à agenda" [design].
 - `/` — página genérica sem dados (ou redireciona para nada). Não lista convidados.
 
 Admin (autenticado):
 - `/admin` — resumo: confirmados, recusados, pendentes, total de pessoas, Pix recebidos (soma).
-- `/admin/convidados` — CRUD, import CSV, copiar link, botão "Enviar pelo WhatsApp" (`wa.me` com mensagem pronta), status de resposta.
-- `/admin/presentes` — CRUD com categoria, preço opcional, foto opcional; ver quem reservou; liberar reserva.
+- `/admin/guests` — CRUD, import CSV, copiar link, botão "Enviar pelo WhatsApp" (`wa.me` com mensagem pronta), status de resposta.
+- `/admin/gifts` — CRUD com categoria, preço opcional, foto opcional; ver quem reservou; liberar reserva.
 - `/admin/pix` — cobranças e status.
-- `/admin/recados` — recados para a Isabella.
-- `/admin/lembretes` — modelos, agenda (D-7, D-1), histórico de envios, status da conexão WhatsApp.
-- `/admin/config` — prazo de confirmação, mensagens (agradecimento Pix, encerramento), contato de dúvidas, nome/instituição do recebedor exibidos no Pix.
+- `/admin/messages` — recados para a Isabella.
+- `/admin/reminders` — modelos, agenda (D-7, D-1), histórico de envios, status da conexão WhatsApp.
+- `/admin/settings` — prazo de confirmação, mensagens (agradecimento Pix, encerramento), contato de dúvidas, nome/instituição do recebedor exibidos no Pix.
 - Exportação CSV de convidados e presentes [call].
 
 API:
@@ -119,49 +119,50 @@ API:
 ## 7. Modelo de dados (rascunho)
 
 ```
-convidados
+guests
   id uuid pk
   token text unique          -- 22+ chars aleatórios (base62, ≥128 bits)
-  nome text
-  telefone text null         -- E.164, para lembretes e wa.me
-  limite_acompanhantes int   -- 0..6 [design]
-  resposta enum(pendente, sim, nao) default pendente
-  acompanhantes int default 0  -- 0..limite
-  recado text null
-  respondido_em timestamptz null
-  aberto_em timestamptz null   -- primeiro acesso (útil no painel)
-  criado_em, atualizado_em
+  name text
+  phone text null            -- E.164, para lembretes e wa.me
+  plus_ones_limit int        -- 0..6 [design]
+  rsvp_status enum(pending, yes, no) default pending
+  plus_ones int default 0    -- 0..limit
+  message text null
+  responded_at timestamptz null
+  opened_at timestamptz null   -- primeiro acesso (útil no painel)
+  created_at, updated_at
 
-presentes
+gifts
   id uuid pk
-  nome text, categoria text, preco_aprox_centavos int null, foto_url text null, ordem int
-  convidado_id uuid null fk -> convidados   -- null = livre
-  reservado_em timestamptz null
+  name text, category text, approx_price_cents int null, photo_url text null, position int
+  guest_id uuid null fk -> guests   -- null = livre
+  reserved_at timestamptz null
 
-pagamentos_pix
+pix_payments
   id uuid pk
-  convidado_id fk
-  valor_centavos int check (valor_centavos >= 7000)   -- mínimo R$ 70 [design]
-  modo enum(dinamico, estatico)
+  guest_id fk
+  amount_cents int check (amount_cents >= 7000)   -- mínimo R$ 70 [design]
+  mode enum(dynamic, static)
   asaas_payment_id text unique null   -- null no modo estático
-  status enum(aguardando, pago, expirado, cancelado, falha, aviso_enviado)   -- [design] status; aviso_enviado = modo estático
-  qr_code_base64 text, copia_e_cola text, expira_em timestamptz
-  pago_em timestamptz null
-  criado_em
+  status enum(pending, paid, expired, cancelled, failed, notice_sent)   -- [design] status; notice_sent = modo estático
+  qr_code_base64 text, copy_paste text, expires_at timestamptz
+  paid_at timestamptz null
+  created_at
 
-eventos_webhook             -- idempotência e auditoria
-  id text pk (id do evento Asaas), tipo, payload jsonb, recebido_em, processado_em
+webhook_events             -- idempotência e auditoria
+  id text pk (id do evento Asaas), type, payload jsonb, received_at, processed_at
 
-lembretes_envios
-  id, convidado_id, tipo (d7, d1), status (agendado, enviado, falhou, cancelado), tentativas, erro, enviado_em
-  unique (convidado_id, tipo)
+reminder_dispatches
+  id, guest_id, type (d7, d1), status (scheduled, sent, failed, cancelled), attempts, error, sent_at
+  unique (guest_id, type)
 
 admins
-  id, email unique, senha_hash, criado_em
+  id, email unique, password_hash, created_at
 
-config (linha única, chave/valor ou colunas)
-  prazo_confirmacao, msg_agradecimento_pix, msg_encerramento, contato_duvidas,
-  recebedor_nome, recebedor_instituicao, lembrete_d7_texto, lembrete_d1_texto
+settings (linha única, chave/valor ou colunas)
+  rsvp_deadline, pix_thanks_message, closing_message, contact_info,
+  receiver_name, receiver_institution, reminder_d7_text, reminder_d1_text,
+  whatsapp_invite_template
 ```
 
 Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam em um módulo de constantes [call]; se a família quiser editá-los no painel, migram para `config`.
@@ -169,12 +170,12 @@ Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam e
 ## 8. Fluxos
 
 ### 8.1 Abrir o convite
-1. Convidado abre `/c/<token>`. Server Component carrega o convidado; registra `aberto_em` na primeira visita.
+1. Convidado abre `/c/<token>`. Server Component carrega o convidado; registra `opened_at` na primeira visita.
 2. Abertura com lacre e portas [design 04]; botão "Entrar sem animação"; quem já abriu (cookie/localStorage) entra direto no hero com versão curta de 900 ms [design 03].
 3. Saudação com o nome; contagem regressiva calculada para 27/12/2026 14:00 UTC [design 06].
 
 ### 8.2 RSVP [design 07]
-- Server Action `responderRsvp(token, resposta, acompanhantes, recado, telefone?)`; valida `acompanhantes ≤ limite`, recado ≤ 500 chars [call].
+- Server Action `submitRsvp(token, status, plusOnes, message, phone?)`; valida `acompanhantes ≤ limite`, recado ≤ 500 chars [call].
 - Telefone [decidido: "os dois"]: a família cadastra telefones no painel; **se o convidado não tiver telefone cadastrado e responder "sim"**, o RSVP mostra um campo opcional "Seu WhatsApp para lembretes" (máscara BR, normalizado para E.164). Com telefone cadastrado, o campo não aparece. Texto curto de consentimento junto ao campo (LGPD). Esse campo não existe nas pranchas: seguir o estilo de "CAMPOS" da prancha 02.
 - Permitido alterar até o prazo de confirmação; depois do prazo, mostra a resposta atual, só leitura, com o contato de dúvidas [call].
 - Erro de rede: mensagem "Não conseguimos enviar agora…" e reenvio, sem perder o preenchido [design].
@@ -182,45 +183,45 @@ Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam e
 - [call] Presentes e Pix continuam acessíveis a qualquer convidado com link válido, independentemente da resposta ou do prazo (quem não vai pode querer presentear). Mudar para "não" **não** libera reservas automaticamente; o painel destaca "reservas de quem recusou" para a família decidir.
 
 ### 8.3 Reserva de presente [design 08]
-- `reservarPresente(token, presenteId)`:
-  `UPDATE presentes SET convidado_id = $c, reservado_em = now() WHERE id = $p AND convidado_id IS NULL RETURNING id`
+- `reserveGift(token, giftId)`:
+  `UPDATE gifts SET guest_id = $c, reserved_at = now() WHERE id = $p AND guest_id IS NULL RETURNING id`
   → 0 linhas = conflito → tela "Alguém foi mais rápido".
-- `desfazerReserva(token, presenteId)`: só se `convidado_id = $c`.
-- Lista enviada ao cliente expõe só `livre | meu | ja_escolhido`; nunca nome/id de outro convidado.
+- `releaseGiftReservation(token, giftId)`: só se `guest_id = $c`.
+- Lista enviada ao cliente expõe só `free | mine | taken`; nunca nome/id de outro convidado.
 - Animação da fita só após resposta do servidor [design].
 - [call] Sem limite de reservas por convidado.
 
 ### 8.4 Pix via Asaas [design 09, decidido Asaas]
 1. Convidado escolhe valor (R$ 70/100/150/200/300 ou outro ≥ R$ 70).
-2. Server Action `gerarPix(token, valor)`:
+2. Server Action `generatePix(token, amount)`:
    - garante um *customer* Asaas. [call] Um único customer genérico "Convidados XV" (com CPF do responsável ou conforme exigência do Asaas) reutilizado em todas as cobranças, guardando o convidado em `externalReference`; evita pedir CPF do convidado. **Validar no sandbox se o Asaas aceita isso; se exigir CPF do pagador, pedir CPF opcional no formulário.**
-   - cria cobrança `billingType: PIX`, `value`, `dueDate` = hoje, `externalReference` = id do `pagamentos_pix`;
-   - busca QR Code (`/payments/{id}/pixQrCode`) → salva `qr_code_base64`, `copia_e_cola`, `expira_em`.
+   - cria cobrança `billingType: PIX`, `value`, `dueDate` = hoje, `externalReference` = id do `pix_payments`;
+   - busca QR Code (`/payments/{id}/pixQrCode`) → salva `qr_code_base64`, `copy_paste`, `expires_at`.
 3. Tela mostra QR e copia-e-cola; cliente faz polling leve (a cada 5 s, por até 30 min) [call] numa Server Action/rota que lê o status do banco.
 4. Webhook `PAYMENT_RECEIVED` / `PAYMENT_CONFIRMED`:
    - valida header `asaas-access-token` contra segredo configurado;
-   - grava em `eventos_webhook` (pk = id do evento) → se já existe, retorna 200 sem reprocessar;
-   - atualiza `pagamentos_pix` para `pago`; responde 200 rápido.
-   - Eventos de expiração/cancelamento/estorno mapeiam para `expirado`/`cancelado`.
+   - grava em `webhook_events` (pk = id do evento) → se já existe, retorna 200 sem reprocessar;
+   - atualiza `pix_payments` para `paid`; responde 200 rápido.
+   - Eventos de expiração/cancelamento/estorno mapeiam para `expired`/`cancelled`.
 5. Tela muda para "Pix recebido. Muito obrigada!" com a mensagem configurada [design].
-- Plano B (conta não aprovada a tempo): modo **estático** já previsto no design. Controlado por `PIX_MODO=dinamico|estatico`. [call] Comportamento:
-  - convidado escolhe o valor (mesmas regras, mínimo R$ 70); o servidor gera o BR Code estático "copia e cola" + QR a partir da chave Pix configurada (`PIX_CHAVE`, `PIX_NOME`, `PIX_CIDADE`) e do valor, sem chamar o Asaas;
-  - "Já fiz o Pix" cria uma linha em `pagamentos_pix` com `modo = estatico`, `status = aviso_enviado`, valor e convidado;
-  - o "aviso" é **só uma lista no painel** (`/admin/pix`, com filtro "a conferir"), onde a família marca como `pago` após conferir o extrato. Sem WhatsApp/e-mail — não depende da fase 4.
+- Plano B (conta não aprovada a tempo): modo **estático** já previsto no design. Controlado por `PIX_MODE=dynamic|static`. [call] Comportamento:
+  - convidado escolhe o valor (mesmas regras, mínimo R$ 70); o servidor gera o BR Code estático "copia e cola" + QR a partir da chave Pix configurada (`PIX_KEY`, `PIX_NAME`, `PIX_CITY`) e do valor, sem chamar o Asaas;
+  - "Já fiz o Pix" cria uma linha em `pix_payments` com `mode = static`, `status = notice_sent`, valor e convidado;
+  - o "aviso" é **só uma lista no painel** (`/admin/pix`, com filtro "a conferir"), onde a família marca como `paid` após conferir o extrato. Sem WhatsApp/e-mail — não depende da fase 4.
 
 ### 8.5 Lembretes WhatsApp [decidido: só confirmados]
-- Ao confirmar "sim" (com telefone), agenda jobs pg-boss com `singletonKey` por (convidado, tipo):
+- Ao confirmar "sim" (com telefone), agenda jobs pg-boss com `singletonKey` por (guest, type):
   - **D-7** (20/12/2026, [call] 10h local): data, local, traje de banho, link do convite.
   - **D-1** (26/12/2026, [call] 10h local): horário, links Maps/Waze.
   - Se a confirmação acontecer depois do horário de um lembrete, aquele lembrete não é enviado [call].
-- Worker envia via Evolution API (`POST /message/sendText/{instance}`), com intervalo aleatório de 20–60 s entre mensagens [call] e texto com pequenas variações; retry até 3× com backoff; resultado em `lembretes_envios`.
+- Worker envia via Evolution API (`POST /message/sendText/{instance}`), com intervalo aleatório de 20–60 s entre mensagens [call] e texto com pequenas variações; retry até 3× com backoff; resultado em `reminder_dispatches`.
 - Mudou para "não" → cancela jobs pendentes.
 - Painel mostra status da instância (conectado/desconectado), histórico e falhas; botão "reenviar".
 - Mitigação de banimento: **chip dedicado**, não o número pessoal; volume baixo. Fallback: botão `wa.me` manual no painel.
 
 ### 8.6 Painel
 - Login e-mail/senha; 1–2 admins criados por script (`pnpm seed:admin`). Sem "esqueci a senha" [call] (reset via script).
-- Import CSV de convidados: colunas `nome, telefone, limite_acompanhantes` [call].
+- Import CSV de convidados: colunas `nome, telefone, limite_acompanhantes` [call] (cabeçalhos pt-BR, editados pela família).
 - Mensagem `wa.me` de convite com texto configurável contendo o link.
 
 ## 9. Segurança e privacidade
@@ -229,7 +230,7 @@ Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam e
 - Rate limiting simples por IP nas Server Actions públicas e em `/c/*` (proteção contra enumeração) [call], em memória (um único processo).
 - Painel: cookie httpOnly/secure/SameSite=Lax, CSRF protegido por Server Actions, todas as rotas `/admin` checadas no servidor (não só em middleware).
 - Webhook Asaas: token no header + idempotência; nunca confiar no corpo para valores sem conferir `asaas_payment_id` no banco.
-- Segredos só em variáveis de ambiente do Railway: `DATABASE_URL`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN`, `ASAAS_ENV`, `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`, `AUTH_SECRET`, `PIX_MODO`, `APP_URL`.
+- Segredos só em variáveis de ambiente do Railway: `DATABASE_URL`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN`, `ASAAS_ENV`, `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`, `AUTH_SECRET`, `PIX_MODE`, `APP_URL`.
 - Evolution API acessível só pela rede privada do Railway (sem domínio público), exceto quando for preciso escanear o QR (ou expor o manager com senha) [call].
 - `robots: noindex` em todo o site [call].
 - LGPD: dados mínimos (nome, telefone); [call] apagar telefones e recados ~30 dias após a festa (script manual).
@@ -244,7 +245,7 @@ Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam e
 
 ## 11. Fidelidade ao design
 
-- Converter tokens das pranchas 01–03 em CSS: paleta (Blush #F7DEDB, Papel #FFF8F6, Lacre #A8325E, Vinho #5A2136, Ouro #B8955A, etc.), espaçamento base 4, easings `--ease-carta`, `--ease-portas`, `--ease-lacre`, durações e stagger.
+- Converter tokens das pranchas 01–03 em CSS: paleta (Blush #F7DEDB, Papel #FFF8F6, Lacre #A8325E, Vinho #5A2136, Ouro #B8955A, etc.), espaçamento base 4, easings `--ease-letter`, `--ease-doors`, `--ease-seal`, durações e stagger.
 - Ilustrações (lírio, lacre, monograma, ramo) como componentes SVG próprios, animáveis por camada; reaproveitar os paths das pranchas.
 - Mobile-first 390 px; 768 px duas colunas; 1280+ grid 12 colunas, máx. 1200 [design].
 - Acessibilidade: contraste já medido no design, foco visível, alvos ≥44 px, `aria-live` nas mensagens de status, `prefers-reduced-motion` conforme cada primitiva da prancha 03.
