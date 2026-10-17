@@ -1,8 +1,8 @@
-// Setup global dos testes (vitest): banco limpo + linha única de config a cada teste.
+// Global test setup (vitest): clean database + the single settings row before each test.
 import { beforeEach } from 'vitest'
-import { limparBanco, reinserirConfig } from './tests/helpers/db'
+import { resetDatabase, reseedSettings } from './tests/helpers/db'
 
 beforeEach(async () => {
-  await limparBanco()
-  await reinserirConfig()
+  await resetDatabase()
+  await reseedSettings()
 })

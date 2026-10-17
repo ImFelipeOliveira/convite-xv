@@ -1,32 +1,32 @@
 import { describe, expect, it } from 'vitest'
 import { db } from '@/server/db/client'
-import { config, convidados } from '@/server/db/schema'
-import { fabricarConvidado } from '../../../../tests/helpers/db'
+import { guests, settings } from '@/server/db/schema'
+import { makeGuest } from '../../../../tests/helpers/db'
 
 describe('schema', () => {
-  it('insere convidado com defaults', async () => {
-    const c = await fabricarConvidado()
-    expect(c.resposta).toBe('pendente')
-    expect(c.acompanhantes).toBe(0)
+  it('inserts a guest with defaults', async () => {
+    const guest = await makeGuest()
+    expect(guest.rsvpStatus).toBe('pending')
+    expect(guest.plusOnes).toBe(0)
   })
 
-  it('rejeita limite 7', async () => {
-    await expect(fabricarConvidado({ limiteAcompanhantes: 7 })).rejects.toThrow()
+  it('rejects a plus-ones limit of 7', async () => {
+    await expect(makeGuest({ plusOnesLimit: 7 })).rejects.toThrow()
   })
 
-  it('token é único', async () => {
-    await fabricarConvidado({ token: 'abc' })
-    await expect(fabricarConvidado({ token: 'abc' })).rejects.toThrow()
+  it('enforces unique tokens', async () => {
+    await makeGuest({ token: 'abc' })
+    await expect(makeGuest({ token: 'abc' })).rejects.toThrow()
   })
 
-  it('config tem linha única', async () => {
-    await expect(db.insert(config).values({ id: 2 })).rejects.toThrow()
-    const rows = await db.select().from(config)
+  it('keeps settings as a single row', async () => {
+    await expect(db.insert(settings).values({ id: 2 })).rejects.toThrow()
+    const rows = await db.select().from(settings)
     expect(rows).toHaveLength(1)
-    expect(rows[0].prazoConfirmacao).toBe('2026-12-13')
+    expect(rows[0].rsvpDeadline).toBe('2026-12-13')
   })
 
-  it('limparBanco esvazia convidados', async () => {
-    expect(await db.select().from(convidados)).toHaveLength(0)
+  it('resetDatabase empties guests', async () => {
+    expect(await db.select().from(guests)).toHaveLength(0)
   })
 })

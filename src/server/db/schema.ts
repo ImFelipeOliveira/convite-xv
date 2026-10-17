@@ -10,54 +10,56 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 
-export const resposta = pgEnum('resposta', ['pendente', 'sim', 'nao'])
+export const rsvpStatus = pgEnum('rsvp_status', ['pending', 'yes', 'no'])
 
-export const MSG_CONVITE_WHATSAPP_PADRAO =
+// User-facing pt-BR copy: stays in Portuguese.
+export const WHATSAPP_INVITE_TEMPLATE_DEFAULT =
   'Olá, {nome}! A Isabella vai fazer 15 anos e preparou um convite especial para você. Abra a carta: {link}'
 
-export const convidados = pgTable(
-  'convidados',
+export const guests = pgTable(
+  'guests',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     token: text('token').notNull().unique(),
-    nome: text('nome').notNull(),
-    telefone: text('telefone'),
-    limiteAcompanhantes: integer('limite_acompanhantes').notNull().default(0),
-    resposta: resposta('resposta').notNull().default('pendente'),
-    acompanhantes: integer('acompanhantes').notNull().default(0),
-    recado: text('recado'),
-    respondidoEm: timestamp('respondido_em', { withTimezone: true }),
-    abertoEm: timestamp('aberto_em', { withTimezone: true }),
-    criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
-    atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+    name: text('name').notNull(),
+    phone: text('phone'),
+    plusOnesLimit: integer('plus_ones_limit').notNull().default(0),
+    rsvpStatus: rsvpStatus('rsvp_status').notNull().default('pending'),
+    plusOnes: integer('plus_ones').notNull().default(0),
+    message: text('message'),
+    respondedAt: timestamp('responded_at', { withTimezone: true }),
+    openedAt: timestamp('opened_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    check('limite_acompanhantes_faixa', sql`${t.limiteAcompanhantes} between 0 and 6`),
-    check('acompanhantes_nao_negativo', sql`${t.acompanhantes} >= 0`),
+    check('plus_ones_limit_range', sql`${t.plusOnesLimit} between 0 and 6`),
+    check('plus_ones_non_negative', sql`${t.plusOnes} >= 0`),
   ],
 )
 
 export const admins = pgTable('admins', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: text('email').notNull().unique(),
-  senhaHash: text('senha_hash').notNull(),
-  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  passwordHash: text('password_hash').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
-export const config = pgTable(
-  'config',
+export const settings = pgTable(
+  'settings',
   {
     id: integer('id').primaryKey(),
-    prazoConfirmacao: date('prazo_confirmacao').notNull().default('2026-12-13'),
-    contatoDuvidas: text('contato_duvidas'),
-    msgEncerramento: text('msg_encerramento'),
-    msgConviteWhatsapp: text('msg_convite_whatsapp')
+    rsvpDeadline: date('rsvp_deadline').notNull().default('2026-12-13'),
+    contactInfo: text('contact_info'),
+    closingMessage: text('closing_message'),
+    whatsappInviteTemplate: text('whatsapp_invite_template')
       .notNull()
-      .default(MSG_CONVITE_WHATSAPP_PADRAO),
+      .default(WHATSAPP_INVITE_TEMPLATE_DEFAULT),
   },
-  (t) => [check('config_linha_unica', sql`${t.id} = 1`)],
+  (t) => [check('settings_single_row', sql`${t.id} = 1`)],
 )
 
-export type Convidado = typeof convidados.$inferSelect
-export type NovoConvidado = typeof convidados.$inferInsert
-export type Config = typeof config.$inferSelect
+export type Guest = typeof guests.$inferSelect
+export type NewGuest = typeof guests.$inferInsert
+export type Settings = typeof settings.$inferSelect
+export type RsvpStatus = (typeof rsvpStatus.enumValues)[number]

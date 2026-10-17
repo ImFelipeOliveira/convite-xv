@@ -1,5 +1,5 @@
 {
-  "id": "a9cf49fb-41cb-457a-82ad-19985e508869",
+  "id": "90b65cef-83e8-495d-af37-20a9bf5dba0a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -21,14 +21,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "senha_hash": {
-          "name": "senha_hash",
+        "password_hash": {
+          "name": "password_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "criado_em": {
-          "name": "criado_em",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -51,58 +51,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.config": {
-      "name": "config",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "prazo_confirmacao": {
-          "name": "prazo_confirmacao",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'2026-12-13'"
-        },
-        "contato_duvidas": {
-          "name": "contato_duvidas",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "msg_encerramento": {
-          "name": "msg_encerramento",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "msg_convite_whatsapp": {
-          "name": "msg_convite_whatsapp",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'Olá, {nome}! A Isabella vai fazer 15 anos e preparou um convite especial para você. Abra a carta: {link}'"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "config_linha_unica": {
-          "name": "config_linha_unica",
-          "value": "\"config\".\"id\" = 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.convidados": {
-      "name": "convidados",
+    "public.guests": {
+      "name": "guests",
       "schema": "",
       "columns": {
         "id": {
@@ -118,67 +68,67 @@
           "primaryKey": false,
           "notNull": true
         },
-        "nome": {
-          "name": "nome",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "telefone": {
-          "name": "telefone",
+        "phone": {
+          "name": "phone",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "limite_acompanhantes": {
-          "name": "limite_acompanhantes",
+        "plus_ones_limit": {
+          "name": "plus_ones_limit",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "default": 0
         },
-        "resposta": {
-          "name": "resposta",
-          "type": "resposta",
+        "rsvp_status": {
+          "name": "rsvp_status",
+          "type": "rsvp_status",
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'pendente'"
+          "default": "'pending'"
         },
-        "acompanhantes": {
-          "name": "acompanhantes",
+        "plus_ones": {
+          "name": "plus_ones",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "default": 0
         },
-        "recado": {
-          "name": "recado",
+        "message": {
+          "name": "message",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "respondido_em": {
-          "name": "respondido_em",
+        "responded_at": {
+          "name": "responded_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
-        "aberto_em": {
-          "name": "aberto_em",
+        "opened_at": {
+          "name": "opened_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
-        "criado_em": {
-          "name": "criado_em",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
         },
-        "atualizado_em": {
-          "name": "atualizado_em",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -189,8 +139,8 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "convidados_token_unique": {
-          "name": "convidados_token_unique",
+        "guests_token_unique": {
+          "name": "guests_token_unique",
           "nullsNotDistinct": false,
           "columns": [
             "token"
@@ -199,26 +149,76 @@
       },
       "policies": {},
       "checkConstraints": {
-        "limite_acompanhantes_faixa": {
-          "name": "limite_acompanhantes_faixa",
-          "value": "\"convidados\".\"limite_acompanhantes\" between 0 and 6"
+        "plus_ones_limit_range": {
+          "name": "plus_ones_limit_range",
+          "value": "\"guests\".\"plus_ones_limit\" between 0 and 6"
         },
-        "acompanhantes_nao_negativo": {
-          "name": "acompanhantes_nao_negativo",
-          "value": "\"convidados\".\"acompanhantes\" >= 0"
+        "plus_ones_non_negative": {
+          "name": "plus_ones_non_negative",
+          "value": "\"guests\".\"plus_ones\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.settings": {
+      "name": "settings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "rsvp_deadline": {
+          "name": "rsvp_deadline",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'2026-12-13'"
+        },
+        "contact_info": {
+          "name": "contact_info",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "closing_message": {
+          "name": "closing_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "whatsapp_invite_template": {
+          "name": "whatsapp_invite_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Olá, {nome}! A Isabella vai fazer 15 anos e preparou um convite especial para você. Abra a carta: {link}'"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "settings_single_row": {
+          "name": "settings_single_row",
+          "value": "\"settings\".\"id\" = 1"
         }
       },
       "isRLSEnabled": false
     }
   },
   "enums": {
-    "public.resposta": {
-      "name": "resposta",
+    "public.rsvp_status": {
+      "name": "rsvp_status",
       "schema": "public",
       "values": [
-        "pendente",
-        "sim",
-        "nao"
+        "pending",
+        "yes",
+        "no"
       ]
     }
   },

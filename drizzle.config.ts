@@ -3,7 +3,7 @@ import { defineConfig } from 'drizzle-kit'
 try {
   process.loadEnvFile('.env.local')
 } catch {
-  // sem .env.local: usa o ambiente do processo
+  // no .env.local: fall back to the process environment
 }
 
 export default defineConfig({

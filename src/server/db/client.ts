@@ -7,7 +7,7 @@ const url =
 
 if (!url) {
   throw new Error(
-    process.env.NODE_ENV === 'test' ? 'DATABASE_URL_TEST não definida' : 'DATABASE_URL não definida',
+    process.env.NODE_ENV === 'test' ? 'DATABASE_URL_TEST is not set' : 'DATABASE_URL is not set',
   )
 }
 

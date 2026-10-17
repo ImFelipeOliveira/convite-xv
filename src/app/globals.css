@@ -1,34 +1,34 @@
 @import "tailwindcss";
 
 :root {
-  /* Paleta */
+  /* Palette */
   --blush: #F7DEDB;
-  --papel: #FFF8F6;
-  --petala: #F0C7C6;
-  --lirio: #E07A9C;
-  --rosa: #C25578;
-  --lacre: #A8325E;
-  --rosa-profundo: #8E3556;
-  --vinho: #5A2136;
-  --bordo: #2A1119;
-  --ouro: #B8955A;
-  --ouro-claro: #E3C891;
-  --ouro-texto: #7A5629;
-  --salvia: #2F6B4F;
-  --erro: #9B1C1C;
+  --paper: #FFF8F6;
+  --petal: #F0C7C6;
+  --lily: #E07A9C;
+  --rose: #C25578;
+  --seal: #A8325E;
+  --deep-rose: #8E3556;
+  --wine: #5A2136;
+  --burgundy: #2A1119;
+  --gold: #B8955A;
+  --gold-light: #E3C891;
+  --gold-text: #7A5629;
+  --sage: #2F6B4F;
+  --error: #9B1C1C;
 
-  /* Movimento */
-  --ease-carta: cubic-bezier(.22, 1, .36, 1);
-  --ease-portas: cubic-bezier(.65, 0, .35, 1);
-  --ease-lacre: cubic-bezier(.34, 1.56, .64, 1);
+  /* Motion */
+  --ease-letter: cubic-bezier(.22, 1, .36, 1);
+  --ease-doors: cubic-bezier(.65, 0, .35, 1);
+  --ease-seal: cubic-bezier(.34, 1.56, .64, 1);
   --dur-micro: 160ms;
   --dur-ui: 320ms;
-  --dur-revelar: 700ms;
-  --dur-cena: 1200ms;
+  --dur-reveal: 700ms;
+  --dur-scene: 1200ms;
   --stagger: 80ms;
-  --revelar-y: 24px;
+  --reveal-y: 24px;
 
-  /* Espaçamento (base 4) */
+  /* Spacing (base 4) */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -43,19 +43,19 @@
 
 @theme inline {
   --color-blush: var(--blush);
-  --color-papel: var(--papel);
-  --color-petala: var(--petala);
-  --color-lirio: var(--lirio);
-  --color-rosa: var(--rosa);
-  --color-lacre: var(--lacre);
-  --color-rosa-profundo: var(--rosa-profundo);
-  --color-vinho: var(--vinho);
-  --color-bordo: var(--bordo);
-  --color-ouro: var(--ouro);
-  --color-ouro-claro: var(--ouro-claro);
-  --color-ouro-texto: var(--ouro-texto);
-  --color-salvia: var(--salvia);
-  --color-erro: var(--erro);
+  --color-paper: var(--paper);
+  --color-petal: var(--petal);
+  --color-lily: var(--lily);
+  --color-rose: var(--rose);
+  --color-seal: var(--seal);
+  --color-deep-rose: var(--deep-rose);
+  --color-wine: var(--wine);
+  --color-burgundy: var(--burgundy);
+  --color-gold: var(--gold);
+  --color-gold-light: var(--gold-light);
+  --color-gold-text: var(--gold-text);
+  --color-sage: var(--sage);
+  --color-error: var(--error);
   --font-display: var(--font-bodoni);
   --font-sans: var(--font-jost);
   --font-script: var(--font-pinyon);
@@ -63,7 +63,7 @@
 
 body {
   background: var(--blush);
-  color: var(--vinho);
+  color: var(--wine);
   font-family: var(--font-jost), sans-serif;
 }
 

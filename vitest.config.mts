@@ -1,14 +1,13 @@
-import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
 try {
   process.loadEnvFile('.env.local')
 } catch {
-  // sem .env.local: usa o ambiente do processo
+  // no .env.local: fall back to the process environment
 }
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
+  resolve: { tsconfigPaths: true },
   test: {
     environment: 'node',
     globalSetup: ['vitest.global-setup.ts'],
