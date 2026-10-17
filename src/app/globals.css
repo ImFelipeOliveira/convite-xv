@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+:root {
+  /* Paleta */
+  --blush: #F7DEDB;
+  --papel: #FFF8F6;
+  --petala: #F0C7C6;
+  --lirio: #E07A9C;
+  --rosa: #C25578;
+  --lacre: #A8325E;
+  --rosa-profundo: #8E3556;
+  --vinho: #5A2136;
+  --bordo: #2A1119;
+  --ouro: #B8955A;
+  --ouro-claro: #E3C891;
+  --ouro-texto: #7A5629;
+  --salvia: #2F6B4F;
+  --erro: #9B1C1C;
+
+  /* Movimento */
+  --ease-carta: cubic-bezier(.22, 1, .36, 1);
+  --ease-portas: cubic-bezier(.65, 0, .35, 1);
+  --ease-lacre: cubic-bezier(.34, 1.56, .64, 1);
+  --dur-micro: 160ms;
+  --dur-ui: 320ms;
+  --dur-revelar: 700ms;
+  --dur-cena: 1200ms;
+  --stagger: 80ms;
+  --revelar-y: 24px;
+
+  /* Espaçamento (base 4) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --space-10: 160px;
+}
+
+@theme inline {
+  --color-blush: var(--blush);
+  --color-papel: var(--papel);
+  --color-petala: var(--petala);
+  --color-lirio: var(--lirio);
+  --color-rosa: var(--rosa);
+  --color-lacre: var(--lacre);
+  --color-rosa-profundo: var(--rosa-profundo);
+  --color-vinho: var(--vinho);
+  --color-bordo: var(--bordo);
+  --color-ouro: var(--ouro);
+  --color-ouro-claro: var(--ouro-claro);
+  --color-ouro-texto: var(--ouro-texto);
+  --color-salvia: var(--salvia);
+  --color-erro: var(--erro);
+  --font-display: var(--font-bodoni);
+  --font-sans: var(--font-jost);
+  --font-script: var(--font-pinyon);
+}
+
+body {
+  background: var(--blush);
+  color: var(--vinho);
+  font-family: var(--font-jost), sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
