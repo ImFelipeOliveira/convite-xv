@@ -1,0 +1,62 @@
+import { z } from 'zod'
+
+const HTTPS_ERROR = 'Use um link que comece com https://'
+const PRICE_ERROR = 'Valor inválido'
+
+/** pt-BR reais ("250", "250,90", "1.250,00") to cents; empty -> null. */
+const priceField = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value, ctx) => {
+    if (!value) return null
+    if (!/^(\d{1,3}(\.\d{3})+|\d+)(,\d{1,2})?$/.test(value)) {
+      ctx.addIssue({ code: 'custom', message: PRICE_ERROR })
+      return z.NEVER
+    }
+    const [whole, frac = ''] = value.replace(/\./g, '').split(',')
+    return Number(whole) * 100 + Number(frac.padEnd(2, '0'))
+  })
+
+const httpsUrl = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value, ctx) => {
+    if (!value) return null
+    let ok = value.length <= 2048
+    if (ok) {
+      try {
+        ok = new URL(value).protocol === 'https:'
+      } catch {
+        ok = false
+      }
+    }
+    if (!ok) {
+      ctx.addIssue({ code: 'custom', message: HTTPS_ERROR })
+      return z.NEVER
+    }
+    return value
+  })
+
+export const giftFormSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, 'Nome obrigatório')
+      .max(120, 'Nome deve ter até 120 caracteres'),
+    category: z
+      .string()
+      .trim()
+      .max(40, 'Categoria deve ter até 40 caracteres')
+      .optional()
+      .transform((v) => v || 'Outros'),
+    price: priceField,
+    purchaseUrl: httpsUrl,
+    imageUrl: httpsUrl,
+  })
+  .transform(({ price, ...rest }) => ({ ...rest, priceCents: price }))
+
+export type GiftFormInput = z.input<typeof giftFormSchema>
+export type GiftFormData = z.output<typeof giftFormSchema>

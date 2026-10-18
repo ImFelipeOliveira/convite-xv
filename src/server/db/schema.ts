@@ -117,6 +117,27 @@ export const messageDispatches = pgTable(
   ],
 )
 
+export const gifts = pgTable(
+  'gifts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    category: text('category').notNull().default('Outros'),
+    priceCents: integer('price_cents'),
+    imageUrl: text('image_url'),
+    purchaseUrl: text('purchase_url'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    guestId: uuid('guest_id').references(() => guests.id, { onDelete: 'set null' }),
+    reservedAt: timestamp('reserved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('gifts_category_sort_order_idx').on(t.category, t.sortOrder),
+    check('gifts_price_non_negative', sql`${t.priceCents} is null or ${t.priceCents} >= 0`),
+  ],
+)
+
 export type Guest = typeof guests.$inferSelect
 export type NewGuest = typeof guests.$inferInsert
 export type Settings = typeof settings.$inferSelect
@@ -124,3 +145,5 @@ export type RsvpStatus = (typeof rsvpStatus.enumValues)[number]
 export type MessageDispatch = typeof messageDispatches.$inferSelect
 export type DispatchKind = (typeof dispatchKind.enumValues)[number]
 export type DispatchStatus = (typeof dispatchStatus.enumValues)[number]
+export type Gift = typeof gifts.$inferSelect
+export type NewGift = typeof gifts.$inferInsert
