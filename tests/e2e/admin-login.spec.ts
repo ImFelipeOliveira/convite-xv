@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD } from './fixtures'
+import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_GUEST_TOKEN } from './fixtures'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
 test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.21' } })
@@ -71,13 +71,29 @@ test('GET /admin is gated at the proxy', async ({ page, request }) => {
 })
 
 test('sends security headers', async ({ request }) => {
+  const CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
   const admin = await request.get('/admin/login')
   const h = admin.headers()
   expect(h['x-content-type-options']).toBe('nosniff')
   expect(h['referrer-policy']).toBe('strict-origin-when-cross-origin')
   expect(h['x-frame-options']).toBe('DENY')
-  expect(h['content-security-policy']).toBe("frame-ancestors 'none'")
+  expect(h['content-security-policy']).toBe(CSP)
+  expect(h['x-powered-by']).toBeUndefined()
+  // production-only, and only when APP_URL is https: never on the http://localhost e2e server
+  expect(h['strict-transport-security']).toBeUndefined()
+
   const home = await request.get('/')
   expect(home.headers()['x-content-type-options']).toBe('nosniff')
-  expect(home.headers()['x-frame-options']).toBeUndefined()
+  expect(home.headers()['x-frame-options']).toBe('DENY')
+  expect(home.headers()['content-security-policy']).toBe(CSP)
+  expect(home.headers()['permissions-policy']).toContain('camera=()')
+
+  // the invite URL carries the token: no referrer at all, and it can't be framed either
+  const invite = await request.get(`/c/${E2E_GUEST_TOKEN}`)
+  expect(invite.status()).toBe(200)
+  expect(invite.headers()['referrer-policy']).toBe('no-referrer')
+  expect(invite.headers()['x-frame-options']).toBe('DENY')
+  expect(invite.headers()['content-security-policy']).toBe(CSP)
+  expect(invite.headers()['permissions-policy']).toContain('geolocation=()')
+  expect(invite.headers()['x-powered-by']).toBeUndefined()
 })
