@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { childLogger } from '@/lib/logger'
 import type { Guest, PixPayment, PixStatus } from '@/server/db/schema'
+import { afterPixPaid } from './after-paid'
 import { createPixPayment, deletePayment, ensureCustomer, getPayment, getPixQrCode } from './asaas'
 import { readAsaasConfig, requirePayerCpf, type AsaasConfig } from './config'
 import { isValidCpf } from './cpf'
 import { pixDueDate } from './due-date'
+import { PIX_MAX_CENTS, PIX_MIN_CENTS } from './limits'
 import {
   findGuestPayment,
   findGuestPixState,
@@ -21,8 +23,7 @@ import {
 
 const log = childLogger({ module: 'pix' })
 
-export const PIX_MIN_CENTS = 7000
-export const PIX_MAX_CENTS = 1_000_000
+export { PIX_MAX_CENTS, PIX_MIN_CENTS }
 // pt-BR: shown to the payer in Asaas / their bank app
 export const GENERIC_CUSTOMER_NAME = 'Convidados — 15 anos da Isabella'
 const PAYMENT_DESCRIPTION = 'Presente Pix — 15 anos da Isabella'
@@ -63,6 +64,8 @@ export type PixDeps = {
   requireCpf?: boolean
   /** how long to wait for a free generation slot (default 3 s) */
   slotWaitMs?: number
+  /** runs once when the status poll turns a payment paid (default afterPixPaid) */
+  afterPaid?: (guestId: string) => Promise<void>
 }
 
 /** Non-negative integer ms from env, or the default (lets e2e poll Asaas right away). */
@@ -323,10 +326,24 @@ export async function getPixStatus(
     return toPixView(row)
   }
   if (remote.value.status === 'pending') return toPixView(row)
+  if (remote.value.status === 'paid' && remote.value.valueCents !== row.amountCents) {
+    // never trust a paid status for another amount: the webhook (or the admin in Asaas) decides
+    log.warn({ paymentId: row.id, code: 'value_mismatch' }, 'pix status poll not trusted')
+    return toPixView(row)
+  }
+  // conditional on still pending: when the webhook settled it meanwhile, this writes nothing
   const settled = await settlePendingPayment(row.id, remote.value.status, new Date(at))
   if (settled) {
     lastPolledAt.delete(row.id)
     log.info({ paymentId: row.id, status: settled.status }, 'pix status from poll')
+    if (settled.status === 'paid' && settled.guestId) {
+      // only this transition runs the hook (the webhook runs it when it wins instead)
+      try {
+        await (deps.afterPaid ?? afterPixPaid)(settled.guestId)
+      } catch (err) {
+        log.error({ paymentId: settled.id, guestId: settled.guestId, err }, 'pix after-paid hook failed')
+      }
+    }
     return toPixView(settled)
   }
   // a webhook settled it meanwhile

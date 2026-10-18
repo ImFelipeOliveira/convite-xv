@@ -334,7 +334,7 @@ describe('getPixStatus', () => {
   }
 
   it('reads our DB and does not poll Asaas in the first 2 minutes', async () => {
-    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status: 'RECEIVED' }) })
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status: 'RECEIVED', value: 70 }) })
     const { guest, payment } = await seed(f)
     const soon = new Date(NOW.getTime() + 60_000)
     const view = await getPixStatus(guest.id, payment.id, deps(f, { now: () => soon }))
@@ -352,7 +352,7 @@ describe('getPixStatus', () => {
 
   it('after 2 minutes polls at most once per 30 s and stores a paid status', async () => {
     let status = 'PENDING'
-    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status }) })
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status, value: 70 }) })
     const { guest, payment } = await seed(f)
     const polls = () => f.calls.filter((c) => c.key === 'GET /payments/:id').length
     const t0 = NOW.getTime() + 3 * 60_000
@@ -372,6 +372,58 @@ describe('getPixStatus', () => {
     // paid is final: no more polling
     await getPixStatus(guest.id, payment.id, at(120_000))
     expect(polls()).toBe(2)
+  })
+
+  it('a poll that settles the payment as paid runs the after-paid hook once (only on the transition)', async () => {
+    let status = 'PENDING'
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status, value: 70 }) })
+    const { guest, payment } = await seed(f)
+    const afterPaid = vi.fn(async () => {})
+    const t0 = NOW.getTime() + 3 * 60_000
+    const at = (ms: number) => deps(f, { now: () => new Date(t0 + ms), afterPaid })
+    await getPixStatus(guest.id, payment.id, at(0))
+    expect(afterPaid).not.toHaveBeenCalled()
+    status = 'RECEIVED'
+    expect((await getPixStatus(guest.id, payment.id, at(31_000)))?.status).toBe('paid')
+    expect(afterPaid).toHaveBeenCalledTimes(1)
+    expect(afterPaid).toHaveBeenCalledWith(guest.id)
+    await getPixStatus(guest.id, payment.id, at(62_000))
+    expect(afterPaid).toHaveBeenCalledTimes(1)
+  })
+
+  it('no hook from the poll when the webhook settled it first', async () => {
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status: 'RECEIVED', value: 70 }) })
+    const { guest, payment } = await seed(f)
+    const afterPaid = vi.fn(async () => {})
+    const later = new Date(NOW.getTime() + 3 * 60_000)
+    const real = f.fetch
+    // the webhook wins the race while the poll waits for Asaas
+    const racing = (async (...args: Parameters<typeof fetch>) => {
+      const res = await real(...args)
+      await db.update(pixPayments).set({ status: 'paid', paidAt: NOW }).where(eq(pixPayments.id, payment.id))
+      return res
+    }) as typeof fetch
+    expect((await getPixStatus(guest.id, payment.id, { ...deps(f, { now: () => later, afterPaid }), fetch: racing }))?.status).toBe('paid')
+    expect(afterPaid).not.toHaveBeenCalled()
+  })
+
+  it('a failing after-paid hook never fails the poll', async () => {
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status: 'RECEIVED', value: 70 }) })
+    const { guest, payment } = await seed(f)
+    const afterPaid = vi.fn(async () => {
+      throw new Error('boom')
+    })
+    const later = new Date(NOW.getTime() + 3 * 60_000)
+    expect((await getPixStatus(guest.id, payment.id, deps(f, { now: () => later, afterPaid })))?.status).toBe('paid')
+  })
+
+  it('a paid status with a different value at Asaas is not trusted (stays pending)', async () => {
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status: 'RECEIVED', value: 1 }) })
+    const { guest, payment } = await seed(f)
+    const afterPaid = vi.fn(async () => {})
+    const later = new Date(NOW.getTime() + 3 * 60_000)
+    expect((await getPixStatus(guest.id, payment.id, deps(f, { now: () => later, afterPaid })))?.status).toBe('pending')
+    expect(afterPaid).not.toHaveBeenCalled()
   })
 
   it('keeps the stored status when the poll fails', async () => {
@@ -436,7 +488,7 @@ describe('getPixStatus poll threshold', () => {
     vi.stubEnv('PIX_POLL_AFTER_MS', '0')
     vi.stubEnv('PIX_POLL_EVERY_MS', '0')
     let status = 'PENDING'
-    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status }) })
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status, value: 70 }) })
     const guest = await makeGuest()
     const r = await generatePix(guest, 7000, deps(f))
     if (!r.ok) throw new Error('expected ok')

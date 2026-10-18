@@ -163,10 +163,25 @@ describe('request shape', () => {
     expect(f.mock.calls[0][1]?.method).toBe('GET')
   })
 
-  it('reads a payment status', async () => {
-    const f = vi.fn<typeof fetch>().mockResolvedValue(json({ id: 'pay_1', status: 'RECEIVED' }))
-    expect(await getPayment(cfg, 'pay_1', f)).toEqual({ ok: true, value: { status: 'paid' } })
+  it('reads a payment status and value (in cents)', async () => {
+    const f = vi.fn<typeof fetch>().mockResolvedValue(json({ id: 'pay_1', status: 'RECEIVED', value: 100.5 }))
+    expect(await getPayment(cfg, 'pay_1', f)).toEqual({ ok: true, value: { status: 'paid', valueCents: 10050 } })
     expect(f.mock.calls[0][0]).toBe('http://asaas.test/v3/payments/pay_1')
+  })
+
+  it('a missing or invalid value reads as null', async () => {
+    const f = vi.fn<typeof fetch>().mockResolvedValue(json({ id: 'pay_1', status: 'RECEIVED', value: '100' }))
+    expect(await getPayment(cfg, 'pay_1', f)).toEqual({ ok: true, value: { status: 'paid', valueCents: null } })
+  })
+
+  it('honours a shorter timeout', async () => {
+    const f = vi.fn<typeof fetch>(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+        }),
+    )
+    expect(await getPayment(cfg, 'pay_1', f, { timeoutMs: 20 })).toEqual({ ok: false, error: 'timeout' })
   })
 
   it('deletes a payment', async () => {

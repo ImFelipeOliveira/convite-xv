@@ -5,9 +5,11 @@
 //   POST /__payments/latest/status {status}  – sets the newest charge's Asaas status (e.g. RECEIVED),
 //                                              picked up by the app's status poll
 //   POST /__payments/latest/webhook {event, eventId?} – delivers an Asaas webhook for the newest charge
-//                                              to the app (POST /api/webhooks/asaas, with the test token);
-//                                              the charge's own status is left alone, so only the webhook
-//                                              path can settle it. Answers {status, body} of the app.
+//                                              to the app (POST /api/webhooks/asaas, with the test token).
+//                                              Like Asaas, the charge's own status changes first (the app
+//                                              confirms paid events with GET /payments/:id); the webhook is
+//                                              delivered right away, before the guest's next 5 s poll.
+//                                              Answers {status, body} of the app.
 //   GET /__calls                              – the Asaas calls so far ("METHOD /path")
 //   POST /__reset                             – clears calls, charges and modes
 import './load-env'
@@ -154,6 +156,7 @@ export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: (
       const latest = charges[charges.length - 1]
       if (!latest || typeof body?.event !== 'string') return json(res, 404, { error: 'no charge' })
       const eventId = typeof body.eventId === 'string' ? body.eventId : `evt_fake_${++eventN}&${Date.now()}`
+      if (EVENT_STATUS[body.event]) latest.status = EVENT_STATUS[body.event]
       const delivery = await fetch(APP_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'asaas-access-token': FAKE_ASAAS_WEBHOOK_TOKEN },

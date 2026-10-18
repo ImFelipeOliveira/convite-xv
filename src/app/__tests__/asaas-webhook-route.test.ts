@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { logger } from '@/lib/logger'
+import { resetRateLimits } from '@/lib/rate-limit'
 import { db } from '@/server/db/client'
 import { pixPayments } from '@/server/db/schema'
 import { makeGuest } from '../../../tests/helpers/db'
@@ -43,12 +44,32 @@ async function status(id: string) {
   return row.status
 }
 
+// the webhook confirms paid events with Asaas (GET /payments/:id): a stubbed Asaas answers RECEIVED, R$ 100
+const asaasGet = vi.fn(
+  async () =>
+    new Response(JSON.stringify({ object: 'payment', status: 'RECEIVED', value: 100 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+)
+
 beforeEach(() => {
   vi.stubEnv('ASAAS_WEBHOOK_TOKEN', TOKEN)
+  vi.stubEnv('ASAAS_API_KEY', 'route-test-key')
+  vi.stubEnv('ASAAS_BASE_URL', 'http://asaas.test/v3')
+  vi.stubGlobal('fetch', asaasGet)
+  asaasGet.mockClear()
   afterPixPaid.mockClear()
   resetWebhookConfigWarning()
+  resetRateLimits()
 })
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+})
+
+const rejectedLogs = (warn: { mock: { calls: unknown[][] } }) =>
+  warn.mock.calls.filter(([o]) => (o as { event?: string }).event === 'pix.webhook_rejected')
 
 describe('POST /api/webhooks/asaas', () => {
   it('401 for a wrong or missing token (no processing)', async () => {
@@ -93,6 +114,36 @@ describe('POST /api/webhooks/asaas', () => {
     expect(again.status).toBe(200)
     expect(await again.json()).toEqual({ ok: true, duplicate: true })
     expect(afterPixPaid).toHaveBeenCalledTimes(1)
+  })
+
+  it('500 when Asaas cannot confirm a paid event (so Asaas retries); the payment stays pending', async () => {
+    const { row } = await pendingPayment()
+    vi.spyOn(logger, 'error').mockImplementation(() => {})
+    asaasGet.mockResolvedValueOnce(new Response('{}', { status: 502 }))
+    expect((await POST(request(received()))).status).toBe(500)
+    expect(await status(row.id)).toBe('pending')
+    // the retry, once Asaas answers, is processed
+    expect((await POST(request(received()))).status).toBe(200)
+    expect(await status(row.id)).toBe('paid')
+  })
+
+  it('logs a 401 once per IP per minute, and answers 429 after 30 rejections per IP per minute', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const bad = (ip: string) => POST(request(received(), { 'asaas-access-token': 'wrong', 'x-real-ip': ip }))
+    for (let i = 0; i < 30; i++) expect((await bad('198.51.100.7')).status).toBe(401)
+    expect(rejectedLogs(warn)).toHaveLength(1)
+    expect((await bad('198.51.100.7')).status).toBe(429)
+    expect(rejectedLogs(warn)).toHaveLength(1)
+    // malformed bodies count as rejections too (no log once over the limit)
+    expect((await POST(request('{not json', { 'x-real-ip': '198.51.100.7' }))).status).toBe(429)
+    expect(rejectedLogs(warn)).toHaveLength(1)
+    // another IP has its own budget and its own first log
+    expect((await bad('198.51.100.8')).status).toBe(401)
+    expect(rejectedLogs(warn)).toHaveLength(2)
+    // a valid delivery from the limited IP is still processed (only rejections are limited)
+    const { row } = await pendingPayment()
+    expect((await POST(request(received(), { 'x-real-ip': '198.51.100.7' }))).status).toBe(200)
+    expect(await status(row.id)).toBe('paid')
   })
 
   it('200 for an unknown payment (ignored)', async () => {

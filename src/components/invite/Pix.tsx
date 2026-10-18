@@ -10,7 +10,8 @@ import {
 } from '@/features/pix/actions'
 import { isValidCpf } from '@/features/pix/cpf'
 import { formatCents, parseReais } from '@/features/pix/format'
-import { looksLikeThousands, maskCpf, maskReais, qrImageSrc } from '@/features/pix/input'
+import { looksLikeThousands, maskCpf, normalizeReaisInput, qrImageSrc } from '@/features/pix/input'
+import { PIX_MAX_CENTS, PIX_MIN_CENTS } from '@/features/pix/limits'
 import type { PixView } from '@/features/pix/service'
 import { useGiftChoice } from './GiftChoice'
 import { Reveal, RevealItem } from './Reveal'
@@ -21,8 +22,6 @@ import './pix.css'
 // payment as paid (status polled every 5 s for up to 30 min while the QR is open). The payer CPF lives
 // only in this form's state, goes only to the action, and is cleared after a successful generation.
 
-const MIN_CENTS = 7000
-const MAX_CENTS = 1_000_000
 const VALUES = [7000, 10000, 15000, 20000, 30000]
 const DEFAULT_PICK = 10000
 const POLL_EVERY_MS = 5_000
@@ -32,7 +31,7 @@ const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-
 
 const MIN_MESSAGE = 'O valor mínimo para presentear via Pix é de R$ 70,00.'
 const MAX_MESSAGE = 'O valor máximo é R$ 10.000,00.'
-const THOUSANDS_HINT = 'Use vírgula para centavos (ex.: 70,50).'
+const THOUSANDS_HINT = 'Digite sem ponto (ex.: 1000,00).'
 const CPF_MESSAGE = 'CPF inválido. Confira os números.'
 const EXPIRED_MESSAGE = 'Este Pix expirou. Gere um novo.'
 const DEFAULT_THANKS = 'Seu carinho chegou. Obrigada por fazer parte desse dia!'
@@ -117,17 +116,17 @@ export function Pix({
   const codeRef = useRef<HTMLInputElement>(null)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  // "1.000" reads like thousands: ask for a comma before cents instead of guessing (never R$ 1,00)
+  // "1.000" (dots only) is ambiguous: ask to type it without dots instead of guessing (never R$ 1,00)
   const thousandsHint = custom && looksLikeThousands(raw)
   const customCents = thousandsHint ? null : parseReais(raw)
   const cents = custom ? customCents : pick
-  const valid = cents !== null && cents >= MIN_CENTS && cents <= MAX_CENTS
+  const valid = cents !== null && cents >= PIX_MIN_CENTS && cents <= PIX_MAX_CENTS
   const amountError = !custom
     ? null
     : thousandsHint
       ? THOUSANDS_HINT
       : touched && !valid
-        ? cents !== null && cents > MAX_CENTS
+        ? cents !== null && cents > PIX_MAX_CENTS
           ? MAX_MESSAGE
           : MIN_MESSAGE
         : null
@@ -399,7 +398,7 @@ export function Pix({
                       value={raw}
                       onChange={(e) => {
                         const typed = e.target.value
-                        setRaw(looksLikeThousands(typed) ? typed.replace(/[^\d.,]/g, '').slice(0, 12) : maskReais(typed))
+                        setRaw(normalizeReaisInput(typed))
                         setError(null)
                       }}
                       onBlur={() => {

@@ -1,7 +1,8 @@
 import { logger } from '@/lib/logger'
 
 /**
- * Runs once a guest's Pix turns `paid` (called by the Asaas webhook after its transaction commits).
+ * Runs once a guest's Pix turns `paid`: called by whichever path made the transition (the Asaas webhook
+ * after its transaction commits, or the status poll fallback), never by both.
  * Best effort: the caller catches and logs failures; a payment is never rolled back because of this.
  */
 export async function afterPixPaid(guestId: string): Promise<void> {

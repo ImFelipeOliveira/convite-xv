@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { db } from '@/server/db/client'
 import { guests, pixPayments, settings, webhookEvents, type PixPayment, type PixStatus } from '@/server/db/schema'
 
@@ -175,7 +175,8 @@ export async function findGuestPixState(
 }
 
 /**
- * Records a webhook event (pk = Asaas event id). False when it was already recorded (a redelivery).
+ * Records a webhook event (pk = Asaas event id). False when it was already processed (a redelivery); an
+ * event recorded but never processed (`processed_at` null, e.g. an unknown payment) is taken again.
  * Inside the caller's transaction, a concurrent delivery of the same event waits for it to commit.
  */
 export async function insertWebhookEvent(
@@ -185,9 +186,22 @@ export async function insertWebhookEvent(
   const rows = await q
     .insert(webhookEvents)
     .values({ id: input.id, type: input.type, paymentId: input.paymentId, receivedAt: input.now })
-    .onConflictDoNothing()
+    .onConflictDoUpdate({
+      target: webhookEvents.id,
+      set: { receivedAt: input.now },
+      setWhere: isNull(webhookEvents.processedAt),
+    })
     .returning({ id: webhookEvents.id })
   return rows.length > 0
+}
+
+/** True once the event was processed (a redelivery needs no work, nor a call to Asaas). */
+export async function isWebhookEventProcessed(id: string, q: Executor = db): Promise<boolean> {
+  const [row] = await q
+    .select({ id: webhookEvents.id })
+    .from(webhookEvents)
+    .where(and(eq(webhookEvents.id, id), isNotNull(webhookEvents.processedAt)))
+  return !!row
 }
 
 export async function markWebhookEventProcessed(id: string, now: Date, q: Executor = db): Promise<void> {
@@ -196,20 +210,24 @@ export async function markWebhookEventProcessed(id: string, now: Date, q: Execut
 
 /**
  * The payment a webhook refers to: by Asaas payment id, else by `externalReference` (our id) for a row
- * that has no Asaas id stored.
+ * that has no Asaas id stored. `lock` = `SELECT … FOR UPDATE` (inside a transaction: concurrent events
+ * for the same payment apply one after the other).
  */
 export async function findPaymentForWebhook(
   asaasPaymentId: string,
   externalReference: string | null,
   q: Executor = db,
+  { lock = false }: { lock?: boolean } = {},
 ): Promise<PixPayment | null> {
-  const [byAsaas] = await q.select().from(pixPayments).where(eq(pixPayments.asaasPaymentId, asaasPaymentId))
+  const byAsaasQuery = q.select().from(pixPayments).where(eq(pixPayments.asaasPaymentId, asaasPaymentId))
+  const [byAsaas] = lock ? await byAsaasQuery.for('update') : await byAsaasQuery
   if (byAsaas) return byAsaas
   if (!externalReference || !UUID.test(externalReference)) return null
-  const [byRef] = await q
+  const byRefQuery = q
     .select()
     .from(pixPayments)
     .where(and(eq(pixPayments.id, externalReference), isNull(pixPayments.asaasPaymentId)))
+  const [byRef] = lock ? await byRefQuery.for('update') : await byRefQuery
   return byRef ?? null
 }
 

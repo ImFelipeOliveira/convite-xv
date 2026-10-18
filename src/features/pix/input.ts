@@ -22,11 +22,23 @@ export function maskReais(value: string): string {
 }
 
 /**
- * True when the typed amount reads like a thousands separator ('1.000', '10.000,00', or '1,000' once a
- * typed "." became ","): the form asks for a comma before cents instead of guessing (never R$ 1,00).
+ * True for a dot-only amount that reads like a thousands separator ('1.000', '10.000'): ambiguous, so the
+ * form asks to type it without dots instead of guessing (never R$ 1,00). A full pt-BR amount with a comma
+ * after the dots ('1.000,00') is not ambiguous: normalizeReaisInput strips its dots.
  */
 export function looksLikeThousands(value: string): boolean {
-  return /^\d{1,3}\.\d{3}/.test(value) || /^\d{1,3},\d{3}/.test(value)
+  return /^\d{1,3}\.\d{3}/.test(value) && !value.includes(',')
+}
+
+/**
+ * The "Outro valor" field as the guest types: '1.000,00' (dots before a comma: pt-BR thousands) → '1000,00';
+ * a dot-only thousands amount ('1.000') is kept as typed (the form shows a hint); anything else → maskReais.
+ */
+export function normalizeReaisInput(typed: string): string {
+  const cleaned = typed.replace(/[^\d.,]/g, '')
+  if (/\.[^,]*,/.test(cleaned)) return maskReais(cleaned.replace(/\./g, ''))
+  if (looksLikeThousands(cleaned)) return cleaned.slice(0, 12)
+  return maskReais(typed)
 }
 
 const PNG_DATA_URL = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/

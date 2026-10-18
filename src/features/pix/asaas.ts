@@ -18,6 +18,7 @@ async function call(
   path: string,
   payload: unknown,
   fetchImpl: FetchImpl,
+  timeoutMs: number = TIMEOUT_MS,
 ): Promise<AsaasResult<unknown>> {
   let raw: Raw
   try {
@@ -29,7 +30,7 @@ async function call(
         'content-type': 'application/json',
       },
       body: payload === undefined ? undefined : JSON.stringify(payload),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     const text = await res.text().catch(() => '')
     let body: unknown = undefined
@@ -134,16 +135,26 @@ export async function getPixQrCode(
   return { ok: true, value: { encodedImage, payload, expirationDate: str(r.value, 'expirationDate') } }
 }
 
+/** Reais (a JSON number, e.g. 100.5) → integer cents; anything else → null. */
+function cents(body: unknown, key: string): number | null {
+  const v = (body as Record<string, unknown>)[key]
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v * 100) : null
+}
+
+/** A payment's status (mapped to ours) and value in cents (null when Asaas sent none). */
 export async function getPayment(
   cfg: AsaasConfig | null,
   paymentId: string,
   fetchImpl: FetchImpl = fetch,
-): Promise<AsaasResult<{ status: PixStatus }>> {
+  opts: { timeoutMs?: number } = {},
+): Promise<AsaasResult<{ status: PixStatus; valueCents: number | null }>> {
   if (!cfg) return fail('not_configured')
-  const r = await call(cfg, 'GET', paymentPath(paymentId), undefined, fetchImpl)
+  const r = await call(cfg, 'GET', paymentPath(paymentId), undefined, fetchImpl, opts.timeoutMs)
   if (!r.ok) return r
   const status = str(r.value, 'status')
-  return status ? { ok: true, value: { status: mapAsaasStatus(status) } } : fail('provider_error')
+  return status
+    ? { ok: true, value: { status: mapAsaasStatus(status), valueCents: cents(r.value, 'value') } }
+    : fail('provider_error')
 }
 
 /** Removes a charge (used when we could not complete it on our side, so no orphan stays payable). */

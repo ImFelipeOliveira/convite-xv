@@ -158,15 +158,20 @@ test('"Outro valor" below R$ 70 shows the minimum and never calls Asaas', async 
   await expect(input).toHaveAttribute('aria-invalid', 'true')
   expect(await fakeAsaasCalls()).toEqual([])
 
-  // "1.000" looks like a thousands separator: hint first, never read as R$ 1,00
+  // "1.000" (dots only) looks like a thousands separator: hint first, never read as R$ 1,00
   await input.fill('1.000')
   await expect(input).toHaveValue('1.000')
-  await expect(section.getByText('Use vírgula para centavos (ex.: 70,50).')).toBeVisible()
+  await expect(section.getByText('Digite sem ponto (ex.: 1000,00).')).toBeVisible()
   await section.getByRole('button', { name: 'Gerar Pix' }).click()
   await expect(input).toBeFocused()
   expect(await fakeAsaasCalls()).toEqual([])
   await input.fill('1000')
-  await expect(section.getByText('Use vírgula para centavos (ex.: 70,50).')).toHaveCount(0)
+  await expect(section.getByText('Digite sem ponto (ex.: 1000,00).')).toHaveCount(0)
+  await expect(section.getByTestId('pix-amount')).toHaveText('R$ 1.000,00')
+  // a full pt-BR amount ("1.000,00") is valid: the dots are thousands separators
+  await input.fill('1.000,00')
+  await expect(input).toHaveValue('1000,00')
+  await expect(section.getByText('Digite sem ponto (ex.: 1000,00).')).toHaveCount(0)
   await expect(section.getByTestId('pix-amount')).toHaveText('R$ 1.000,00')
   await input.fill('100.50')
   await expect(input).toHaveValue('100,50')

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseReais } from '../format'
-import { looksLikeThousands, maskCpf, maskReais, qrImageSrc } from '../input'
+import { looksLikeThousands, maskCpf, maskReais, normalizeReaisInput, qrImageSrc } from '../input'
 
 describe('maskReais', () => {
   it('treats a typed "." as the decimal separator', () => {
@@ -23,17 +23,36 @@ describe('maskReais', () => {
 })
 
 describe('looksLikeThousands', () => {
-  it('flags a "." (or a 3-digit ",") after 1–3 digits: a thousands separator, not cents', () => {
+  it('flags a dot-only thousands separator ("1.000"): ambiguous, so the form asks to type without dots', () => {
     expect(looksLikeThousands('1.000')).toBe(true)
     expect(looksLikeThousands('10.000')).toBe(true)
-    expect(looksLikeThousands('1.000,00')).toBe(true)
-    expect(looksLikeThousands('1,000')).toBe(true)
+    expect(looksLikeThousands('1.000.000')).toBe(true)
   })
 
-  it('leaves decimals and plain amounts alone', () => {
-    for (const v of ['70.5', '100.50', '1000', '1000,00', '1250,5', '70,50', '', '1.00']) {
+  it('leaves decimals, plain amounts and full pt-BR amounts ("1.000,00") alone', () => {
+    for (const v of ['70.5', '100.50', '1000', '1000,00', '1250,5', '70,50', '', '1.00', '1.000,00', '10.000,5', '1,000']) {
       expect(looksLikeThousands(v)).toBe(false)
     }
+  })
+})
+
+describe('normalizeReaisInput', () => {
+  it('reads "1.000,00" (dots before a comma) as pt-BR thousands: strips the dots', () => {
+    expect(normalizeReaisInput('1.000,00')).toBe('1000,00')
+    expect(normalizeReaisInput('1.000,')).toBe('1000,')
+    expect(normalizeReaisInput('R$ 2.500,5')).toBe('2500,5')
+    expect(parseReais(normalizeReaisInput('1.000,00'))).toBe(100000)
+  })
+
+  it('keeps a dot-only thousands amount as typed (the form shows the hint)', () => {
+    expect(normalizeReaisInput('1.000')).toBe('1.000')
+    expect(normalizeReaisInput('R$ 10.000')).toBe('10.000')
+  })
+
+  it('otherwise masks like maskReais (a typed "." is the decimal separator)', () => {
+    expect(normalizeReaisInput('70.5')).toBe('70,5')
+    expect(normalizeReaisInput('1250')).toBe('1250')
+    expect(normalizeReaisInput('12,345')).toBe('12,34')
   })
 })
 

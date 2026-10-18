@@ -29,7 +29,7 @@ function stubAsaas(opts: { failPayments?: boolean; status?: string } = {}) {
     if (key === 'POST /payments') return opts.failPayments ? json({}, 500) : json({ id: `pay_${++n}` })
     if (key === 'GET /payments/:id/pixQrCode')
       return json({ encodedImage: 'iVBORw0KGgo=', payload: '00020126abc', expirationDate: '2099-01-01 23:59:59' })
-    if (key === 'GET /payments/:id') return json({ status: opts.status ?? 'PENDING' })
+    if (key === 'GET /payments/:id') return json({ status: opts.status ?? 'PENDING', value: 70 })
     return json({}, 404)
   })
   vi.stubGlobal('fetch', fn)
