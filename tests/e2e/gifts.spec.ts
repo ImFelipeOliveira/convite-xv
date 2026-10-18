@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { deleteGiftsByName, deleteGuestsByName, insertGuestWithToken, seedGifts } from './db'
+import { deleteGiftsByName, deleteGuestsByName, insertGuestWithToken, reserveGiftForE2eGuest, resetE2eGuestRsvp, seedGifts, setE2eGuestRsvp } from './db'
 import { E2E_GUEST_TOKEN } from './fixtures'
 
 // The invite's gift list (prancha 08). The webServer runs with FEATURES=gifts,pix (playwright.config.ts).
@@ -28,6 +28,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
+  await resetE2eGuestRsvp()
   await deleteGiftsByName(NAMES)
   await deleteGuestsByName([OTHER_GUEST])
 })
@@ -193,3 +194,44 @@ test('hides the section when the catalog is empty', async ({ page }) => {
   await expect(page.locator('#gifts')).toHaveCount(0)
 })
 
+test.describe('after confirming presence', () => {
+  test.beforeEach(() => resetE2eGuestRsvp())
+
+  test('the RSVP screen points to the list, then thanks for the chosen gift', async ({ page }) => {
+    const gifts = await openGifts(page)
+    const rsvp = page.locator('#rsvp')
+    await rsvp.scrollIntoViewIfNeeded()
+    await rsvp.getByText('Vou com certeza').click()
+    await rsvp.getByRole('button', { name: 'Confirmar presença' }).click()
+    await expect(rsvp.getByRole('heading', { name: 'Presença confirmada.' })).toBeVisible()
+
+    const cta = rsvp.getByRole('link', { name: 'Ver lista de presentes' })
+    await expect(cta).toBeVisible()
+    await expect(cta).toHaveAttribute('href', '#gifts')
+    await expect(rsvp.getByText('Se quiser presentear, escolha algo da lista — assim ninguém repete.')).toBeVisible()
+    await cta.click()
+    await expect(page).toHaveURL(/#gifts$/)
+
+    await gifts.getByRole('button', { name: `Reservar ${BAG}` }).click()
+    await page.getByRole('dialog', { name: BAG }).getByRole('button', { name: 'Confirmar reserva' }).click()
+    await expect(tag(page, BAG).getByText('Reservado por você')).toBeVisible()
+    await expect(rsvp.getByText('Obrigada pelo presente!')).toBeVisible()
+    await expect(rsvp.getByText(`Você escolheu: ${BAG}`)).toBeVisible()
+    await expect(cta).toHaveCount(0)
+
+    await gifts.getByRole('button', { name: `Desfazer reserva de ${BAG}` }).click()
+    await expect(gifts.getByRole('button', { name: `Reservar ${BAG}` })).toBeVisible()
+    await expect(cta).toBeVisible()
+    await expect(rsvp.getByText('Obrigada pelo presente!')).toHaveCount(0)
+  })
+  test('a returning guest with gifts sees the thanks on load', async ({ page }) => {
+    await setE2eGuestRsvp('yes')
+    await reserveGiftForE2eGuest(PERFUME)
+    await reserveGiftForE2eGuest(SKINCARE)
+    await openGifts(page)
+    const rsvp = page.locator('#rsvp')
+    await expect(rsvp.getByText('Obrigada pelo presente!')).toBeVisible()
+    await expect(rsvp.getByText(`Você escolheu: ${SKINCARE} e mais 1`)).toBeVisible()
+    await expect(rsvp.getByRole('link', { name: 'Ver lista de presentes' })).toHaveCount(0)
+  })
+})

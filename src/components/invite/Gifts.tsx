@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from 'react'
 import { releaseGiftAction, reserveGiftAction, type GiftActionResult } from '@/features/gifts/actions'
-import type { GiftView } from '@/features/gifts/view'
+import { chosenGiftNames, type GiftView } from '@/features/gifts/view'
+import { useGiftChoice } from './GiftChoice'
 import { GiftTag } from './GiftTag'
 import { Reveal, RevealItem } from './Reveal'
 import './gifts.css'
@@ -56,7 +57,8 @@ export function Gifts({
   initialGifts: GiftView[]
   pixEnabled: boolean
 }) {
-  const [gifts, setGifts] = useState(initialGifts)
+  const [gifts, setGiftsState] = useState(initialGifts)
+  const choice = useGiftChoice()
   const [filter, setFilter] = useState(ALL)
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [closing, setClosing] = useState(false)
@@ -66,6 +68,12 @@ export function Gifts({
   const dialogRef = useRef<HTMLDialogElement>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const focusAfterClose = useRef<string | null>(null)
+
+  /** new list from the server; the RSVP screen follows the guest's reservations */
+  function setGifts(list: GiftView[]) {
+    setGiftsState(list)
+    choice?.setChosenNames(chosenGiftNames(list))
+  }
 
   const categories = categoriesOf(gifts)
   const activeFilter = filter === ALL || categories.includes(filter) ? filter : ALL

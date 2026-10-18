@@ -22,3 +22,14 @@ export function toGiftViews(rows: Gift[], guestId: string): GiftView[] {
     state: g.guestId === null ? 'free' : g.guestId === guestId ? 'mine' : 'taken',
   }))
 }
+
+/** Names of the gifts this guest reserved, in list order. */
+export function chosenGiftNames(views: GiftView[]): string[] {
+  return views.filter((g) => g.state === 'mine').map((g) => g.name)
+}
+
+/** "Perfume floral", "Perfume floral e mais 2", or null without gifts. */
+export function chosenGiftsLabel(names: string[]): string | null {
+  if (names.length === 0) return null
+  return names.length === 1 ? names[0] : `${names[0]} e mais ${names.length - 1}`
+}
