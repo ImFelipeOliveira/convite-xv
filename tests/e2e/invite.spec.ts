@@ -40,8 +40,8 @@ test.describe('closing shortcuts', () => {
   test('closing shows the RSVP, venue, gifts and Pix shortcuts (flags on, catalog not empty)', async ({ page }) => {
     // playwright.config.ts runs the server with FEATURES=gifts,pix; flags off is covered by the Closing unit test
     await seedGifts([{ name: GIFT, category: 'Casa' }])
+    // a returning visitor (localStorage) skips the opening letter
     await page.reload()
-    await page.getByRole('button', { name: 'Entrar sem animação' }).click()
     const shortcuts = page.getByRole('navigation', { name: 'Atalhos do convite' })
     await expect(shortcuts.getByRole('link', { name: 'Presença' })).toBeVisible()
     await expect(shortcuts.getByRole('link', { name: 'Local' })).toBeVisible()
