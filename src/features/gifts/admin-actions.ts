@@ -4,15 +4,18 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireAdmin } from '@/features/admin-auth/guard'
 import { logger } from '@/lib/logger'
-import { adminReleaseGift, createGift, deleteGift, updateGift } from './repo'
+import { isGiftImageKey } from '@/features/media/keys'
+import { getStorage } from '@/features/media/storage'
+import { adminReleaseGift, createGift, deleteGift, findGiftImageKey, updateGift } from './repo'
 import { giftFormSchema } from './schema'
 
 const GIFTS_PATH = '/admin/gifts'
 const SUMMARY_PATH = '/admin'
 const NOT_FOUND = 'Presente não encontrado.'
 
-export type GiftField = 'name' | 'category' | 'price' | 'purchaseUrl' | 'imageUrl' | 'sortOrder'
-const FIELDS: GiftField[] = ['name', 'category', 'price', 'purchaseUrl', 'imageUrl', 'sortOrder']
+export type GiftField = 'name' | 'category' | 'price' | 'purchaseUrl' | 'imageUrl' | 'imageKey' | 'sortOrder'
+const FIELDS: GiftField[] = ['name', 'category', 'price', 'purchaseUrl', 'imageUrl', 'imageKey', 'sortOrder']
+const IMAGE_ERROR = 'Não foi possível enviar a foto. Tente de novo.'
 
 export type GiftFormState =
   | { ok: true; message: string }
@@ -30,6 +33,16 @@ function text(formData: FormData, name: string): string {
 }
 
 const idSchema = z.uuid()
+
+/** Best effort: a leftover object only costs storage, so a failure is logged (key only) and ignored. */
+async function deleteImage(key: string, adminId: string) {
+  try {
+    await getStorage().delete(key)
+    logger.info({ event: 'admin.gift_image_deleted', adminId, key }, 'gift image deleted')
+  } catch (err) {
+    logger.warn({ event: 'admin.gift_image_delete_failed', adminId, key, err }, 'gift image delete failed')
+  }
+}
 
 function revalidate() {
   revalidatePath(GIFTS_PATH)
@@ -52,9 +65,16 @@ export async function saveGiftAction(_prev: GiftFormState, formData: FormData): 
     return { ok: false, fieldErrors, values }
   }
 
-  const gift = id ? await updateGift(id, parsed.data) : await createGift(parsed.data)
+  // an uploaded photo (POST /admin/api/gift-image) arrives as its key; only our own key shape is accepted
+  const imageKey = values.imageKey.trim() || null
+  if (imageKey && !isGiftImageKey(imageKey)) return { ok: false, error: IMAGE_ERROR, values }
+
+  const previousKey = id ? await findGiftImageKey(id) : null
+  const data = { ...parsed.data, imageKey }
+  const gift = id ? await updateGift(id, data) : await createGift(data)
   if (!gift) return { ok: false, error: NOT_FOUND, values }
   logger.info({ event: 'admin.gift_saved', giftId: gift.id, adminId }, 'gift saved')
+  if (previousKey && previousKey !== imageKey) await deleteImage(previousKey, adminId)
   revalidate()
   return { ok: true, message: 'Presente salvo.' }
 }
@@ -66,8 +86,10 @@ export async function deleteGiftAction(id: string): Promise<GiftChangeResult> {
   const { adminId } = await requireAdmin()
   if (!idSchema.safeParse(id).success) return { ok: false }
   // idempotent: a gift already deleted elsewhere is gone either way
-  const changed = !!(await deleteGift(id))
+  const deleted = await deleteGift(id)
+  const changed = !!deleted
   if (changed) logger.info({ event: 'admin.gift_deleted', giftId: id, adminId }, 'gift deleted')
+  if (deleted?.imageKey) await deleteImage(deleted.imageKey, adminId)
   revalidate()
   return { ok: true, changed }
 }

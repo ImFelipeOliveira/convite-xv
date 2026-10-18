@@ -46,6 +46,8 @@ Não rode `pnpm test` e `pnpm test:e2e` ao mesmo tempo: ambos usam o banco `conv
 | `EVOLUTION_API_KEY` | para WhatsApp | Mesma chave definida em `AUTHENTICATION_API_KEY` na Evolution. Segredo, nunca versionar. |
 | `EVOLUTION_INSTANCE` | para WhatsApp | Nome da instância (`convite-xv`). |
 | `DISPATCHER_ENABLED` | não | Dispatcher dos lembretes automáticos; ligado por padrão, `false` desliga (usado nos testes e2e). |
+| `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_ENDPOINT` | só em produção | Bucket das fotos dos presentes (Railway bucket `fotos`, via referências). Com as cinco definidas, as fotos vão para o bucket; sem elas, ficam em `.data/media/` (dev/testes, fora do git). Segredos, nunca versionar nem logar. |
+| `MEDIA_DIR` | não | Pasta das fotos sem S3 (padrão `.data/media`). |
 
 ## WhatsApp (Evolution API)
 
@@ -120,6 +122,7 @@ Cada ambiente (`staging`, `production`) tem dois serviços: **Postgres** e **web
 - `DATABASE_URL`: referência ao Postgres do mesmo ambiente.
 - `AUTH_SECRET`, `APP_URL`, `LOG_LEVEL`, `FEATURES`: variáveis do serviço `web`.
 - **Build arg `APP_URL`**: o Next lê `APP_URL` durante o `next build` (metadados da prévia do convite), e o Railway repassa as variáveis do serviço como build args. Ela precisa estar definida no serviço e ser igual à usada em runtime; ao mudar o domínio, faça um novo deploy.
+- Fotos dos presentes: o admin envia a foto em **Painel > Presentes** (`POST /admin/api/gift-image`, até 8 MB; JPG, PNG, WEBP ou AVIF). O servidor gira pela orientação EXIF, remove metadados (inclusive GPS), reduz para caber em 1200×1200 e grava WEBP como `gifts/<uuid>.webp` no bucket. O bucket do Railway é privado: as fotos são servidas pelo app em `GET /media/gifts/<uuid>.webp` (cache imutável de 1 ano; cada foto nova ganha uma chave nova). Trocar ou remover a foto, ou excluir o presente, apaga o objeto antigo. Fotos enviadas e não salvas (formulário cancelado) ficam órfãs no bucket.
 - Health check: `GET /api/health` → `200 {"ok":true}` (executa `SELECT 1`).
 - Start: a imagem roda `node scripts/migrate.js && node server.js`, ou seja, migra o banco a cada start.
 - Rate limit por IP lê `X-Real-IP` (definido pelo edge do Railway) e, na falta dele, a entrada mais à direita do `X-Forwarded-For`. Se colocar outro proxy/CDN na frente, ajuste `getClientIp`.

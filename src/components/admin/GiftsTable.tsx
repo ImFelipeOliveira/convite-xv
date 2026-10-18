@@ -23,7 +23,12 @@ export type GiftRow = {
   category: string
   priceCents: number | null
   purchaseUrl: string | null
+  /** pasted https link (edited in the form) */
   imageUrl: string | null
+  /** uploaded photo key (edited in the form) */
+  imageKey: string | null
+  /** what to show: the uploaded photo, else the link */
+  imageSrc: string | null
   sortOrder: number
   status: AdminGiftStatus
   /** admin-visible by design; null when free */
@@ -172,7 +177,7 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
           meta: { searchable: true, card: 'primary' },
           cell: ({ row }) => (
             <div className="flex items-center gap-3">
-              <Thumbnail url={row.original.imageUrl} />
+              <Thumbnail url={row.original.imageSrc} />
               <div className="flex min-w-0 flex-col">
                 <span className="font-medium text-wine max-sm:text-[17px]">{row.original.name}</span>
                 <span className="text-[13px] text-muted">{row.original.category}</span>
@@ -350,6 +355,7 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
                     price: priceInputValue(sheet.gift.priceCents),
                     purchaseUrl: sheet.gift.purchaseUrl ?? '',
                     imageUrl: sheet.gift.imageUrl ?? '',
+                    imageKey: sheet.gift.imageKey ?? '',
                     sortOrder: sheet.gift.sortOrder,
                   }
                 : undefined

@@ -1,3 +1,4 @@
+import { mediaUrl } from '@/features/media/keys'
 import type { Gift } from '@/server/db/schema'
 
 /** What a guest may see about a gift: never who reserved it. */
@@ -6,9 +7,16 @@ export type GiftView = {
   name: string
   category: string
   priceCents: number | null
-  imageUrl: string | null
+  /** uploaded photo (/media/...), else the https link, else null */
+  imageSrc: string | null
   purchaseUrl: string | null
   state: 'free' | 'mine' | 'taken'
+}
+
+/** The uploaded photo wins over a pasted link. */
+export function giftImageSrc(g: Pick<Gift, 'imageKey' | 'imageUrl'>): string | null {
+  if (g.imageKey) return mediaUrl(g.imageKey)
+  return g.imageUrl
 }
 
 export function toGiftViews(rows: Gift[], guestId: string): GiftView[] {
@@ -17,7 +25,7 @@ export function toGiftViews(rows: Gift[], guestId: string): GiftView[] {
     name: g.name,
     category: g.category,
     priceCents: g.priceCents,
-    imageUrl: g.imageUrl,
+    imageSrc: giftImageSrc(g),
     purchaseUrl: g.purchaseUrl,
     state: g.guestId === null ? 'free' : g.guestId === guestId ? 'mine' : 'taken',
   }))

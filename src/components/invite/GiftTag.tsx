@@ -40,10 +40,10 @@ export function GiftTag({
   onReserve: (gift: GiftView) => void
   onUndo: (gift: GiftView) => void
 }) {
-  const { failed: imageFailed, imgRef, onError: onImageError } = useImageFailed(gift.imageUrl)
+  const { failed: imageFailed, imgRef, onError: onImageError } = useImageFailed(gift.imageSrc)
   const s = STYLE[gift.state]
   const mine = gift.state === 'mine'
-  const showImage = gift.imageUrl && !imageFailed
+  const showImage = gift.imageSrc && !imageFailed
   const showStore = gift.purchaseUrl && gift.state !== 'taken'
 
   return (
@@ -76,10 +76,10 @@ export function GiftTag({
 
       {showImage && (
         <span className="relative h-14 w-14 flex-none overflow-hidden rounded-[2px] bg-blush">
-          {/* plain <img>: admin-provided https URLs, no next/image remote config */}
+          {/* plain <img>: our /media/ photos or admin-provided https URLs, no next/image remote config */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={gift.imageUrl!}
+            src={gift.imageSrc!}
             alt=""
             loading="lazy"
             referrerPolicy="no-referrer"

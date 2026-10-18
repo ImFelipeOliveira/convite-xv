@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import sharp from 'sharp'
 import {
   countGifts,
   deleteGiftsByName,
@@ -8,7 +9,7 @@ import {
   seedGifts,
   setE2eGuestRsvp,
 } from './db'
-import { ADMIN_STORAGE_STATE, E2E_GUEST_NAME } from './fixtures'
+import { ADMIN_STORAGE_STATE, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
 // signed in through the saved admin session (auth.setup.ts); the gate test opts out of it
@@ -19,11 +20,19 @@ const GIFT_EDITED = 'Fone sem fio Bluetooth'
 const ORDERED = ['Ordem Zeta', 'Ordem Alfa', 'Ordem Beta', 'Ordem Gama']
 const STALE = 'Presente Desatualizado'
 const BROKEN_IMAGE = 'Presente Foto Quebrada'
-const OWN_GIFTS = [GIFT, GIFT_EDITED, ...ORDERED, STALE, BROKEN_IMAGE]
+const UPLOADED = 'Presente Com Foto Enviada'
+const OWN_GIFTS = [GIFT, GIFT_EDITED, ...ORDERED, STALE, BROKEN_IMAGE, UPLOADED]
+const MEDIA_SRC = /^\/media\/gifts\/[0-9a-f-]{36}\.webp$/
 const AMAZON = 'https://www.amazon.com.br/dp/B0EXEMPLO1'
 const IMAGE = 'https://m.media-amazon.com/images/I/exemplo.jpg'
 
 const rowOf = (page: Page, name: string) => page.getByRole('row').filter({ hasText: name })
+/** The image finished loading with real pixels (not a broken /media/ response). */
+async function expectLoaded(img: Locator) {
+  await expect(img).toBeVisible()
+  await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(0)
+}
+
 const toast = (page: Page) => page.getByRole('status', { name: 'Notificações' })
 
 test.describe('admin gifts', () => {
@@ -65,8 +74,10 @@ test.describe('admin gifts', () => {
     await expect(form.getByText('Use um link que comece com https://')).toBeVisible()
 
     await form.getByLabel('Link de compra sugerido').fill(AMAZON)
-    // live photo preview
-    await form.getByLabel('Foto').fill(IMAGE)
+    // live preview of a pasted photo link (a secondary, collapsed option next to the upload)
+    await expect(form.getByLabel('Link da imagem')).toBeHidden()
+    await form.getByText('Ou cole um link de imagem').click()
+    await form.getByLabel('Link da imagem').fill(IMAGE)
     const preview = form.locator('img')
     await expect(preview).toHaveAttribute('src', IMAGE)
     await expect(preview).toHaveAttribute('referrerpolicy', 'no-referrer')
@@ -208,6 +219,85 @@ test.describe('admin gifts', () => {
     await expect(row.getByTestId('thumbnail-placeholder')).toBeVisible()
     await expect(row.locator('img')).toHaveCount(0)
     await deleteGiftsByName([BROKEN_IMAGE])
+  })
+
+  test('uploads a photo: preview, admin thumbnail and invite tag; removing it shows the placeholder', async ({
+    page,
+  }) => {
+    const png = await sharp({ create: { width: 1600, height: 1200, channels: 3, background: '#c25578' } })
+      .png()
+      .toBuffer()
+    await page.goto('/admin/gifts')
+    await page.getByRole('button', { name: 'Adicionar presente' }).first().click()
+    const form = page.getByRole('form', { name: 'Novo presente' })
+    await form.getByLabel('Nome').fill(UPLOADED)
+    await form.getByLabel('Categoria').fill('Diversos')
+    const photo = form.getByRole('group', { name: 'Foto do presente' })
+    await expect(photo.getByRole('button', { name: 'Escolher foto' })).toBeVisible()
+    await expect(photo.getByText('JPG, PNG ou WEBP, até 8 MB.')).toBeVisible()
+
+    // a dropped file that is not an image is rejected in pt-BR (drag-and-drop on desktop)
+    const dropped = await page.evaluateHandle(() => {
+      const dt = new DataTransfer()
+      dt.items.add(new File(['isto não é uma foto'], 'foto.jpg', { type: 'image/jpeg' }))
+      return dt
+    })
+    await photo.getByRole('button', { name: 'Escolher foto' }).dispatchEvent('drop', { dataTransfer: dropped })
+    await expect(photo.getByRole('alert')).toHaveText('Formato não suportado. Use JPG, PNG ou WEBP.')
+
+    // picked through the file input
+    await form.getByTestId('gift-photo-input').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: png })
+    const preview = photo.getByRole('img', { name: 'Prévia da foto' })
+    await expect(preview).toHaveAttribute('src', MEDIA_SRC)
+    await expectLoaded(preview)
+    await expect(photo.getByRole('alert')).toHaveText('')
+    await expect(photo.getByRole('button', { name: 'Trocar foto' })).toBeFocused()
+    const src = (await preview.getAttribute('src'))!
+    const served = await page.request.get(src)
+    expect(served.headers()['content-type']).toBe('image/webp')
+    expect(served.headers()['cache-control']).toBe('public, max-age=31536000, immutable')
+
+    await form.getByRole('button', { name: 'Salvar' }).click()
+    await expect(toast(page)).toContainText('Presente salvo.')
+    await expect(form).toBeHidden()
+    const row = rowOf(page, UPLOADED)
+    await expect(row.locator('img')).toHaveAttribute('src', src)
+    await expectLoaded(row.locator('img'))
+
+    // the invite shows it on the gift tag
+    const invite = await page.context().newPage()
+    await invite.goto(`/c/${E2E_GUEST_TOKEN}`)
+    await invite.getByRole('button', { name: 'Entrar sem animação' }).click()
+    const giftTag = invite.locator('#gifts li').filter({ hasText: UPLOADED })
+    await giftTag.scrollIntoViewIfNeeded()
+    await expect(giftTag.locator('img')).toHaveAttribute('src', src)
+    await expectLoaded(giftTag.locator('img'))
+    await invite.close()
+
+    // remove the photo: the list falls back to the placeholder and the old object is deleted
+    await row.getByRole('button', { name: 'Editar' }).click()
+    const editForm = page.getByRole('form', { name: 'Editar presente' })
+    const editPhoto = editForm.getByRole('group', { name: 'Foto do presente' })
+    await expectLoaded(editPhoto.getByRole('img', { name: 'Prévia da foto' }))
+    await editPhoto.getByRole('button', { name: 'Remover foto' }).click()
+    await expect(editPhoto.getByRole('button', { name: 'Escolher foto' })).toBeFocused()
+    await editForm.getByRole('button', { name: 'Salvar' }).click()
+    await expect(toast(page)).toContainText('Presente salvo.')
+    await expect(row.getByTestId('thumbnail-placeholder')).toBeVisible()
+    await expect(row.locator('img')).toHaveCount(0)
+    expect((await page.request.get(src)).status()).toBe(404)
+
+    await deleteGiftsByName([UPLOADED])
+  })
+
+  test('the photo upload endpoint is gated without a session', async ({ playwright, baseURL }) => {
+    const request = await playwright.request.newContext({ baseURL, storageState: { cookies: [], origins: [] } })
+    const res = await request.post('/admin/api/gift-image', {
+      multipart: { file: { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('x') } },
+      maxRedirects: 0,
+    })
+    expect(res.status()).toBe(307)
+    expect(res.headers()['location']).toMatch(/\/admin\/login$/)
   })
 
   test('the reserved filter says the reservation counts as confirmed', async ({ page }) => {

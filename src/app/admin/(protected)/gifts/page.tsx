@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { GiftsTable, type GiftRow } from '@/components/admin/GiftsTable'
 import { requireAdmin } from '@/features/admin-auth/guard'
 import { giftStatus } from '@/features/gifts/admin-view'
+import { giftImageSrc } from '@/features/gifts/view'
 import { listGiftsAdmin } from '@/features/gifts/repo'
 
 export const metadata: Metadata = { title: 'Presentes | Painel' }
@@ -17,6 +18,8 @@ export default async function GiftsPage() {
     priceCents: g.priceCents,
     purchaseUrl: g.purchaseUrl,
     imageUrl: g.imageUrl,
+    imageKey: g.imageKey,
+    imageSrc: giftImageSrc(g),
     sortOrder: g.sortOrder,
     status: giftStatus(g),
     reservedByName: g.guestId ? g.reservedByName : null,

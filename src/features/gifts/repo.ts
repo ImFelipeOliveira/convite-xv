@@ -7,6 +7,7 @@ type GiftData = {
   category: string
   priceCents: number | null
   imageUrl: string | null
+  imageKey?: string | null
   purchaseUrl: string | null
   sortOrder?: number
 }
@@ -38,6 +39,12 @@ export async function listGiftsForInvite(): Promise<Gift[]> {
 export async function createGift(d: GiftData): Promise<Gift> {
   const [row] = await db.insert(gifts).values(d).returning()
   return row
+}
+
+/** The stored photo key of a gift (to clean up the old object after a change); null without one. */
+export async function findGiftImageKey(id: string): Promise<string | null> {
+  const [row] = await db.select({ imageKey: gifts.imageKey }).from(gifts).where(eq(gifts.id, id)).limit(1)
+  return row?.imageKey ?? null
 }
 
 export async function updateGift(id: string, d: GiftData): Promise<Gift | null> {

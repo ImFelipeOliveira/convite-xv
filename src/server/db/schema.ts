@@ -125,6 +125,8 @@ export const gifts = pgTable(
     category: text('category').notNull().default('Outros'),
     priceCents: integer('price_cents'),
     imageUrl: text('image_url'),
+    // uploaded photo in object storage (gifts/<uuid>.webp); wins over image_url when both exist
+    imageKey: text('image_key'),
     purchaseUrl: text('purchase_url'),
     sortOrder: integer('sort_order').notNull().default(0),
     guestId: uuid('guest_id').references(() => guests.id, { onDelete: 'set null' }),

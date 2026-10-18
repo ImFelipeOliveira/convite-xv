@@ -1,0 +1,50 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getStorage } from '@/features/media/storage'
+import { GET } from '../media/[...key]/route'
+
+const KEY = 'gifts/0b0e6b3c-3f43-4a52-9a43-2f6a6b4c1d2e.webp'
+
+const call = (key: string[]) =>
+  GET(new Request(`http://localhost/media/${key.join('/')}`), { params: Promise.resolve({ key }) })
+
+let root: string
+beforeEach(async () => {
+  root = await mkdtemp(path.join(tmpdir(), 'media-route-'))
+  vi.stubEnv('S3_BUCKET', '')
+  vi.stubEnv('MEDIA_DIR', root)
+})
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  await rm(root, { recursive: true, force: true })
+})
+
+describe('GET /media/[...key]', () => {
+  it.each([
+    [['gifts', 'nope.webp']],
+    [['gifts', '0b0e6b3c-3f43-4a52-9a43-2f6a6b4c1d2e.png']],
+    [['other', '0b0e6b3c-3f43-4a52-9a43-2f6a6b4c1d2e.webp']],
+    [['gifts', '..', '..', 'etc', 'passwd']],
+    [['gifts', '0B0E6B3C-3F43-4A52-9A43-2F6A6B4C1D2E.webp']],
+  ])('404s a key outside the allowed pattern: %j', async (key) => {
+    const res = await call(key)
+    expect(res.status).toBe(404)
+  })
+
+  it('404s a well-formed key that is not stored', async () => {
+    expect((await call(KEY.split('/'))).status).toBe(404)
+  })
+
+  it('serves a stored image with immutable cache headers', async () => {
+    await getStorage().put(KEY, Buffer.from('webp-bytes'), 'image/webp')
+    const res = await call(KEY.split('/'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/webp')
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(res.headers.get('content-length')).toBe('10')
+    expect(await res.text()).toBe('webp-bytes')
+  })
+})

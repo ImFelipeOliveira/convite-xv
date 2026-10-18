@@ -49,3 +49,5 @@ next-env.d.ts
 /playwright/.cache/
 /tests/e2e/.auth/
 scripts/migrate.js
+# local media storage (gift photos without S3_* vars)
+/.data/

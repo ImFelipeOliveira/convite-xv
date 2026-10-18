@@ -1,10 +1,11 @@
 'use client'
 
-import { ImageOff } from 'lucide-react'
-import { useActionState, useEffect, useId, useState } from 'react'
+import { ChevronRight, ImageOff, ImagePlus, ImageUp, Trash2 } from 'lucide-react'
+import { useActionState, useEffect, useId, useRef, useState, type DragEvent } from 'react'
 import { saveGiftAction, type GiftFormState } from '@/features/gifts/admin-actions'
-import { inputClass } from './styles'
-import { Button } from './ui/Button'
+import { fieldErrorClass, focusRing, helperClass, inputClass, labelClass } from './styles'
+import { useImageFailed } from '@/lib/use-image-failed'
+import { Button, Spinner } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
 import { useToast } from './ui/Toast'
 
@@ -16,6 +17,8 @@ export type GiftFormGift = {
   price: string
   purchaseUrl: string
   imageUrl: string
+  /** uploaded photo key ('' when none) */
+  imageKey: string
   sortOrder: number
 }
 
@@ -56,6 +59,243 @@ function PhotoPreview({ url }: { url: string }) {
   )
 }
 
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024
+const PHOTO_TOO_LARGE = 'A foto é grande demais (máx. 8 MB).'
+const PHOTO_FAILED = 'Não foi possível enviar a foto. Tente de novo.'
+
+type UploadResponse = { ok: true; key: string; previewUrl: string } | { ok: false; error: string }
+
+/**
+ * Uploaded photo: file picker (camera or gallery on phones), drag-and-drop on desktop, live preview,
+ * "Trocar foto" / "Remover foto". The photo goes to POST /admin/api/gift-image right away; the form
+ * then saves only its key (hidden `imageKey`).
+ */
+function GiftPhotoField({
+  prefix,
+  initialKey,
+  uploading,
+  onUploadingChange,
+}: {
+  prefix: string
+  initialKey: string
+  uploading: boolean
+  onUploadingChange: (uploading: boolean) => void
+}) {
+  const [imageKey, setImageKey] = useState(initialKey)
+  const [preview, setPreview] = useState<string | null>(initialKey ? `/media/${initialKey}` : null)
+  const [error, setError] = useState<string | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const [status, setStatus] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const pickRef = useRef<HTMLButtonElement>(null)
+  const replaceRef = useRef<HTMLButtonElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const { failed: previewFailed, imgRef, onError: onPreviewError } = useImageFailed(preview)
+  const labelId = `${prefix}-photo-label`
+  const errorId = `${prefix}-photo-error`
+  const helpId = `${prefix}-photo-help`
+
+  // the sheet may close mid-upload: drop the request with it
+  useEffect(() => () => abortRef.current?.abort(), [])
+
+  const pick = () => inputRef.current?.click()
+
+  async function upload(file: File) {
+    setError(null)
+    if (file.size > MAX_PHOTO_BYTES) {
+      setError(PHOTO_TOO_LARGE)
+      return
+    }
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    onUploadingChange(true)
+    setStatus('Enviando foto…')
+    try {
+      const body = new FormData()
+      body.set('file', file)
+      // manual: an expired session answers with a redirect to the login page, not JSON
+      const res = await fetch('/admin/api/gift-image', {
+        method: 'POST',
+        body,
+        signal: controller.signal,
+        redirect: 'manual',
+      })
+      const json: UploadResponse | null = res.headers.get('content-type')?.includes('application/json')
+        ? await res.json()
+        : null
+      if (controller.signal.aborted) return
+      if (json?.ok) {
+        setImageKey(json.key)
+        setPreview(json.previewUrl)
+        setStatus('Foto enviada.')
+        // the picker button was replaced by the preview: keep keyboard users here
+        requestAnimationFrame(() => replaceRef.current?.focus())
+      } else {
+        setError(json && !json.ok ? json.error : PHOTO_FAILED)
+        setStatus('')
+      }
+    } catch {
+      if (controller.signal.aborted) return
+      setError(PHOTO_FAILED)
+      setStatus('')
+    } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null
+        onUploadingChange(false)
+      }
+    }
+  }
+
+  function remove() {
+    setImageKey('')
+    setPreview(null)
+    setError(null)
+    setStatus('Foto removida.')
+    requestAnimationFrame(() => pickRef.current?.focus())
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault()
+    setDragging(false)
+    if (uploading) return
+    const file = e.dataTransfer.files?.[0]
+    if (file) void upload(file)
+  }
+
+  const describedBy = `${helpId} ${errorId}`
+
+  return (
+    <div role="group" aria-labelledby={labelId} className="flex flex-col gap-1.5">
+      <span id={labelId} className={labelClass}>
+        <span>
+          Foto do presente
+          <span aria-hidden="true" className="ml-1.5 font-normal text-muted">
+            (opcional)
+          </span>
+        </span>
+      </span>
+      <input type="hidden" name="imageKey" value={imageKey} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="sr-only"
+        data-testid="gift-photo-input"
+        onChange={(e) => {
+          const file = e.currentTarget.files?.[0]
+          // the same file can be picked again after an error
+          e.currentTarget.value = ''
+          if (file) void upload(file)
+        }}
+      />
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (!uploading) setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        className="flex flex-wrap items-end gap-4"
+      >
+        {preview ? (
+          <>
+            <div
+              className={`relative grid aspect-[4/3] w-40 place-items-center overflow-hidden rounded-[2px] border bg-blush/50 ${
+                dragging ? 'border-seal shadow-ring-seal' : 'border-hairline'
+              }`}
+            >
+              {previewFailed ? (
+                <span className="flex flex-col items-center gap-1 px-3 text-center text-[13px] text-muted">
+                  <ImageOff aria-hidden="true" className="size-5" strokeWidth={1.5} />
+                  Não foi possível carregar a foto.
+                </span>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element -- our own /media/ photo
+                <img
+                  src={preview}
+                  alt="Prévia da foto"
+                  ref={imgRef}
+                  onError={onPreviewError}
+                  className="size-full object-cover"
+                />
+              )}
+              {uploading && (
+                <span className="absolute inset-0 grid place-items-center bg-paper/80 text-[13px] font-medium text-wine">
+                  <span className="inline-flex items-center gap-2">
+                    <Spinner />
+                    Enviando foto…
+                  </span>
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <Button
+                ref={replaceRef}
+                variant="secondary"
+                size="sm"
+                icon={<ImageUp aria-hidden="true" className="size-4" strokeWidth={1.75} />}
+                onClick={pick}
+                disabled={uploading}
+                aria-describedby={describedBy}
+              >
+                Trocar foto
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Trash2 aria-hidden="true" className="size-4" strokeWidth={1.75} />}
+                onClick={remove}
+                disabled={uploading}
+              >
+                Remover foto
+              </Button>
+            </div>
+          </>
+        ) : (
+          <button
+            ref={pickRef}
+            type="button"
+            onClick={pick}
+            disabled={uploading}
+            aria-busy={uploading || undefined}
+            aria-describedby={describedBy}
+            className={`flex min-h-32 w-full max-w-80 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[2px] border border-dashed px-4 py-5 text-center transition-colors duration-(--dur-micro) hover:border-seal hover:bg-blush/60 disabled:cursor-wait ${
+              dragging ? 'border-seal bg-blush/70' : 'border-hairline-strong bg-paper'
+            } ${focusRing}`}
+          >
+            {uploading ? (
+              <span className="inline-flex items-center gap-2 text-[15px] font-medium text-wine">
+                <Spinner />
+                Enviando foto…
+              </span>
+            ) : (
+              <>
+                <ImagePlus aria-hidden="true" className="size-6 text-seal" strokeWidth={1.5} />
+                <span className="text-[15px] font-medium text-seal">Escolher foto</span>
+                <span aria-hidden="true" className="hidden text-[13px] text-muted sm:block">
+                  ou arraste a imagem aqui
+                </span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+      <p id={helpId} className={helperClass}>
+        JPG, PNG ou WEBP, até 8 MB.
+      </p>
+      <p id={errorId} role="alert" className={fieldErrorClass}>
+        {error}
+      </p>
+      <span role="status" className="sr-only">
+        {status}
+      </span>
+    </div>
+  )
+}
+
 export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
   const [state, action, pending] = useActionState<GiftFormState, FormData>(saveGiftAction, null)
   const toast = useToast()
@@ -82,11 +322,14 @@ export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
     price: gift?.price ?? '',
     purchaseUrl: gift?.purchaseUrl ?? '',
     imageUrl: gift?.imageUrl ?? '',
+    imageKey: gift?.imageKey ?? '',
     sortOrder: String(gift?.sortOrder ?? 0),
   }
   const errors = failed?.fieldErrors ?? {}
   const prefix = gift ? `gift-${gift.id}` : 'gift-new'
   const [imageUrl, setImageUrl] = useState(values.imageUrl)
+  const [uploading, setUploading] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(!!values.imageUrl)
   const listId = `${uid}-categories`
 
   return (
@@ -177,27 +420,52 @@ export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
             className={inputClass}
           />
         </Field>
-        <Field
-          id={`${prefix}-image`}
-          label="Foto"
-          error={errors.imageUrl}
-          helper="Endereço (https://) de uma imagem do produto."
+        <GiftPhotoField
+          prefix={prefix}
+          initialKey={values.imageKey}
+          uploading={uploading}
+          onUploadingChange={setUploading}
+        />
+        {/* secondary: a pasted product image link (the uploaded photo wins when both exist) */}
+        <details
+          open={linkOpen || !!errors.imageUrl}
+          onToggle={(e) => setLinkOpen(e.currentTarget.open)}
+          className="group -mt-2"
         >
-          <input
-            name="imageUrl"
-            inputMode="url"
-            maxLength={2048}
-            autoComplete="off"
-            placeholder="https://"
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            aria-invalid={!!errors.imageUrl}
-            id={`${prefix}-image`}
-            aria-describedby={fieldDescribedBy(`${prefix}-image`, true)}
-            className={inputClass}
-          />
-        </Field>
-        <PhotoPreview url={imageUrl} />
+          <summary
+            className={`inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-full text-sm font-medium text-seal hover:text-wine [&::-webkit-details-marker]:hidden ${focusRing}`}
+          >
+            <ChevronRight
+              aria-hidden="true"
+              className="size-4 transition-transform duration-(--dur-micro) group-open:rotate-90"
+              strokeWidth={1.75}
+            />
+            Ou cole um link de imagem
+          </summary>
+          <div className="mt-2 flex flex-col gap-4">
+            <Field
+              id={`${prefix}-image`}
+              label="Link da imagem"
+              error={errors.imageUrl}
+              helper="Endereço (https://) de uma imagem do produto. Se houver foto enviada, ela é usada no lugar."
+            >
+              <input
+                name="imageUrl"
+                inputMode="url"
+                maxLength={2048}
+                autoComplete="off"
+                placeholder="https://"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                aria-invalid={!!errors.imageUrl}
+                id={`${prefix}-image`}
+                aria-describedby={fieldDescribedBy(`${prefix}-image`, true)}
+                className={inputClass}
+              />
+            </Field>
+            <PhotoPreview url={imageUrl} />
+          </div>
+        </details>
         <Field
           id={`${prefix}-order`}
           label="Ordem"
@@ -225,7 +493,7 @@ export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
             Cancelar
           </Button>
         )}
-        <Button type="submit" pending={pending} pendingLabel="Salvando…">
+        <Button type="submit" pending={pending} pendingLabel="Salvando…" disabled={uploading}>
           Salvar
         </Button>
       </div>

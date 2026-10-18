@@ -1,0 +1,63 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import sharp from 'sharp'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { POST } from '../admin/api/gift-image/route'
+
+const admin = vi.hoisted(() => ({ signedIn: true }))
+vi.mock('@/features/admin-auth/guard', () => ({
+  requireAdmin: async () => {
+    if (!admin.signedIn) throw new Error('NEXT_REDIRECT')
+    return { adminId: '00000000-0000-4000-8000-0000000000aa' }
+  },
+}))
+
+let root: string
+beforeEach(async () => {
+  admin.signedIn = true
+  root = await mkdtemp(path.join(tmpdir(), 'gift-image-route-'))
+  vi.stubEnv('S3_BUCKET', '')
+  vi.stubEnv('MEDIA_DIR', root)
+})
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  await rm(root, { recursive: true, force: true })
+})
+
+async function request(body: BodyInit, headers: Record<string, string> = {}) {
+  return new Request('http://localhost/admin/api/gift-image', { method: 'POST', body, headers })
+}
+
+describe('POST /admin/api/gift-image', () => {
+  it('calls requireAdmin itself', async () => {
+    admin.signedIn = false
+    const fd = new FormData()
+    fd.set('file', new File(['x'], 'a.png'))
+    await expect(POST(await request(fd))).rejects.toThrow('NEXT_REDIRECT')
+  })
+
+  it('uploads and answers with the key and preview URL', async () => {
+    const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#fff' } }).png().toBuffer()
+    const fd = new FormData()
+    fd.set('file', new File([new Uint8Array(png)], 'a.png'))
+    const res = await POST(await request(fd))
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, key: expect.stringMatching(/^gifts\/[0-9a-f-]{36}\.webp$/) })
+    expect(json.previewUrl).toBe(`/media/${json.key}`)
+  })
+
+  it('rejects an oversized body by Content-Length before reading it', async () => {
+    const res = await POST(await request('x', { 'content-length': String(20 * 1024 * 1024) }))
+    expect(res.status).toBe(413)
+    expect(await res.json()).toEqual({ ok: false, error: 'A foto é grande demais (máx. 8 MB).' })
+  })
+
+  it('rejects a cross-site origin', async () => {
+    const fd = new FormData()
+    fd.set('file', new File(['x'], 'a.png'))
+    const res = await POST(await request(fd, { origin: 'https://evil.example', host: 'localhost' }))
+    expect(res.status).toBe(403)
+  })
+})
