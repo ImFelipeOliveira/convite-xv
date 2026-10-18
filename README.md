@@ -94,7 +94,11 @@ No serviço `web`: `EVOLUTION_URL=http://evolution.railway.internal:8080`, `EVOL
 
 ### Lembretes automáticos
 
-Os lembretes ficam agendados no banco. Um dispatcher **dentro do processo web** roda a cada 60 s, envia o que venceu e respeita o intervalo de 20 a 60 s. Pressupõe **uma única réplica** do `web`; com mais de uma, o mesmo lembrete pode ser disputado. Para desligar, use `DISPATCHER_ENABLED=false`.
+Os lembretes ficam agendados no banco. Um dispatcher **dentro do processo web** roda a cada 60 s, envia o que venceu e respeita o intervalo de 20 a 60 s entre envios. Só envia **entre 9h e 20h (horário de Boa Vista)**; o que vencer fora desse horário fica para as 9h seguintes, sem gastar tentativa. Antes de cada envio confere se a mensagem ainda faz sentido: depois do prazo não sai lembrete de confirmação, depois do horário do lembrete da véspera não sai o de 7 dias, e nada sai depois do início da festa (esses ficam como cancelados no histórico).
+
+Se o WhatsApp não responder a tempo (15 s), o envio fica como **falhou** e não é repetido sozinho — a mensagem pode ter chegado; confira no celular antes de usar **Tentar de novo**.
+
+O ideal é **uma única réplica** do `web`. Com mais de uma, o `FOR UPDATE SKIP LOCKED` impede que o mesmo lembrete seja enviado duas vezes, mas cada réplica envia no seu ritmo e o intervalo de 20 a 60 s entre mensagens deixa de valer; num deploy com troca gradual, as duas versões podem rodar juntas por alguns instantes (sem envio duplicado). Para desligar, use `DISPATCHER_ENABLED=false`.
 
 ### Desenvolvimento local
 
