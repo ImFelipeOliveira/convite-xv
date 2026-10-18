@@ -126,20 +126,28 @@ export async function saveGenericCustomerId(customerId: string, q: Executor = db
     .where(and(eq(settings.id, 1), isNull(settings.asaasCustomerId)))
 }
 
-export async function getGuestCustomerId(guestId: string, q: Executor = db): Promise<string | null> {
+/** The guest's Asaas customer and the CPF hash it was created for (null hash: created before 0009). */
+export async function getGuestCustomer(
+  guestId: string,
+  q: Executor = db,
+): Promise<{ id: string; cpfHash: string | null } | null> {
   const [row] = await q
-    .select({ id: guests.asaasCustomerId })
+    .select({ id: guests.asaasCustomerId, cpfHash: guests.asaasCustomerCpfHash })
     .from(guests)
     .where(eq(guests.id, guestId))
-  return row?.id ?? null
+  return row?.id ? { id: row.id, cpfHash: row.cpfHash } : null
 }
 
-export async function saveGuestCustomerId(
+/** Stores the guest's Asaas customer with the hash of the CPF it was created for (never the CPF). */
+export async function saveGuestCustomer(
   guestId: string,
-  customerId: string,
+  customer: { id: string; cpfHash: string },
   q: Executor = db,
 ): Promise<void> {
-  await q.update(guests).set({ asaasCustomerId: customerId }).where(eq(guests.id, guestId))
+  await q
+    .update(guests)
+    .set({ asaasCustomerId: customer.id, asaasCustomerCpfHash: customer.cpfHash })
+    .where(eq(guests.id, guestId))
 }
 
 /**

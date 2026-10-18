@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHmac, randomUUID } from 'node:crypto'
 import { childLogger } from '@/lib/logger'
 import type { Guest, PixPayment, PixStatus } from '@/server/db/schema'
 import { afterPixPaid } from './after-paid'
@@ -12,10 +12,10 @@ import {
   findGuestPixState,
   findReusablePending,
   getGenericCustomerId,
-  getGuestCustomerId,
+  getGuestCustomer,
   insertPendingPayment,
   saveGenericCustomerId,
-  saveGuestCustomerId,
+  saveGuestCustomer,
   settlePendingPayment,
   withAdvisoryLock,
   type Executor,
@@ -147,6 +147,17 @@ export function parseAsaasDateTime(value: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+/**
+ * Keyed SHA-256 (HMAC, AUTH_SECRET) of a normalized CPF: tells whether a typed CPF is the one behind the
+ * guest's stored Asaas customer without storing it. Keyed because the CPF space is small enough to
+ * brute-force a plain hash; a rotated secret only means one extra customer at Asaas.
+ */
+export function cpfHash(normalizedCpf: string): string {
+  return createHmac('sha256', `asaas-customer-cpf:v1:${process.env.AUTH_SECRET?.trim() ?? ''}`)
+    .update(normalizedCpf)
+    .digest('hex')
+}
+
 async function customerFor(
   guest: Pick<Guest, 'id' | 'name'>,
   cpf: string | null,
@@ -155,15 +166,18 @@ async function customerFor(
   tx: Executor,
 ): Promise<string | null> {
   if (cpf) {
-    // already under this guest's lock
-    const existing = await getGuestCustomerId(guest.id, tx)
-    if (existing) return existing
+    // already under this guest's lock. The customer carries the CPF it was created with: reused only
+    // for that same CPF; another family member's CPF (or a pre-0009 customer without hash) gets a new one
+    const hash = cpfHash(cpf)
+    const existing = await getGuestCustomer(guest.id, tx)
+    if (existing && existing.cpfHash === hash) return existing.id
     const created = await ensureCustomer(config, { name: guest.name, cpfCnpj: cpf }, fetchImpl)
     if (!created.ok) {
       log.warn({ guestId: guest.id, code: created.error }, 'pix customer failed')
       return null
     }
-    await saveGuestCustomerId(guest.id, created.value.id, tx)
+    await saveGuestCustomer(guest.id, { id: created.value.id, cpfHash: hash }, tx)
+    if (existing) log.info({ guestId: guest.id }, 'pix customer replaced for another payer CPF')
     return created.value.id
   }
   const cached = await getGenericCustomerId(tx)

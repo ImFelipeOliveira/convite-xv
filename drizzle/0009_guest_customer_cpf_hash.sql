@@ -1,0 +1,1 @@
+ALTER TABLE "guests" ADD COLUMN "asaas_customer_cpf_hash" text;

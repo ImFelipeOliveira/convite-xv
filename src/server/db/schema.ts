@@ -66,6 +66,8 @@ export const guests = pgTable(
     openedAt: timestamp('opened_at', { withTimezone: true }),
     // Asaas customer for this guest; only used when ASAAS_REQUIRE_PAYER_CPF=true (the CPF itself is never stored)
     asaasCustomerId: text('asaas_customer_id'),
+    // keyed SHA-256 (HMAC) of the normalized CPF behind asaasCustomerId: another CPF → a new customer
+    asaasCustomerCpfHash: text('asaas_customer_cpf_hash'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
