@@ -1,6 +1,6 @@
 'use client'
 
-import { Download, FileUp, Link2, MessageCircle, Pencil, Trash2, UserPlus, Users } from 'lucide-react'
+import { Download, Ellipsis, FileUp, Link2, MessageCircle, Pencil, Trash2, UserPlus, Users } from 'lucide-react'
 import { useMemo, useRef, useState, useTransition } from 'react'
 import { deleteGuestAction } from '@/features/guests/actions'
 import { createDataTableColumnHelper, DataTable, type DataTableFilter } from './data-table/DataTable'
@@ -13,7 +13,7 @@ import { RsvpBadge, type RsvpStatusValue } from './ui/Badge'
 import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
 import { ConfirmDialog } from './ui/ConfirmDialog'
-import { Sheet } from './ui/Modal'
+import { CloseButton, Modal, Sheet } from './ui/Modal'
 import { useToast } from './ui/Toast'
 
 /** Only what the table shows or its actions need (already authorized on the server). */
@@ -32,8 +32,8 @@ export type GuestRow = {
   hasPhone: boolean
   /** latest invite sent through the WhatsApp integration (at = ISO) */
   lastInvite: LastInvite
-  /** filter value of the "Convite" chips */
-  inviteStatus: 'none' | 'sending' | 'sent' | 'failed'
+  /** filter value of the "Convite" chips (`sending` counts as sent) */
+  inviteStatus: 'none' | 'sent' | 'failed'
 }
 
 type SheetState = { kind: 'new' } | { kind: 'edit'; guest: GuestRow } | { kind: 'import' } | null
@@ -60,6 +60,8 @@ const FILTERS: DataTableFilter[] = [
     ],
   },
 ]
+
+const moreItem = `flex min-h-12 items-center gap-3 rounded-[2px] px-3 text-left text-[16px] text-wine transition-colors duration-(--dur-micro) hover:bg-blush active:bg-petal/60 ${focusRing}`
 
 const iconButton = `grid size-11 shrink-0 place-items-center rounded-full text-wine transition-[background-color,color,transform] duration-(--dur-micro) ease-(--ease-letter) hover:bg-blush hover:text-seal active:translate-y-px active:bg-petal/60 ${focusRing}`
 
@@ -149,6 +151,8 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
   }
   const [pending, startTransition] = useTransition()
   const toast = useToast()
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreButton = useRef<HTMLButtonElement>(null)
 
   const columns = useMemo(
     () =>
@@ -168,7 +172,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         helper.accessor('plusOnesLimit', {
           header: 'Limite',
           enableSorting: true,
-          meta: { hideBelowWide: true, className: 'tabular-nums' },
+          meta: { hideOnTablet: true, className: 'tabular-nums' },
         }),
         helper.accessor('rsvpStatus', {
           header: 'Resposta',
@@ -193,12 +197,12 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         }),
         helper.accessor('people', {
           header: 'Pessoas',
-          meta: { hideOnTablet: true, className: 'tabular-nums' },
+          meta: { hideOnSmallTablet: true, className: 'tabular-nums' },
           cell: (info) => info.getValue() ?? <span className="text-muted">—</span>,
         }),
         helper.accessor('openedAt', {
           header: 'Abriu o convite',
-          meta: { hideBelowWide: true, label: 'Abriu', className: 'whitespace-nowrap' },
+          meta: { hideOnTablet: true, label: 'Abriu', className: 'whitespace-nowrap' },
           cell: (info) =>
             info.getValue() ? (
               formatBoaVistaDateTime(info.getValue())
@@ -209,7 +213,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         helper.display({
           id: 'actions',
           header: () => <span className="sr-only">Ações</span>,
-          meta: { card: 'full', align: 'end', className: 'sm:w-px' },
+          meta: { card: 'full', align: 'end', stickyEnd: true, className: 'sm:w-px' },
           cell: ({ row }) => (
             <RowActions
               guest={row.original}
@@ -283,6 +287,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         actions={
           <>
             <Button
+              className="max-sm:flex-1"
               icon={<UserPlus aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />}
               onClick={(e) => openSheet({ kind: 'new' }, e.currentTarget)}
             >
@@ -290,18 +295,68 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
             </Button>
             <Button
               variant="secondary"
+              className="max-sm:hidden"
               icon={<FileUp aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />}
               onClick={(e) => openSheet({ kind: 'import' }, e.currentTarget)}
             >
               Importar planilha
             </Button>
-            <a href="/admin/guests/export" download className={buttonClass('ghost')}>
+            <a href="/admin/guests/export" download className={`${buttonClass('ghost')} max-sm:hidden`}>
               <Download aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
               Exportar CSV
             </a>
+            {/* phones: secondary actions behind "Mais" so the list starts above the fold */}
+            <button
+              ref={moreButton}
+              type="button"
+              onClick={() => setMoreOpen(true)}
+              aria-haspopup="dialog"
+              aria-label="Mais ações"
+              title="Mais ações"
+              className={`${buttonClass('secondary', 'icon')} sm:hidden`}
+            >
+              <Ellipsis aria-hidden="true" className="size-5" strokeWidth={1.75} />
+            </button>
           </>
         }
       />
+
+      {moreOpen && (
+        <Modal
+          placement="bottom"
+          labelledBy="more-actions-title"
+          returnFocusRef={moreButton}
+          onClose={() => setMoreOpen(false)}
+        >
+          <div className="flex flex-col pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="flex items-center gap-3 border-b border-hairline py-2 pr-2 pl-5">
+              <h2 id="more-actions-title" className="flex-1 font-display text-[24px] leading-tight">
+                Mais ações
+              </h2>
+              <CloseButton onClick={() => setMoreOpen(false)} />
+            </div>
+            <div className="flex flex-col px-2 py-2">
+              <button
+                type="button"
+                data-autofocus
+                onClick={() => {
+                  setMoreOpen(false)
+                  // the import sheet returns focus to the "Mais" button
+                  if (moreButton.current) openSheet({ kind: 'import' }, moreButton.current)
+                }}
+                className={moreItem}
+              >
+                <FileUp aria-hidden="true" className="size-5" strokeWidth={1.75} />
+                Importar planilha
+              </button>
+              <a href="/admin/guests/export" download onClick={() => setMoreOpen(false)} className={moreItem}>
+                <Download aria-hidden="true" className="size-5" strokeWidth={1.75} />
+                Exportar CSV
+              </a>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       <DataTable
         data={guests}
@@ -309,6 +364,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         getRowId={(g) => g.id}
         initialSorting={[{ id: 'name', desc: false }]}
         searchInputRef={searchRef}
+        regionLabel="Tabela de convidados"
         searchLabel="Buscar convidado"
         searchPlaceholder="Buscar por nome ou telefone"
         filters={FILTERS}

@@ -34,6 +34,12 @@ export async function createInviteDispatch(
   })
 }
 
+/** Current time by the database clock (the one the dispatch windows use). */
+export async function dbNow(): Promise<Date> {
+  const rows = await db.execute<{ now: Date | string }>(sql`SELECT now() AS now`)
+  return new Date(rows[0].now)
+}
+
 /** Marks a dispatch sent (DB clock) and returns the recorded `sentAt`. */
 export async function markDispatchSent(id: string, providerMessageId: string | null): Promise<Date> {
   const [row] = await db

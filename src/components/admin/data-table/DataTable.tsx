@@ -20,9 +20,19 @@ import {
   type RowData,
   type SortingState,
 } from '@tanstack/react-table'
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, Search, X } from 'lucide-react'
-import { useId, useMemo, useState, type ReactNode, type Ref } from 'react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  Search,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react'
+import { useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { buttonClass, focusRing, inputClass } from '../styles'
+import { CloseButton, Modal } from '../ui/Modal'
 import { formatRange, matchesSearch } from './helpers'
 
 export type DataTableColumnMeta = {
@@ -39,6 +49,8 @@ export type DataTableColumnMeta = {
   /** Hidden between 640px and 1536px (only on wide desktops). */
   hideBelowWide?: boolean
   align?: 'start' | 'end'
+  /** Pinned to the right edge while the table scrolls sideways (row actions). */
+  stickyEnd?: boolean
   className?: string
 }
 
@@ -79,6 +91,8 @@ type Props<T extends RowData> = {
   emptyMessage: string
   pageSize?: number
   searchInputRef?: Ref<HTMLInputElement>
+  /** Accessible name of the (horizontally scrollable) table region. */
+  regionLabel?: string
 }
 
 // rows whose value equals the selected option (undefined = no filter)
@@ -106,6 +120,8 @@ function sortIcon(dir: false | 'asc' | 'desc') {
 const tabletHidden = 'sm:max-xl:hidden'
 const smallTabletHidden = 'sm:max-lg:hidden'
 const belowWideHidden = 'sm:max-2xl:hidden'
+const stickyEndCell =
+  'sm:sticky sm:right-0 sm:z-[1] sm:bg-paper sm:shadow-[-10px_0_10px_-10px_rgba(90,33,54,.25)]'
 const hiddenClass = (meta?: DataTableColumnMeta) =>
   meta?.hideBelowWide
     ? belowWideHidden
@@ -127,9 +143,12 @@ export function DataTable<T extends RowData>({
   emptyMessage,
   pageSize = 20,
   searchInputRef,
+  regionLabel = 'Tabela',
 }: Props<T>) {
   const uid = useId()
   const [pageIndexRequested, setPageIndex] = useState(0)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filtersButtonRef = useRef<HTMLButtonElement>(null)
 
   const defaultColumn = useMemo(() => ({ enableSorting: false, filterFn: equalsFilter }), [])
 
@@ -179,6 +198,57 @@ export function DataTable<T extends RowData>({
   const rows = table.getRowModel().rows
   const hasActiveFilters = globalFilter !== '' || table.state.columnFilters.length > 0
 
+  const activeFilters = table.state.columnFilters.length
+  const renderFilterGroups = (where: 'bar' | 'sheet') =>
+    filters.map((f) => {
+      const column = table.getColumn(f.columnId)
+      const current = column?.getFilterValue() as string | undefined
+      const groupId = `${uid}-${where}-${f.columnId}-label`
+      const chips = [{ value: undefined, label: 'Todas' }, ...f.options]
+      return (
+        <div
+          key={f.columnId}
+          role="group"
+          aria-labelledby={groupId}
+          className="flex flex-wrap items-center gap-2"
+        >
+          <span id={groupId} className="mr-1 text-sm text-muted max-sm:w-full">
+            {f.label}
+          </span>
+          {chips.map((opt) => {
+            const pressed = current === opt.value
+            const count = opt.value === undefined ? data.length : (counts[f.columnId]?.[opt.value] ?? 0)
+            return (
+              <button
+                key={opt.label}
+                type="button"
+                aria-pressed={pressed}
+                onClick={() => {
+                  column?.setFilterValue(opt.value)
+                  resetPage()
+                }}
+                className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm transition-[background-color,border-color,color] duration-(--dur-micro) ease-(--ease-letter) active:translate-y-px ${focusRing} ${
+                  pressed
+                    ? 'border-wine bg-wine text-paper'
+                    : 'border-hairline-strong bg-paper text-wine hover:border-seal hover:bg-blush'
+                }`}
+              >
+                {opt.label}
+                <span
+                  aria-hidden="true"
+                  className={`min-w-5 rounded-full px-1.5 text-center text-xs tabular-nums ${
+                    pressed ? 'bg-paper/20' : 'bg-blush text-muted'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )
+    })
+
   return (
     <div className="flex flex-col gap-4">
       {/* toolbar */}
@@ -188,94 +258,102 @@ export function DataTable<T extends RowData>({
           filters.length > 1 ? '' : 'lg:flex-row lg:items-center lg:justify-between'
         }`}
       >
-        <div className="relative w-full lg:max-w-sm">
-          <label htmlFor={`${uid}-search`} className="sr-only">
-            {searchLabel}
-          </label>
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted"
-            strokeWidth={1.75}
-          />
-          <input
-            ref={searchInputRef}
-            id={`${uid}-search`}
-            type="search"
-            value={globalFilter}
-            onChange={(e) => {
-              table.setGlobalFilter(e.target.value)
-              resetPage()
-            }}
-            placeholder={searchPlaceholder}
-            autoComplete="off"
-            className={`${inputClass} pr-11 pl-10 [&::-webkit-search-cancel-button]:hidden`}
-          />
-          {globalFilter && (
-            <button
-              type="button"
-              onClick={() => {
-                table.setGlobalFilter('')
+        <div className="flex w-full items-center gap-2 lg:max-w-sm">
+          <div className="relative min-w-0 flex-1">
+            <label htmlFor={`${uid}-search`} className="sr-only">
+              {searchLabel}
+            </label>
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted"
+              strokeWidth={1.75}
+            />
+            <input
+              ref={searchInputRef}
+              id={`${uid}-search`}
+              type="search"
+              value={globalFilter}
+              onChange={(e) => {
+                table.setGlobalFilter(e.target.value)
                 resetPage()
               }}
-              aria-label="Limpar busca"
-              className={`absolute top-1/2 right-0.5 grid size-10 -translate-y-1/2 place-items-center rounded-full text-muted transition-colors duration-(--dur-micro) hover:bg-blush hover:text-wine ${focusRing}`}
+              placeholder={searchPlaceholder}
+              autoComplete="off"
+              className={`${inputClass} pr-11 pl-10 [&::-webkit-search-cancel-button]:hidden`}
+            />
+            {globalFilter && (
+              <button
+                type="button"
+                onClick={() => {
+                  table.setGlobalFilter('')
+                  resetPage()
+                }}
+                aria-label="Limpar busca"
+                className={`absolute top-1/2 right-0.5 grid size-10 -translate-y-1/2 place-items-center rounded-full text-muted transition-colors duration-(--dur-micro) hover:bg-blush hover:text-wine ${focusRing}`}
+              >
+                <X aria-hidden="true" className="size-4" />
+              </button>
+            )}
+          </div>
+          {filters.length > 0 && (
+            // phones: the chip groups live in a bottom sheet so the first rows stay above the fold
+            <button
+              ref={filtersButtonRef}
+              type="button"
+              onClick={() => setFiltersOpen(true)}
+              aria-haspopup="dialog"
+              className={`${buttonClass(activeFilters > 0 ? 'primary' : 'secondary')} shrink-0 px-4 sm:hidden`}
             >
-              <X aria-hidden="true" className="size-4" />
+              <SlidersHorizontal aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
+              {activeFilters > 0 ? `Filtros · ${activeFilters}` : 'Filtros'}
             </button>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-          {filters.map((f) => {
-            const column = table.getColumn(f.columnId)
-            const current = column?.getFilterValue() as string | undefined
-            const groupId = `${uid}-${f.columnId}-label`
-            const chips = [{ value: undefined, label: 'Todas' }, ...f.options]
-            return (
-              <div
-                key={f.columnId}
-                role="group"
-                aria-labelledby={groupId}
-                className="flex flex-wrap items-center gap-2"
-              >
-                <span id={groupId} className="mr-1 text-sm text-muted max-sm:w-full">
-                  {f.label}
-                </span>
-                {chips.map((opt) => {
-                  const pressed = current === opt.value
-                  const count = opt.value === undefined ? data.length : (counts[f.columnId]?.[opt.value] ?? 0)
-                  return (
-                    <button
-                      key={opt.label}
-                      type="button"
-                      aria-pressed={pressed}
-                      onClick={() => {
-                        column?.setFilterValue(opt.value)
-                        resetPage()
-                      }}
-                      className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm transition-[background-color,border-color,color] duration-(--dur-micro) ease-(--ease-letter) active:translate-y-px ${focusRing} ${
-                        pressed
-                          ? 'border-wine bg-wine text-paper'
-                          : 'border-hairline-strong bg-paper text-wine hover:border-seal hover:bg-blush'
-                      }`}
-                    >
-                      {opt.label}
-                      <span
-                        aria-hidden="true"
-                        className={`min-w-5 rounded-full px-1.5 text-center text-xs tabular-nums ${
-                          pressed ? 'bg-paper/20' : 'bg-blush text-muted'
-                        }`}
-                      >
-                        {count}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            )
-          })}
-        </div>
+        {filters.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-3 max-sm:hidden">{renderFilterGroups('bar')}</div>
+        )}
       </div>
+
+      {filtersOpen && (
+        <Modal
+          placement="bottom"
+          labelledBy={`${uid}-filters-title`}
+          returnFocusRef={filtersButtonRef}
+          onClose={() => setFiltersOpen(false)}
+        >
+          <div className="flex max-h-[85dvh] flex-col">
+            <div className="flex items-center gap-3 border-b border-hairline py-2 pr-2 pl-5">
+              <h2 id={`${uid}-filters-title`} className="flex-1 font-display text-[24px] leading-tight">
+                Filtros
+              </h2>
+              <CloseButton onClick={() => setFiltersOpen(false)} />
+            </div>
+            <div className="flex flex-col gap-5 overflow-y-auto px-5 py-5">{renderFilterGroups('sheet')}</div>
+            <div className="flex gap-2 border-t border-hairline px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <button
+                type="button"
+                onClick={() => {
+                  table.setColumnFilters([])
+                  resetPage()
+                }}
+                disabled={activeFilters === 0}
+                className={`${buttonClass('secondary')} flex-1`}
+              >
+                Limpar filtros
+              </button>
+              <button
+                type="button"
+                data-autofocus
+                onClick={() => setFiltersOpen(false)}
+                className={`${buttonClass('primary')} flex-1`}
+              >
+                Ver resultados ({filteredCount})
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* table (cards below 640px, see globals.css .dt-table) */}
       {rows.length === 0 ? (
@@ -297,7 +375,14 @@ export function DataTable<T extends RowData>({
           )}
         </div>
       ) : (
-        <div className="sm:border sm:border-hairline sm:bg-paper sm:shadow-paper">
+        // wide tables scroll inside their own box; the page itself never scrolls sideways.
+        // (being a scroll container, the box can't keep the header pinned to the page)
+        <div
+          role="region"
+          aria-label={regionLabel}
+          tabIndex={0}
+          className={`sm:overflow-x-auto sm:border sm:border-hairline sm:bg-paper sm:shadow-paper ${focusRing}`}
+        >
           <table role="table" className="dt-table w-full border-collapse text-left text-[15px]">
             <thead role="rowgroup">
               {table.getHeaderGroups().map((group) => (
@@ -320,9 +405,9 @@ export function DataTable<T extends RowData>({
                                 : 'none'
                             : undefined
                         }
-                        className={`sticky top-16 z-10 border-b border-hairline-strong bg-blush px-4 py-0 text-[13px] font-medium whitespace-nowrap text-muted lg:top-0 ${
+                        className={`border-b border-hairline-strong bg-blush px-4 py-0 text-[13px] font-medium whitespace-nowrap text-muted ${
                           meta?.align === 'end' ? 'text-right' : ''
-                        } ${hiddenClass(meta)}`}
+                        } ${meta?.stickyEnd ? 'sm:sticky sm:right-0 sm:z-[2]' : ''} ${hiddenClass(meta)}`}
                       >
                         {canSort ? (
                           <button
@@ -365,7 +450,7 @@ export function DataTable<T extends RowData>({
                         data-card={meta?.card}
                         className={`px-4 py-2 align-middle sm:h-16 ${meta?.align === 'end' ? 'sm:text-right' : ''} ${hiddenClass(
                           meta,
-                        )} ${meta?.className ?? ''}`}
+                        )} ${meta?.stickyEnd ? stickyEndCell : ''} ${meta?.className ?? ''}`}
                       >
                         <FlexRender cell={cell} />
                       </td>

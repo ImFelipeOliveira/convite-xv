@@ -55,12 +55,16 @@ export function SendInviteButton({
 
   const last = guest.lastInvite
   const when = last ? formatBoaVistaDateTime(last.at) : ''
+  // compact form for the table cell / card: "12/10 14:30"
+  const short = when.replace(' às ', ' ')
 
   if (!last) {
     return (
       <Button
         size="sm"
         variant="secondary"
+        // full width inside the phone card
+        className="max-sm:min-h-11 max-sm:w-full"
         icon={<Send aria-hidden="true" className="size-4" strokeWidth={1.75} />}
         pending={pending}
         pendingLabel="Enviando…"
@@ -76,7 +80,7 @@ export function SendInviteButton({
 
   if (last.status === 'failed') {
     return (
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 max-sm:justify-between">
         <Badge tone="error">Falhou</Badge>
         <Button
           ref={retryRef}
@@ -123,23 +127,26 @@ export function SendInviteButton({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <p className="inline-flex items-start gap-1.5 text-sm text-wine">
-        <CircleCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-sage" strokeWidth={1.75} />
-        {/* wraps between "em" and the date when the column is narrow */}
-        <span>
-          <span className="font-medium text-sage">Enviado em</span>{' '}
-          <span className="whitespace-nowrap">{when}</span>
+    <div className="flex items-center gap-2 max-sm:justify-between">
+      <p className="inline-flex items-center gap-1.5 text-sm whitespace-nowrap text-wine">
+        <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-sage" strokeWidth={1.75} />
+        <span aria-hidden="true">
+          <span className="font-medium text-sage">Enviado</span> <span className="tabular-nums">{short}</span>
         </span>
+        <span className="sr-only">Enviado em {when}</span>
       </p>
       <Button
         ref={resendRef}
         size="sm"
         variant="ghost"
+        // icon-only from 1280px (the desktop table is widest there)
+        className="xl:size-11 xl:px-0"
+        icon={<RotateCw aria-hidden="true" className="size-4" strokeWidth={1.75} />}
         onClick={() => setConfirming(true)}
         aria-label={`Reenviar convite para ${guest.name}`}
+        title="Reenviar"
       >
-        Reenviar
+        <span className="xl:sr-only">Reenviar</span>
       </Button>
     </div>
   )

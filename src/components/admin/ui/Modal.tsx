@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } fr
 import { focusRing } from '../styles'
 import { pushDialog, removeDialog } from './top-layer'
 
-type Placement = 'center' | 'right' | 'left'
+type Placement = 'center' | 'right' | 'left' | 'bottom'
 
 const placements: Record<Placement, string> = {
   center:
@@ -13,6 +13,9 @@ const placements: Record<Placement, string> = {
   // full-screen sheet on phones, side sheet from 640px
   right:
     'm-0 ml-auto h-dvh max-h-dvh w-full max-w-full sm:w-[min(32rem,100vw)] motion-safe:animate-[sheet-in-up_var(--dur-ui)_var(--ease-letter)] sm:motion-safe:animate-[sheet-in-right_var(--dur-ui)_var(--ease-letter)]',
+  // bottom sheet (phones)
+  bottom:
+    'm-0 mt-auto w-full max-w-full border-t motion-safe:animate-[sheet-in-up_var(--dur-ui)_var(--ease-letter)]',
   left: 'm-0 mr-auto h-dvh max-h-dvh w-[min(20rem,calc(100vw-3rem))] motion-safe:animate-[sheet-in-left_var(--dur-ui)_var(--ease-letter)]',
 }
 

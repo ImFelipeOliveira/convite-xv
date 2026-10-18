@@ -39,7 +39,8 @@ export default async function GuestsPage() {
       whatsappUrl: whatsappUrl(g, settings.whatsappInviteTemplate),
       hasPhone: g.phone !== null && g.phone !== '',
       lastInvite: last,
-      inviteStatus: last?.status ?? 'none',
+      // an invite in flight counts as "Enviado" so the chip counts add up
+      inviteStatus: !last ? 'none' : last.status === 'failed' ? 'failed' : 'sent',
     }
   })
   const confirmed = list.filter((g) => g.rsvpStatus === 'yes').length

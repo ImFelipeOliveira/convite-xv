@@ -107,8 +107,13 @@ test.describe('admin guests', () => {
     await expect(editForm).toBeHidden()
     await expect(rowOf(page, 'Ana Teste').getByRole('cell').nth(2)).toHaveText('3')
 
-    // import CSV in a sheet; the report stays visible until closed
-    await page.getByRole('button', { name: 'Importar planilha' }).click()
+    // import CSV in a sheet (phones: behind "Mais ações"); the report stays visible until closed
+    await expect(page.getByRole('button', { name: 'Importar planilha' })).toBeHidden()
+    await page.getByRole('button', { name: 'Mais ações' }).click()
+    const more = page.getByRole('dialog', { name: 'Mais ações' })
+    await expect(more.getByRole('link', { name: 'Exportar CSV' })).toHaveAttribute('href', '/admin/guests/export')
+    await more.getByRole('button', { name: 'Importar planilha' }).click()
+    await expect(more).toBeHidden()
     const importForm = page.getByRole('form', { name: 'Importar convidados' })
     await importForm.getByLabel('Arquivo CSV').setInputFiles({
       name: 'convidados.csv',
@@ -153,12 +158,21 @@ test.describe('admin guests', () => {
     await expect(rowOf(page, E2E_GUEST_NAME)).toHaveCount(0)
     await search.fill('')
 
-    // status filter chips
-    const filters = page.getByRole('group', { name: 'Resposta' })
-    await filters.getByRole('button', { name: 'Sim', exact: true }).click()
+    // status filter chips (phones: in a bottom sheet behind "Filtros", with the active count)
+    await expect(page.getByRole('group', { name: 'Resposta' })).toBeHidden()
+    await page.getByRole('button', { name: 'Filtros', exact: true }).click()
+    const sheet = page.getByRole('dialog', { name: 'Filtros' })
+    await sheet.getByRole('group', { name: 'Resposta' }).getByRole('button', { name: 'Sim', exact: true }).click()
+    await sheet.getByRole('button', { name: /^Ver resultados/ }).click()
+    await expect(sheet).toBeHidden()
     await expect(rowOf(page, 'Ana Teste')).toHaveCount(0)
-    await filters.getByRole('button', { name: 'Todas', exact: true }).click()
+    const filtersButton = page.getByRole('button', { name: 'Filtros · 1' })
+    await expect(filtersButton).toBeFocused()
+    await filtersButton.click()
+    await sheet.getByRole('button', { name: 'Limpar filtros' }).click()
+    await sheet.getByRole('button', { name: /^Ver resultados/ }).click()
     await expect(rowOf(page, 'Ana Teste')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Filtros', exact: true })).toBeVisible()
 
     // export
     const res = await page.request.get('/admin/guests/export', { maxRedirects: 0 })
@@ -270,6 +284,11 @@ test.describe('admin guests', () => {
     test('mobile: drawer navigation, stacked cards and no horizontal scroll', async ({ page }) => {
       await page.goto('/admin/guests')
       await expect(page.getByRole('heading', { name: 'Convidados' })).toBeVisible()
+
+      // the first guest card starts above the fold (header actions and filters are collapsed)
+      const firstCard = page.getByRole('row').nth(1)
+      const firstBox = (await firstCard.boundingBox())!
+      expect(firstBox.y + firstBox.height, 'first card not fully above the fold').toBeLessThanOrEqual(844)
 
       const row = rowOf(page, `${SEED_PREFIX} 01`)
       const cells = row.getByRole('cell')

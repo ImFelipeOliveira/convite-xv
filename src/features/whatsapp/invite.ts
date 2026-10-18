@@ -3,7 +3,7 @@ import { inviteUrl } from '@/features/guests/whatsapp'
 import { getSettings } from '@/features/settings/repo'
 import { logger } from '@/lib/logger'
 import { readEvolutionConfig } from './config'
-import { createInviteDispatch, markDispatchFailed, markDispatchSent } from './dispatches'
+import { createInviteDispatch, dbNow, markDispatchFailed, markDispatchSent } from './dispatches'
 import { sendText, type EvolutionError } from './evolution'
 import type { SendInviteError, SendInviteResult } from './invite-result'
 import { renderTemplate } from './message'
@@ -41,35 +41,15 @@ export async function sendInvite(
   const dispatch = await createInviteDispatch(guest.id, adminId)
   if ('blocked' in dispatch) return { ok: false, error: 'blocked' }
 
-  let delivered = false
+  let sent: Awaited<ReturnType<SendInviteDeps['sendText']>>
   try {
     const settings = await getSettings()
     const text = renderTemplate(settings.whatsappInviteTemplate, {
       name: guest.name,
       link: inviteUrl(guest.token),
     })
-    const sent = await deps.sendText(cfg, { phoneE164: guest.phone, text })
-    if (!sent.ok) {
-      await markDispatchFailed(dispatch.id, sent.error)
-      logger.warn(
-        { event: 'whatsapp.invite_failed', guestId, adminId, errorCode: sent.error },
-        'invite send failed',
-      )
-      return { ok: false, error: toInviteError(sent.error) }
-    }
-    delivered = true
-    const sentAt = await markDispatchSent(dispatch.id, sent.value.messageId)
-    logger.info({ event: 'whatsapp.invite_sent', guestId, adminId, errorCode: null }, 'invite sent')
-    return { ok: true, sentAt: sentAt.toISOString() }
+    sent = await deps.sendText(cfg, { phoneE164: guest.phone, text })
   } catch (err) {
-    if (delivered) {
-      // the provider accepted the message: report it sent even if recording it failed
-      logger.error(
-        { event: 'whatsapp.invite_sent', guestId, adminId, errorCode: 'record_failed', err },
-        'invite sent but not recorded',
-      )
-      return { ok: true, sentAt: new Date().toISOString() }
-    }
     // never leave the row in `sending` (it would block the guest until recovery)
     await markDispatchFailed(dispatch.id, 'internal_error').catch(() => {})
     logger.error(
@@ -77,5 +57,47 @@ export async function sendInvite(
       'invite send crashed',
     )
     return { ok: false, error: 'failed' }
+  }
+
+  if (!sent.ok) {
+    logger.warn({ event: 'whatsapp.invite_failed', guestId, adminId, errorCode: sent.error }, 'invite send failed')
+    try {
+      await markDispatchFailed(dispatch.id, sent.error)
+    } catch (err) {
+      // the answer to the admin doesn't depend on the bookkeeping; recovery fails the row later
+      logger.error(
+        { event: 'whatsapp.invite_record_failed', guestId, adminId, errorCode: sent.error, err },
+        'invite failure not recorded',
+      )
+    }
+    return { ok: false, error: toInviteError(sent.error) }
+  }
+
+  // the provider accepted the message: from here on the result is a success
+  const sentAt = await recordSent(dispatch.id, sent.value.messageId, { guestId, adminId })
+  logger.info({ event: 'whatsapp.invite_sent', guestId, adminId, errorCode: null }, 'invite sent')
+  return { ok: true, sentAt: sentAt.toISOString() }
+}
+
+/** markDispatchSent with one retry; falls back to the DB clock (process clock only if the DB is gone). */
+async function recordSent(
+  dispatchId: string,
+  messageId: string | null,
+  ids: { guestId: string; adminId: string },
+): Promise<Date> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return await markDispatchSent(dispatchId, messageId)
+    } catch (err) {
+      logger.error(
+        { event: 'whatsapp.invite_record_failed', ...ids, errorCode: 'record_failed', attempt, err },
+        'invite sent but not recorded',
+      )
+    }
+  }
+  try {
+    return await dbNow()
+  } catch {
+    return new Date()
   }
 }
