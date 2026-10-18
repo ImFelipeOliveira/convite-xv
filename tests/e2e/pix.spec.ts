@@ -73,7 +73,7 @@ test('R$ 100: shows the QR and copy-paste code, copies it, then turns paid after
   await expect(section.getByText('SEU PRESENTE')).toBeVisible()
   await expect(section.getByTestId('pix-amount')).toHaveText('R$ 100,00')
   await expect(section.getByTestId('pix-from')).toHaveText('Convidado')
-  await expect(section.getByText('Usado só pelo banco para gerar o Pix. Não guardamos.')).toBeVisible()
+  await expect(section.getByText('Usado só para gerar o Pix no Asaas.')).toBeVisible()
   await cpfInput(section).fill('52998224725')
   // masked as the guest types
   await expect(cpfInput(section)).toHaveValue(VALID_CPF)

@@ -469,7 +469,7 @@ export function Pix({
                     </span>
                   ) : (
                     <span id={cpfHelpId} className="font-sans text-[12px] leading-[1.45] text-deep-rose">
-                      Usado só pelo banco para gerar o Pix. Não guardamos.
+                      Usado só para gerar o Pix no Asaas.
                     </span>
                   )}
                 </div>
