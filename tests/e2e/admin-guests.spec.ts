@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { deleteGuestsByName } from './db'
 import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
+// sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.22' } })
+
 const CSV =
   '\uFEFFnome;telefone;limite_acompanhantes\nJoão Ávila;(95) 99123-4567;2\nMaria;;0\n\nPedro;123;1\n'
 const OWN_GUESTS = ['Ana Teste', 'João Ávila', 'Maria', 'Pedro']
@@ -101,7 +104,7 @@ test.describe('admin guests', () => {
     const res = await page.request.get('/admin/guests/export', { maxRedirects: 0 })
     expect(res.status()).toBe(200)
     expect(res.headers()['content-type']).toBe('text/csv; charset=utf-8')
-    expect(res.headers()['content-disposition']).toContain('guests.csv')
+    expect(res.headers()['content-disposition']).toContain('convidados.csv')
     const csv = await res.text()
     expect(csv).toContain('nome;telefone;limite_acompanhantes;resposta')
     expect(csv).toContain('Ana Teste;(95) 98888-7777;3;Pendente')

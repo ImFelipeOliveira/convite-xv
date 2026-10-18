@@ -10,7 +10,7 @@ export async function GET(): Promise<Response> {
   return new Response(buildGuestsCsv(list), {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="guests.csv"',
+      'Content-Disposition': 'attachment; filename="convidados.csv"',
       'Cache-Control': 'private, no-store',
     },
   })

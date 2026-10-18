@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD } from './fixtures'
 
+// sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.21' } })
+
 test('redirects /admin to the login page without a session', async ({ page }) => {
   await page.goto('/admin')
   await expect(page).toHaveURL(/\/admin\/login$/)
@@ -42,4 +45,16 @@ test('GET /admin is gated at the proxy', async ({ page, request }) => {
   expect(authed.status()).toBe(200)
   await page.goto('/admin/login')
   await expect(page).toHaveURL(/\/admin$/)
+})
+
+test('sends security headers', async ({ request }) => {
+  const admin = await request.get('/admin/login')
+  const h = admin.headers()
+  expect(h['x-content-type-options']).toBe('nosniff')
+  expect(h['referrer-policy']).toBe('strict-origin-when-cross-origin')
+  expect(h['x-frame-options']).toBe('DENY')
+  expect(h['content-security-policy']).toBe("frame-ancestors 'none'")
+  const home = await request.get('/')
+  expect(home.headers()['x-content-type-options']).toBe('nosniff')
+  expect(home.headers()['x-frame-options']).toBeUndefined()
 })

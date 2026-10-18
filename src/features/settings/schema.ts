@@ -29,15 +29,18 @@ const optionalText = (max: number) =>
     .max(max, `Use até ${max} caracteres.`)
     .transform((v) => (v === '' ? null : v))
 
-/** Admin settings form. `today` is 'YYYY-MM-DD' in America/Boa_Vista (see todayInBoaVista). */
-export function settingsFormSchema(today: string) {
+/**
+ * Admin settings form. `today` is 'YYYY-MM-DD' in America/Boa_Vista (see todayInBoaVista).
+ * `storedDeadline` is the saved deadline: keeping it unchanged is always allowed, even once it has passed.
+ */
+export function settingsFormSchema(today: string, storedDeadline?: string) {
   return z.object({
     rsvpDeadline: z
       .string()
       .trim()
       .refine(isRealDate, 'Informe uma data válida.')
       .refine((v) => !isRealDate(v) || v <= MAX_DEADLINE, 'O prazo deve ser antes da festa.')
-      .refine((v) => !isRealDate(v) || v > MAX_DEADLINE || v >= today, 'O prazo não pode estar no passado.'),
+      .refine((v) => !isRealDate(v) || v > MAX_DEADLINE || v >= today || v === storedDeadline, 'O prazo não pode estar no passado.'),
     contactInfo: optionalText(200),
     closingMessage: optionalText(600),
     whatsappInviteTemplate: z

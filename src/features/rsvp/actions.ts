@@ -22,8 +22,8 @@ export async function submitRsvpAction(
 ): Promise<RsvpActionResult> {
   const token = field(formData, 'token') ?? ''
   const ip = getClientIp(await headers())
-  if (!rateLimit(`rsvp:${ip}:${token}`, { max: 10, windowMs: 60_000 }).ok) {
-    logger.warn({ event: 'rate_limit.exceeded', route: 'rsvp', ip }, 'rate limit exceeded')
+  if (!rateLimit(`rsvp:${ip}`, { max: 20, windowMs: 60_000 }).ok) {
+    logger.warn({ event: 'rate_limit.exceeded', route: 'rsvp' }, 'rate limit exceeded')
     return { ok: false, error: 'invalid' }
   }
   const plusOnesRaw = field(formData, 'plusOnes')
@@ -36,7 +36,7 @@ export async function submitRsvpAction(
       phone: field(formData, 'phone'),
     })
     if (!result.ok) {
-      logger.warn({ event: 'rsvp.rejected', error: result.error }, 'rsvp rejected')
+      logger.warn({ event: 'rsvp.rejected', reason: result.error }, 'rsvp rejected')
       return result
     }
     logger.info(

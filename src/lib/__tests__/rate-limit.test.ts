@@ -27,6 +27,18 @@ describe('rateLimit', () => {
   })
 })
 
+describe('rateLimit with mixed windows', () => {
+  beforeEach(() => resetRateLimits())
+
+  it('keeps a long-window key blocked when a short-window call prunes later', () => {
+    const login = { max: 5, windowMs: 15 * 60_000 }
+    for (let i = 0; i < 5; i++) expect(rateLimit('admin-login:ip', login, i).ok).toBe(true)
+    expect(rateLimit('admin-login:ip', login, 10).ok).toBe(false)
+    expect(rateLimit('ics:ip', { max: 60, windowMs: 60_000 }, 61_000).ok).toBe(true)
+    expect(rateLimit('admin-login:ip', login, 62_000).ok).toBe(false)
+  })
+})
+
 describe('getClientIp', () => {
   it('takes the right-most (proxy-appended) x-forwarded-for IP', () => {
     const h = new Headers({ 'x-forwarded-for': '1.1.1.1, 2.2.2.2' })

@@ -1,21 +1,31 @@
-const hits = new Map<string, number[]>()
+type Entry = { stamps: number[]; windowMs: number }
+
+const hits = new Map<string, Entry>()
+const SWEEP_EVERY_MS = 5_000
+let lastSweep = 0
+
+// Each key is pruned against its OWN window, so a short-window call never wipes a long-window entry.
+function sweep(now: number): void {
+  if (now - lastSweep < SWEEP_EVERY_MS) return
+  lastSweep = now
+  for (const [k, e] of hits) {
+    if (e.stamps.every((t) => now - t >= e.windowMs)) hits.delete(k)
+  }
+}
 
 export function rateLimit(
   key: string,
   opts: { max: number; windowMs: number },
   now = Date.now(),
 ): { ok: boolean; remaining: number } {
-  // prune expired entries of every key so the map doesn't grow unbounded
-  for (const [k, stamps] of hits) {
-    if (stamps.every((t) => now - t >= opts.windowMs)) hits.delete(k)
-  }
-  const recent = (hits.get(key) ?? []).filter((t) => now - t < opts.windowMs)
+  sweep(now)
+  const recent = (hits.get(key)?.stamps ?? []).filter((t) => now - t < opts.windowMs)
   if (recent.length >= opts.max) {
-    hits.set(key, recent)
+    hits.set(key, { stamps: recent, windowMs: opts.windowMs })
     return { ok: false, remaining: 0 }
   }
   recent.push(now)
-  hits.set(key, recent)
+  hits.set(key, { stamps: recent, windowMs: opts.windowMs })
   return { ok: true, remaining: opts.max - recent.length }
 }
 
@@ -27,4 +37,5 @@ export function getClientIp(headers: Headers): string {
 
 export function resetRateLimits(): void {
   hits.clear()
+  lastSweep = 0
 }

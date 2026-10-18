@@ -33,6 +33,12 @@ describe('settings form schema', () => {
     expect(messages(parse({ rsvpDeadline: '' }))).toContain('Informe uma data válida.')
   })
 
+  it('allows an unchanged deadline that is already in the past, but not a new past one', () => {
+    const past = { ...valid, rsvpDeadline: '2026-10-01', contactInfo: 'Novo contato' }
+    expect(settingsFormSchema(TODAY, '2026-10-01').safeParse(past).success).toBe(true)
+    expect(settingsFormSchema(TODAY, '2026-10-02').safeParse(past).success).toBe(false)
+  })
+
   it('enforces max lengths', () => {
     expect(messages(parse({ contactInfo: 'a'.repeat(201) }))).toContain('Use até 200 caracteres.')
     expect(messages(parse({ closingMessage: 'a'.repeat(601) }))).toContain('Use até 600 caracteres.')

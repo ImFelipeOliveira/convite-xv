@@ -74,7 +74,14 @@ export async function updateGuest(
 ): Promise<Guest | undefined> {
   const [row] = await db
     .update(guests)
-    .set({ ...d, updatedAt: sql`now()` })
+    .set({
+      ...d,
+      // keep the confirmed companions within a lowered limit
+      ...(d.plusOnesLimit !== undefined
+        ? { plusOnes: sql`least(${guests.plusOnes}, ${d.plusOnesLimit})` }
+        : {}),
+      updatedAt: sql`now()`,
+    })
     .where(eq(guests.id, id))
     .returning()
   return row

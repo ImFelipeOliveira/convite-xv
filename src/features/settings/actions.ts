@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requireAdmin } from '@/features/admin-auth/guard'
 import { logger } from '@/lib/logger'
-import { saveSettings } from './repo'
+import { getSettings, saveSettings } from './repo'
 import { settingsFormSchema, todayInBoaVista } from './schema'
 
 const FIELDS = ['rsvpDeadline', 'contactInfo', 'closingMessage', 'whatsappInviteTemplate'] as const
@@ -25,7 +25,7 @@ export async function saveSettingsAction(
 ): Promise<SettingsFormState> {
   const { adminId } = await requireAdmin()
   const values = Object.fromEntries(FIELDS.map((f) => [f, text(formData, f)])) as Record<Field, string>
-  const parsed = settingsFormSchema(todayInBoaVista()).safeParse(values)
+  const parsed = settingsFormSchema(todayInBoaVista(), (await getSettings()).rsvpDeadline).safeParse(values)
   if (!parsed.success) {
     const fieldErrors: Partial<Record<Field, string>> = {}
     for (const issue of parsed.error.issues) {

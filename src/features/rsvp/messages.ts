@@ -10,7 +10,9 @@ export function rsvpErrorMessage(error: RsvpError, limit?: number): string {
     case 'deadline_passed':
       return 'O prazo para responder terminou. Fale com a família pelo contato abaixo.'
     case 'over_limit':
-      return `Seu convite inclui até ${limit ?? 0} acompanhantes.`
+      return limit === 1
+        ? 'Seu convite inclui até 1 acompanhante.'
+        : `Seu convite inclui até ${limit ?? 0} acompanhantes.`
     case 'invalid_phone':
       return 'Telefone inválido. Use DDD + número.'
     case 'invalid':

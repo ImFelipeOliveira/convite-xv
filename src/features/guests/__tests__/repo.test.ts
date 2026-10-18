@@ -1,4 +1,7 @@
+import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
+import { db } from '@/server/db/client'
+import { guests } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
 import {
   createGuest,
@@ -36,6 +39,13 @@ describe('guests repo', () => {
     expect(await markOpened(g.id)).toBe(false)
     const [b] = await listGuests()
     expect(b.openedAt?.getTime()).toBe(t1?.getTime())
+  })
+
+  it('clamps confirmed plus-ones when the limit is lowered', async () => {
+    const g = await createGuest({ name: 'Cris', plusOnesLimit: 3 })
+    await db.update(guests).set({ plusOnes: 3 }).where(eq(guests.id, g.id))
+    expect((await updateGuest(g.id, { plusOnesLimit: 1 }))?.plusOnes).toBe(1)
+    expect((await updateGuest(g.id, { plusOnesLimit: 5 }))?.plusOnes).toBe(1)
   })
 
   it('creates, updates and deletes', async () => {

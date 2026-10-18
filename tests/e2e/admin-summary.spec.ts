@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { deleteGuestsByName, resetE2eGuestRsvp, resetE2eSettings } from './db'
 import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
+// sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.23' } })
+
 const OWN_GUESTS = ['Resumo Sim Um', 'Resumo Sim Dois', 'Resumo Aberto']
 
 async function signIn(page: Page) {

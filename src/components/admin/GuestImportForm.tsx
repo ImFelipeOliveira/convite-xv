@@ -39,6 +39,7 @@ export function GuestImportForm() {
           Importar
         </button>
       </div>
+      <p className="text-sm">Importar o mesmo arquivo de novo cria convidados repetidos.</p>
       <p role="status" className="text-sm">
         {state?.error && <span className="text-error">{state.error}</span>}
         {state && !state.error && (

@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   // a rate-limited client intentionally gets the same 404 as an unknown token (no enumeration signal)
   const ip = getClientIp(request.headers)
   if (!rateLimit(`invite:${ip}`, { max: 60, windowMs: 60_000 }).ok) {
-    logger.warn({ event: 'rate_limit.exceeded', route: 'invite', ip }, 'rate limit exceeded')
+    logger.warn({ event: 'rate_limit.exceeded', route: 'invite' }, 'rate limit exceeded')
     return notFound()
   }
   const token = request.nextUrl.pathname.split('/')[2] ?? ''

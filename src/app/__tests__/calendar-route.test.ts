@@ -21,7 +21,7 @@ describe('GET /c/[token]/calendar.ics', () => {
     const res = await call(g.token)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/calendar; charset=utf-8')
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="xv-isabella.ics"')
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="15-anos-isabella.ics"')
     expect(await res.text()).toContain(`/c/${g.token}`)
   })
 })
