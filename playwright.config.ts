@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { FAKE_EVOLUTION_API_KEY, FAKE_EVOLUTION_URL } from './tests/e2e/fake-evolution'
 import { E2E_PORT } from './tests/e2e/fixtures'
 
 try {
@@ -41,6 +42,10 @@ export default defineConfig({
     env: {
       DATABASE_URL: process.env.DATABASE_URL_TEST ?? '',
       APP_URL,
+      // fake Evolution API started by global-setup (tests/e2e/fake-evolution.ts)
+      EVOLUTION_URL: FAKE_EVOLUTION_URL,
+      EVOLUTION_API_KEY: FAKE_EVOLUTION_API_KEY,
+      EVOLUTION_INSTANCE: 'convite-xv',
     },
   },
 })

@@ -34,8 +34,9 @@ export async function createInviteDispatch(
   })
 }
 
-export async function markDispatchSent(id: string, providerMessageId: string): Promise<void> {
-  await db
+/** Marks a dispatch sent (DB clock) and returns the recorded `sentAt`. */
+export async function markDispatchSent(id: string, providerMessageId: string | null): Promise<Date> {
+  const [row] = await db
     .update(messageDispatches)
     .set({
       status: 'sent',
@@ -45,6 +46,8 @@ export async function markDispatchSent(id: string, providerMessageId: string): P
       updatedAt: sql`now()`,
     })
     .where(eq(messageDispatches.id, id))
+    .returning({ sentAt: messageDispatches.sentAt })
+  return row?.sentAt ?? new Date()
 }
 
 export async function markDispatchFailed(id: string, errorCode: string): Promise<void> {

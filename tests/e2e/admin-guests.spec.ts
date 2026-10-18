@@ -92,7 +92,7 @@ test.describe('admin guests', () => {
     expect(copied).toMatch(/^http:\/\/localhost:\d+\/c\/[0-9A-Za-z]{22}$/)
 
     // WhatsApp link opens in a new tab with the guest's number
-    const wa = ana.getByRole('link', { name: 'Enviar pelo WhatsApp' })
+    const wa = ana.getByRole('link', { name: 'Abrir no WhatsApp' })
     await expect(wa).toHaveAttribute('target', '_blank')
     await expect(wa).toHaveAttribute('href', /^https:\/\/wa\.me\/5595988887777\?text=/)
 

@@ -36,6 +36,8 @@ export type DataTableColumnMeta = {
   hideOnTablet?: boolean
   /** Hidden between 640px and 1024px (tablet without the sidebar). */
   hideOnSmallTablet?: boolean
+  /** Hidden between 640px and 1536px (only on wide desktops). */
+  hideBelowWide?: boolean
   align?: 'start' | 'end'
   className?: string
 }
@@ -103,8 +105,15 @@ function sortIcon(dir: false | 'asc' | 'desc') {
 
 const tabletHidden = 'sm:max-xl:hidden'
 const smallTabletHidden = 'sm:max-lg:hidden'
+const belowWideHidden = 'sm:max-2xl:hidden'
 const hiddenClass = (meta?: DataTableColumnMeta) =>
-  meta?.hideOnTablet ? tabletHidden : meta?.hideOnSmallTablet ? smallTabletHidden : ''
+  meta?.hideBelowWide
+    ? belowWideHidden
+    : meta?.hideOnTablet
+      ? tabletHidden
+      : meta?.hideOnSmallTablet
+        ? smallTabletHidden
+        : ''
 
 export function DataTable<T extends RowData>({
   data,
@@ -173,7 +182,12 @@ export function DataTable<T extends RowData>({
   return (
     <div className="flex flex-col gap-4">
       {/* toolbar */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div
+        className={`flex flex-col gap-3 ${
+          // several filter groups get their own wrapping row under the search
+          filters.length > 1 ? '' : 'lg:flex-row lg:items-center lg:justify-between'
+        }`}
+      >
         <div className="relative w-full lg:max-w-sm">
           <label htmlFor={`${uid}-search`} className="sr-only">
             {searchLabel}
@@ -211,54 +225,56 @@ export function DataTable<T extends RowData>({
           )}
         </div>
 
-        {filters.map((f) => {
-          const column = table.getColumn(f.columnId)
-          const current = column?.getFilterValue() as string | undefined
-          const groupId = `${uid}-${f.columnId}-label`
-          const chips = [{ value: undefined, label: 'Todas' }, ...f.options]
-          return (
-            <div
-              key={f.columnId}
-              role="group"
-              aria-labelledby={groupId}
-              className="flex flex-wrap items-center gap-2"
-            >
-              <span id={groupId} className="mr-1 text-sm text-muted max-sm:w-full">
-                {f.label}
-              </span>
-              {chips.map((opt) => {
-                const pressed = current === opt.value
-                const count = opt.value === undefined ? data.length : (counts[f.columnId]?.[opt.value] ?? 0)
-                return (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    aria-pressed={pressed}
-                    onClick={() => {
-                      column?.setFilterValue(opt.value)
-                      resetPage()
-                    }}
-                    className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm transition-[background-color,border-color,color] duration-(--dur-micro) ease-(--ease-letter) active:translate-y-px ${focusRing} ${
-                      pressed
-                        ? 'border-wine bg-wine text-paper'
-                        : 'border-hairline-strong bg-paper text-wine hover:border-seal hover:bg-blush'
-                    }`}
-                  >
-                    {opt.label}
-                    <span
-                      aria-hidden="true"
-                      className={`min-w-5 rounded-full px-1.5 text-center text-xs tabular-nums ${
-                        pressed ? 'bg-paper/20' : 'bg-blush text-muted'
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+          {filters.map((f) => {
+            const column = table.getColumn(f.columnId)
+            const current = column?.getFilterValue() as string | undefined
+            const groupId = `${uid}-${f.columnId}-label`
+            const chips = [{ value: undefined, label: 'Todas' }, ...f.options]
+            return (
+              <div
+                key={f.columnId}
+                role="group"
+                aria-labelledby={groupId}
+                className="flex flex-wrap items-center gap-2"
+              >
+                <span id={groupId} className="mr-1 text-sm text-muted max-sm:w-full">
+                  {f.label}
+                </span>
+                {chips.map((opt) => {
+                  const pressed = current === opt.value
+                  const count = opt.value === undefined ? data.length : (counts[f.columnId]?.[opt.value] ?? 0)
+                  return (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      aria-pressed={pressed}
+                      onClick={() => {
+                        column?.setFilterValue(opt.value)
+                        resetPage()
+                      }}
+                      className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm transition-[background-color,border-color,color] duration-(--dur-micro) ease-(--ease-letter) active:translate-y-px ${focusRing} ${
+                        pressed
+                          ? 'border-wine bg-wine text-paper'
+                          : 'border-hairline-strong bg-paper text-wine hover:border-seal hover:bg-blush'
                       }`}
                     >
-                      {count}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          )
-        })}
+                      {opt.label}
+                      <span
+                        aria-hidden="true"
+                        className={`min-w-5 rounded-full px-1.5 text-center text-xs tabular-nums ${
+                          pressed ? 'bg-paper/20' : 'bg-blush text-muted'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {/* table (cards below 640px, see globals.css .dt-table) */}

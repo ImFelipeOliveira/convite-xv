@@ -79,3 +79,21 @@ export async function seedGuests(prefix: string, count: number, confirmed = 0): 
   }
   return names
 }
+
+/** Inserts one guest (phone in E.164 or null) with a random token; returns its id. */
+export async function insertGuest(name: string, phone: string | null): Promise<string> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+  const token = Array.from({ length: 22 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const [row] = await drizzle(client)
+      .insert(guests)
+      .values({ name, phone, token, plusOnesLimit: 0 })
+      .returning({ id: guests.id })
+    return row.id
+  } finally {
+    await client.end()
+  }
+}

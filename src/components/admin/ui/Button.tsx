@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 import { buttonClass, type ButtonSize, type ButtonVariant } from '../styles'
 
 export function Spinner({ className = '' }: { className?: string }) {
@@ -11,6 +11,7 @@ export function Spinner({ className = '' }: { className?: string }) {
 }
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
+  ref?: Ref<HTMLButtonElement>
   variant?: ButtonVariant
   size?: ButtonSize
   icon?: ReactNode

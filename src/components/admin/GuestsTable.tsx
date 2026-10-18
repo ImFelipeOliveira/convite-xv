@@ -8,6 +8,7 @@ import { compareText, formatBoaVistaDateTime } from './data-table/helpers'
 import { buttonClass, focusRing } from './styles'
 import { GuestForm } from './GuestForm'
 import { GuestImportForm } from './GuestImportForm'
+import { SendInviteButton, type LastInvite } from './SendInviteButton'
 import { RsvpBadge, type RsvpStatusValue } from './ui/Badge'
 import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
@@ -28,6 +29,11 @@ export type GuestRow = {
   openedAt: string | null
   inviteUrl: string
   whatsappUrl: string
+  hasPhone: boolean
+  /** latest invite sent through the WhatsApp integration (at = ISO) */
+  lastInvite: LastInvite
+  /** filter value of the "Convite" chips */
+  inviteStatus: 'none' | 'sending' | 'sent' | 'failed'
 }
 
 type SheetState = { kind: 'new' } | { kind: 'edit'; guest: GuestRow } | { kind: 'import' } | null
@@ -42,6 +48,15 @@ const FILTERS: DataTableFilter[] = [
       { value: 'pending', label: 'Pendente' },
       { value: 'yes', label: 'Sim' },
       { value: 'no', label: 'Não' },
+    ],
+  },
+  {
+    columnId: 'inviteStatus',
+    label: 'Convite',
+    options: [
+      { value: 'none', label: 'Não enviado' },
+      { value: 'sent', label: 'Enviado' },
+      { value: 'failed', label: 'Falhou' },
     ],
   },
 ]
@@ -68,7 +83,7 @@ function RowActions({
   }
   const labelled = 'max-sm:w-auto max-sm:gap-2 max-sm:px-3 max-sm:text-sm'
   return (
-    <div className="flex flex-wrap items-center gap-1 sm:max-md:grid sm:max-md:grid-cols-2 sm:flex-nowrap sm:justify-end">
+    <div className="flex flex-wrap items-center gap-1 sm:max-xl:grid sm:max-xl:grid-cols-[repeat(2,2.75rem)] sm:flex-nowrap sm:justify-end">
       <button
         type="button"
         onClick={copyLink}
@@ -85,8 +100,8 @@ function RowActions({
         href={guest.whatsappUrl}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label={`Enviar pelo WhatsApp para ${guest.name}`}
-        title="Enviar pelo WhatsApp"
+        aria-label={`Abrir no WhatsApp — ${guest.name}`}
+        title="Abrir no WhatsApp"
         className={`${iconButton} ${labelled}`}
       >
         <MessageCircle aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
@@ -153,21 +168,37 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         helper.accessor('plusOnesLimit', {
           header: 'Limite',
           enableSorting: true,
-          meta: { hideOnTablet: true, className: 'tabular-nums' },
+          meta: { hideBelowWide: true, className: 'tabular-nums' },
         }),
         helper.accessor('rsvpStatus', {
           header: 'Resposta',
           meta: {},
           cell: (info) => <RsvpBadge status={info.getValue()} />,
         }),
+        helper.accessor('inviteStatus', {
+          id: 'inviteStatus',
+          header: 'WhatsApp',
+          // full card width on phones (status + button don't fit half a card)
+          meta: { className: 'max-sm:col-span-2 xl:whitespace-nowrap' },
+          cell: ({ row }) => (
+            <SendInviteButton
+              guest={{
+                id: row.original.id,
+                name: row.original.name,
+                hasPhone: row.original.hasPhone,
+                lastInvite: row.original.lastInvite,
+              }}
+            />
+          ),
+        }),
         helper.accessor('people', {
           header: 'Pessoas',
-          meta: { hideOnSmallTablet: true, className: 'tabular-nums' },
+          meta: { hideOnTablet: true, className: 'tabular-nums' },
           cell: (info) => info.getValue() ?? <span className="text-muted">—</span>,
         }),
         helper.accessor('openedAt', {
           header: 'Abriu o convite',
-          meta: { hideOnTablet: true, label: 'Abriu', className: 'whitespace-nowrap' },
+          meta: { hideBelowWide: true, label: 'Abriu', className: 'whitespace-nowrap' },
           cell: (info) =>
             info.getValue() ? (
               formatBoaVistaDateTime(info.getValue())
