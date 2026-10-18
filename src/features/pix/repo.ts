@@ -143,8 +143,9 @@ export async function saveGuestCustomerId(
 }
 
 /**
- * What the invite shows on load: the guest's newest charge that is either paid or still payable
- * (pending, expiring after `now`), plus the amount of their newest paid charge.
+ * What the invite shows on load: the guest's newest charge that is either paid (and not refunded) or
+ * still payable (pending, expiring after `now`), plus their newest paid, unrefunded charge. A refunded
+ * Pix never counts as paid here (same rule as guestHasActivePaidPix): the guest can give again.
  */
 export async function findGuestPixState(
   guestId: string,
@@ -158,7 +159,7 @@ export async function findGuestPixState(
       and(
         eq(pixPayments.guestId, guestId),
         or(
-          eq(pixPayments.status, 'paid'),
+          and(eq(pixPayments.status, 'paid'), isNull(pixPayments.refundedAt)),
           and(eq(pixPayments.status, 'pending'), gt(pixPayments.expiresAt, now)),
         ),
       ),
@@ -168,7 +169,7 @@ export async function findGuestPixState(
   const [paid] = await q
     .select()
     .from(pixPayments)
-    .where(and(eq(pixPayments.guestId, guestId), eq(pixPayments.status, 'paid')))
+    .where(and(eq(pixPayments.guestId, guestId), eq(pixPayments.status, 'paid'), isNull(pixPayments.refundedAt)))
     .orderBy(desc(pixPayments.paidAt), desc(pixPayments.createdAt))
     .limit(1)
   return { current: current ?? null, paid: paid ?? null }

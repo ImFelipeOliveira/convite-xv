@@ -113,15 +113,21 @@ function resolve(deps: PixDeps) {
   }
 }
 
+/**
+ * What the guest sees of a charge. A refunded Pix stays `paid` in our table (the admin shows
+ * "Estornado"), but the guest never sees it as paid: it reads as `cancelled`, so the invite offers a
+ * new Pix instead of thanking for money that went back.
+ */
 export function toPixView(row: PixPayment): PixView {
+  const refunded = row.status === 'paid' && row.refundedAt !== null
   return {
     id: row.id,
     amountCents: row.amountCents,
-    status: row.status,
+    status: refunded ? 'cancelled' : row.status,
     qrImage: row.qrImage,
     copyPaste: row.copyPaste,
     expiresAt: row.expiresAt?.toISOString() ?? null,
-    paidAt: row.paidAt?.toISOString() ?? null,
+    paidAt: refunded ? null : (row.paidAt?.toISOString() ?? null),
   }
 }
 
@@ -352,8 +358,8 @@ export async function getPixStatus(
 }
 
 /**
- * For the invite on load: the charge to show (newest paid, or still payable pending) and the amount of
- * the guest's newest paid Pix (so the RSVP screen thanks for it).
+ * For the invite on load: the charge to show (newest paid and not refunded, or still payable pending)
+ * and the amount of the guest's newest unrefunded paid Pix (so the RSVP screen thanks for it).
  */
 export async function getGuestPixState(
   guestId: string,

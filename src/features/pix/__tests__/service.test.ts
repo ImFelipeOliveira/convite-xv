@@ -531,4 +531,48 @@ describe('getGuestPixState', () => {
     expect(state.paidCents).toBe(15000)
     expect(state.current).toMatchObject({ id: b.payment.id, status: 'paid' })
   })
+
+  it('treats a refunded paid charge as not paid (the guest can give again)', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const a = await generatePix(guest, 7000, deps(f))
+    if (!a.ok) throw new Error('expected ok')
+    await db
+      .update(pixPayments)
+      .set({ status: 'paid', paidAt: NOW, refundedAt: NOW })
+      .where(eq(pixPayments.id, a.payment.id))
+    expect(await getGuestPixState(guest.id, NOW)).toEqual({ current: null, paidCents: null })
+  })
+
+  it('shows an active paid charge even when an older one was refunded', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const a = await generatePix(guest, 7000, deps(f))
+    const b = await generatePix(guest, 15000, deps(f, { now: () => new Date(NOW.getTime() + 1000) }))
+    if (!a.ok || !b.ok) throw new Error('expected ok')
+    await db.update(pixPayments).set({ status: 'paid', paidAt: NOW }).where(eq(pixPayments.id, a.payment.id))
+    // the newer one was paid later and then refunded: the older, unrefunded one is what counts
+    await db
+      .update(pixPayments)
+      .set({ status: 'paid', paidAt: new Date(NOW.getTime() + 2000), refundedAt: NOW })
+      .where(eq(pixPayments.id, b.payment.id))
+    const state = await getGuestPixState(guest.id, NOW)
+    expect(state.paidCents).toBe(7000)
+    expect(state.current).toMatchObject({ id: a.payment.id, status: 'paid' })
+  })
+})
+
+describe('getPixStatus for a refunded charge', () => {
+  it('reports a refunded paid charge as cancelled, never paid', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const a = await generatePix(guest, 7000, deps(f))
+    if (!a.ok) throw new Error('expected ok')
+    await db
+      .update(pixPayments)
+      .set({ status: 'paid', paidAt: NOW, refundedAt: NOW })
+      .where(eq(pixPayments.id, a.payment.id))
+    const view = await getPixStatus(guest.id, a.payment.id, deps(f))
+    expect(view).toMatchObject({ id: a.payment.id, status: 'cancelled', paidAt: null })
+  })
 })
