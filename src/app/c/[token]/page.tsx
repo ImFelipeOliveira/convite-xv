@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { headers } from 'next/headers'
 import { connection } from 'next/server'
 import { Closing } from '@/components/invite/Closing'
 import { Hero } from '@/components/invite/Hero'
@@ -10,6 +11,7 @@ import { findGuestByToken, markOpened } from '@/features/guests/repo'
 import { isDeadlinePassed } from '@/features/rsvp/deadline'
 import { toRsvpGuestView } from '@/features/rsvp/view'
 import { getSettings } from '@/features/settings/repo'
+import { isLinkPreviewBot } from '@/lib/bots'
 
 // Rate limit and the 404 status for unknown tokens live in src/proxy.ts (the shell streams
 // before this lookup, so notFound() here can't change the status). The gate needs the guest,
@@ -26,7 +28,7 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
   const { token } = await params
   const guest = await findGuestByToken(token)
   if (!guest) notFound()
-  await markOpened(guest.id)
+  if (!isLinkPreviewBot((await headers()).get('user-agent') ?? '')) await markOpened(guest.id)
   const settings = await getSettings()
   const now = await requestTime()
 
