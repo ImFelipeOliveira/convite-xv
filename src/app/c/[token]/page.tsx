@@ -12,6 +12,7 @@ import { findGuestByToken, markOpened } from '@/features/guests/repo'
 import { isDeadlinePassed } from '@/features/rsvp/deadline'
 import { toRsvpGuestView } from '@/features/rsvp/view'
 import { getSettings } from '@/features/settings/repo'
+import { getAppUrl } from '@/lib/app-url'
 import { isLinkPreviewBot } from '@/lib/bots'
 
 // Rate limit and the 404 status for unknown tokens live in src/proxy.ts (the shell streams
@@ -20,7 +21,7 @@ import { isLinkPreviewBot } from '@/lib/bots'
 export const instant = false
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.APP_URL ?? 'http://localhost:3000'),
+  metadataBase: getAppUrl(),
   title: 'Isabella · 15 anos',
   description: 'Você recebeu um convite. Toque para abrir a carta.',
   openGraph: { type: 'website' },

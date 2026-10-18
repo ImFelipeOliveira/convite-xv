@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
-import { E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
+import { E2E_GUEST_NAME, E2E_GUEST_TOKEN, E2E_PORT } from './fixtures'
 
 const invitePath = `/c/${E2E_GUEST_TOKEN}`
-const appUrl = process.env.APP_URL ?? 'http://localhost:3000'
+const appUrl = `http://localhost:${E2E_PORT}`
 
 function metaContent(html: string, property: string): string | undefined {
   const tag = html.match(new RegExp(`<meta[^>]*property="${property}"[^>]*>`))?.[0]
@@ -15,7 +15,7 @@ test('invite page exposes the letter preview metadata', async ({ request }) => {
   expect(metaContent(html, 'og:title')).toBe('Isabella · 15 anos')
   expect(metaContent(html, 'og:description')).toBe('Você recebeu um convite. Toque para abrir a carta.')
   expect(metaContent(html, 'og:type')).toBe('website')
-  expect(metaContent(html, 'og:image')).toMatch(new RegExp(`^${appUrl}/`))
+  expect(metaContent(html, 'og:image')?.startsWith(`${appUrl}/`)).toBe(true)
 
   const ogTags = html.match(/<meta[^>]*property="og:[^>]*>/g)?.join('\n') ?? ''
   expect(ogTags).not.toContain(E2E_GUEST_NAME)

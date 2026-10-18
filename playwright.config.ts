@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { E2E_PORT } from './tests/e2e/fixtures'
 
 try {
   process.loadEnvFile('.env.local')
@@ -6,7 +7,7 @@ try {
   // no .env.local: fall back to the process environment
 }
 
-const PORT = 3000
+const PORT = E2E_PORT
 const APP_URL = `http://localhost:${PORT}`
 
 // e2e runs against the TEST database (DATABASE_URL_TEST), which vitest also truncates:
