@@ -2,18 +2,36 @@
 // (ASAAS_BASE_URL=http://127.0.0.1:4120, ASAAS_API_KEY=test-key, see playwright.config.ts).
 // Like the sandbox, a customer without cpfCnpj is refused. Control endpoints (no access_token):
 //   POST /__mode {failPayments?, latencyMs?}  – 500 on POST /payments; delay every Asaas answer
-//   POST /__payments/latest/status {status}  – sets the newest charge's Asaas status (e.g. RECEIVED)
+//   POST /__payments/latest/status {status}  – sets the newest charge's Asaas status (e.g. RECEIVED),
+//                                              picked up by the app's status poll
+//   POST /__payments/latest/webhook {event, eventId?} – delivers an Asaas webhook for the newest charge
+//                                              to the app (POST /api/webhooks/asaas, with the test token);
+//                                              the charge's own status is left alone, so only the webhook
+//                                              path can settle it. Answers {status, body} of the app.
 //   GET /__calls                              – the Asaas calls so far ("METHOD /path")
 //   POST /__reset                             – clears calls, charges and modes
 import './load-env'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { deflateSync } from 'node:zlib'
+import { E2E_PORT } from './fixtures'
 
 export const FAKE_ASAAS_PORT = Number(process.env.FAKE_ASAAS_PORT || 4120)
 export const FAKE_ASAAS_URL = `http://127.0.0.1:${FAKE_ASAAS_PORT}`
 export const FAKE_ASAAS_API_KEY = 'test-key'
+/** ASAAS_WEBHOOK_TOKEN of the e2e app (playwright.config.ts). */
+export const FAKE_ASAAS_WEBHOOK_TOKEN = 'test-webhook-token'
+const APP_WEBHOOK_URL = `http://localhost:${E2E_PORT}/api/webhooks/asaas`
 
-type Charge = { id: string; status: string; value: number }
+type Charge = { id: string; status: string; value: number; externalReference: string | null }
+
+/** The Asaas payment status that comes with each webhook event. */
+const EVENT_STATUS: Record<string, string> = {
+  PAYMENT_RECEIVED: 'RECEIVED',
+  PAYMENT_CONFIRMED: 'CONFIRMED',
+  PAYMENT_OVERDUE: 'OVERDUE',
+  PAYMENT_DELETED: 'DELETED',
+  PAYMENT_REFUNDED: 'REFUNDED',
+}
 
 // --- a QR-looking PNG (not scannable) so screenshots show something realistic ---
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
@@ -108,6 +126,7 @@ export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: (
   let charges: Charge[] = []
   let customerN = 0
   let paymentN = 0
+  let eventN = 0
   let failPayments = false
   let latencyMs = 0
 
@@ -129,6 +148,31 @@ export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: (
       if (!latest || typeof body?.status !== 'string') return json(res, 404, { error: 'no charge' })
       latest.status = body.status
       return json(res, 200, latest)
+    }
+    if (path === '/__payments/latest/webhook' && method === 'POST') {
+      const body = await readBody(req)
+      const latest = charges[charges.length - 1]
+      if (!latest || typeof body?.event !== 'string') return json(res, 404, { error: 'no charge' })
+      const eventId = typeof body.eventId === 'string' ? body.eventId : `evt_fake_${++eventN}&${Date.now()}`
+      const delivery = await fetch(APP_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'asaas-access-token': FAKE_ASAAS_WEBHOOK_TOKEN },
+        body: JSON.stringify({
+          id: eventId,
+          event: body.event,
+          dateCreated: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          account: { id: 'acc_fake', ownerId: null },
+          payment: {
+            object: 'payment',
+            id: latest.id,
+            status: EVENT_STATUS[body.event] ?? latest.status,
+            value: latest.value,
+            billingType: 'PIX',
+            externalReference: latest.externalReference,
+          },
+        }),
+      })
+      return json(res, 200, { status: delivery.status, body: await delivery.json().catch(() => null) })
     }
     if (path === '/__calls' && method === 'GET') return json(res, 200, calls)
     if (path === '/__reset' && method === 'POST') {
@@ -158,7 +202,12 @@ export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: (
     if (apiPath === '/payments' && method === 'POST') {
       const body = await readBody(req)
       if (failPayments) return json(res, 500, { errors: [{ code: 'internal', description: 'boom' }] })
-      const charge = { id: `pay_fake_${++paymentN}`, status: 'PENDING', value: Number(body?.value ?? 0) }
+      const charge = {
+        id: `pay_fake_${++paymentN}`,
+        status: 'PENDING',
+        value: Number(body?.value ?? 0),
+        externalReference: typeof body?.externalReference === 'string' ? body.externalReference : null,
+      }
       charges.push(charge)
       return json(res, 200, { id: charge.id, status: charge.status, value: charge.value, billingType: 'PIX' })
     }
@@ -226,6 +275,20 @@ export async function setLatestFakeChargeStatus(status: string): Promise<void> {
     body: JSON.stringify({ status }),
   })
   if (!res.ok) throw new Error(`fake asaas: set status failed (${res.status})`)
+}
+
+/** Has the fake deliver an Asaas webhook for the newest charge to the app; returns the app's answer. */
+export async function sendFakeAsaasWebhook(
+  event: string,
+  eventId?: string,
+): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`${FAKE_ASAAS_URL}/__payments/latest/webhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ event, eventId }),
+  })
+  if (!res.ok) throw new Error(`fake asaas: webhook failed (${res.status})`)
+  return (await res.json()) as { status: number; body: unknown }
 }
 
 export async function fakeAsaasCalls(): Promise<string[]> {

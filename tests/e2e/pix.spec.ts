@@ -1,12 +1,19 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { deleteGiftsByName, deletePixPaymentsForTokens, resetE2eGuestRsvp, seedGifts, setE2eGuestRsvp } from './db'
-import { fakeAsaasCalls, resetFakeAsaas, setFakeAsaasMode, setLatestFakeChargeStatus } from './fake-asaas'
+import {
+  fakeAsaasCalls,
+  resetFakeAsaas,
+  sendFakeAsaasWebhook,
+  setFakeAsaasMode,
+  setLatestFakeChargeStatus,
+} from './fake-asaas'
 import { E2E_GUEST_TOKEN } from './fixtures'
 
 // The invite's Pix section (prancha 09) against the fake Asaas (tests/e2e/fake-asaas.ts). The webServer
-// runs with FEATURES=gifts,pix, ASAAS_REQUIRE_PAYER_CPF=true and PIX_POLL_AFTER_MS=0, so a charge the
-// fake marks as RECEIVED shows up on the guest's next 5 s status poll (the webhook comes in Task 7).
+// runs with FEATURES=gifts,pix, ASAAS_REQUIRE_PAYER_CPF=true and ASAAS_WEBHOOK_TOKEN set: payments are
+// settled through the real webhook (the fake POSTs /api/webhooks/asaas, sendFakeAsaasWebhook) and show up
+// on the guest's next 5 s status poll. One test covers the poll fallback (PIX_POLL_AFTER_MS=0).
 const VALID_CPF = '529.982.247-25'
 const GIFT = 'E2E Pix Caneca'
 
@@ -93,7 +100,12 @@ test('R$ 100: shows the QR and copy-paste code, copies it, then turns paid after
   // the CPF went to Asaas once (customer), never stored on the page
   expect((await fakeAsaasCalls()).filter((c) => c === 'POST /customers')).toHaveLength(1)
 
-  await setLatestFakeChargeStatus('RECEIVED')
+  // the bank confirms: Asaas delivers PAYMENT_RECEIVED to our webhook (a redelivery is a no-op)
+  expect(await sendFakeAsaasWebhook('PAYMENT_RECEIVED', 'evt_e2e_received')).toEqual({ status: 200, body: { ok: true } })
+  expect(await sendFakeAsaasWebhook('PAYMENT_RECEIVED', 'evt_e2e_received')).toEqual({
+    status: 200,
+    body: { ok: true, duplicate: true },
+  })
   await expect(section.getByRole('heading', { name: 'Pix recebido.' })).toBeVisible({ timeout: 15_000 })
   // the QR step is gone: focus lands on the thanks
   await expect(section.getByRole('heading', { name: 'Pix recebido.' })).toBeFocused()
@@ -102,6 +114,21 @@ test('R$ 100: shows the QR and copy-paste code, copies it, then turns paid after
   await expect(section.getByText('Seu carinho chegou. Obrigada por fazer parte desse dia!')).toBeVisible()
   await settle(page)
   await shot(section, 'paid')
+
+  // a late OVERDUE never downgrades a paid Pix
+  expect(await sendFakeAsaasWebhook('PAYMENT_OVERDUE')).toEqual({ status: 200, body: { ok: true } })
+  const again = await openPix(page, { reload: true })
+  await expect(again.getByRole('heading', { name: 'Pix recebido.' })).toBeVisible()
+})
+
+test('without a webhook, the status poll still picks up the payment', async ({ page }) => {
+  const section = await openPix(page)
+  await cpfInput(section).fill(VALID_CPF)
+  await section.getByRole('button', { name: 'Gerar Pix' }).click()
+  await expect(section.getByText('AGUARDANDO PAGAMENTO')).toBeVisible()
+  // only the fake's charge status changes: the app asks Asaas itself (fallback poll)
+  await setLatestFakeChargeStatus('RECEIVED')
+  await expect(section.getByRole('heading', { name: 'Pix recebido.' })).toBeVisible({ timeout: 15_000 })
 })
 
 test('"Outro valor" below R$ 70 shows the minimum and never calls Asaas', async ({ page }) => {
@@ -123,6 +150,7 @@ test('"Outro valor" below R$ 70 shows the minimum and never calls Asaas', async 
   await expect(section.getByTestId('pix-amount')).toHaveText('R$ 70,50')
   await input.fill('1250')
   await expect(section.getByTestId('pix-amount')).toHaveText('R$ 1.250,00')
+
   await input.fill('100.50')
   await expect(input).toHaveValue('100,50')
   await expect(section.getByTestId('pix-amount')).toHaveText('R$ 100,50')
@@ -171,7 +199,7 @@ test('an expired charge asks for a new one', async ({ page }) => {
   await cpfInput(section).fill(VALID_CPF)
   await section.getByRole('button', { name: 'Gerar Pix' }).click()
   await expect(section.getByRole('img', { name: /QR Code Pix/ })).toBeVisible()
-  await setLatestFakeChargeStatus('OVERDUE')
+  await sendFakeAsaasWebhook('PAYMENT_OVERDUE')
   await expect(section.getByText('Este Pix expirou. Gere um novo.')).toBeVisible({ timeout: 15_000 })
   await expect(section.getByRole('button', { name: 'Gerar Pix' })).toBeVisible()
 })
@@ -246,7 +274,7 @@ test.describe('with the gift list', () => {
     await cpfInput(section).fill(VALID_CPF)
     await section.getByRole('button', { name: 'Gerar Pix' }).click()
     await expect(section.getByText('AGUARDANDO PAGAMENTO')).toBeVisible()
-    await setLatestFakeChargeStatus('RECEIVED')
+    await sendFakeAsaasWebhook('PAYMENT_CONFIRMED')
     await expect(section.getByRole('heading', { name: 'Pix recebido.' })).toBeVisible({ timeout: 15_000 })
 
     await expect(rsvp.getByText('Obrigada pelo presente!')).toBeVisible()
@@ -294,7 +322,7 @@ test('Pix section has no serious accessibility violations', async ({ page }) => 
   await expect(section.getByRole('img', { name: /QR Code Pix/ })).toBeVisible()
   expect(await scan()).toEqual([])
 
-  await setLatestFakeChargeStatus('RECEIVED')
+  await sendFakeAsaasWebhook('PAYMENT_RECEIVED')
   await expect(section.getByRole('heading', { name: 'Pix recebido.' })).toBeVisible({ timeout: 15_000 })
   expect(await scan()).toEqual([])
 })

@@ -1,6 +1,6 @@
-import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNull, ne, or, sql } from 'drizzle-orm'
 import { db } from '@/server/db/client'
-import { guests, pixPayments, settings, type PixPayment, type PixStatus } from '@/server/db/schema'
+import { guests, pixPayments, settings, webhookEvents, type PixPayment, type PixStatus } from '@/server/db/schema'
 
 /** The shared client or an open transaction (queries made under a lock run on its connection). */
 export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -172,4 +172,53 @@ export async function findGuestPixState(
     .orderBy(desc(pixPayments.paidAt), desc(pixPayments.createdAt))
     .limit(1)
   return { current: current ?? null, paid: paid ?? null }
+}
+
+/**
+ * Records a webhook event (pk = Asaas event id). False when it was already recorded (a redelivery).
+ * Inside the caller's transaction, a concurrent delivery of the same event waits for it to commit.
+ */
+export async function insertWebhookEvent(
+  input: { id: string; type: string; paymentId: string | null; now: Date },
+  q: Executor = db,
+): Promise<boolean> {
+  const rows = await q
+    .insert(webhookEvents)
+    .values({ id: input.id, type: input.type, paymentId: input.paymentId, receivedAt: input.now })
+    .onConflictDoNothing()
+    .returning({ id: webhookEvents.id })
+  return rows.length > 0
+}
+
+export async function markWebhookEventProcessed(id: string, now: Date, q: Executor = db): Promise<void> {
+  await q.update(webhookEvents).set({ processedAt: now }).where(eq(webhookEvents.id, id))
+}
+
+/**
+ * The payment a webhook refers to: by Asaas payment id, else by `externalReference` (our id) for a row
+ * that has no Asaas id stored.
+ */
+export async function findPaymentForWebhook(
+  asaasPaymentId: string,
+  externalReference: string | null,
+  q: Executor = db,
+): Promise<PixPayment | null> {
+  const [byAsaas] = await q.select().from(pixPayments).where(eq(pixPayments.asaasPaymentId, asaasPaymentId))
+  if (byAsaas) return byAsaas
+  if (!externalReference || !UUID.test(externalReference)) return null
+  const [byRef] = await q
+    .select()
+    .from(pixPayments)
+    .where(and(eq(pixPayments.id, externalReference), isNull(pixPayments.asaasPaymentId)))
+  return byRef ?? null
+}
+
+/** Marks a payment `paid` (from any status but `paid`: the money arrived). Null when it already was. */
+export async function markPaymentPaid(id: string, now: Date, q: Executor = db): Promise<PixPayment | null> {
+  const [row] = await q
+    .update(pixPayments)
+    .set({ status: 'paid', paidAt: now, updatedAt: now })
+    .where(and(eq(pixPayments.id, id), ne(pixPayments.status, 'paid')))
+    .returning()
+  return row ?? null
 }
