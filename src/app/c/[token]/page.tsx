@@ -49,6 +49,8 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
   const now = await requestTime()
   // only free | mine | taken reaches the browser; an empty catalog hides the section
   const gifts = isFeatureEnabled('gifts') ? toGiftViews(await listGiftsForInvite(), guest.id) : []
+  // the one rule for showing the gift list (the section, its Closing shortcut and GiftChoiceProvider)
+  const hasGifts = gifts.length > 0
   // Pix: the section needs the flag AND an Asaas config (flag on without config → "indisponível")
   const pixEnabled = isFeatureEnabled('pix')
   const pixConfigured = pixEnabled && readAsaasConfig() !== null
@@ -68,7 +70,7 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
         closed={isDeadlinePassed(settings.rsvpDeadline, new Date(now))}
         contact={settings.contactInfo}
       />
-      {gifts.length > 0 && (
+      {hasGifts && (
         <Gifts
           id="gifts"
           token={token}
@@ -90,7 +92,7 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
       ) : (
         pixEnabled && <PixUnavailable id="pix" />
       )}
-      <Closing message={settings.closingMessage} contactInfo={settings.contactInfo} />
+      <Closing message={settings.closingMessage} contactInfo={settings.contactInfo} hasGifts={hasGifts} />
     </main>
   )
 
@@ -98,7 +100,7 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
     <>
       <MarkOpened token={token} />
       <Opening name={EVENT.celebrant}>
-        {gifts.length > 0 ? (
+        {hasGifts ? (
           <GiftChoiceProvider chosenNames={chosenGiftNames(gifts)} givenElsewhere={givenElsewhere}>
             {body}
           </GiftChoiceProvider>

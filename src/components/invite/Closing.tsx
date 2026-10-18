@@ -6,19 +6,30 @@ import { Reveal, RevealItem } from './Reveal'
 import './closing.css'
 
 // Closing (prancha 10): marquee, the lily drawn in gold, "Obrigada" in ink, the celebrant's message
-// and the chapter shortcuts. Gifts (V) and Pix (VI) only appear when their feature flag is on.
+// and the chapter shortcuts. Gifts (V) only appear when the gift section renders (`hasGifts`: flag on
+// and a non-empty catalog, decided by the page); Pix (VI) when its flag is on (the section, or its
+// "indisponível" notice, always renders then).
 type Shortcut = { label: string; numeral: string; href: string }
 
-function shortcuts(): Shortcut[] {
+function shortcuts(hasGifts: boolean): Shortcut[] {
   return [
     { label: 'Presença', numeral: 'IV', href: '#rsvp' },
     { label: 'Local', numeral: 'III', href: '#venue' },
-    ...(isFeatureEnabled('gifts') ? [{ label: 'Presentes', numeral: 'V', href: '#gifts' }] : []),
+    ...(hasGifts ? [{ label: 'Presentes', numeral: 'V', href: '#gifts' }] : []),
     ...(isFeatureEnabled('pix') ? [{ label: 'Pix', numeral: 'VI', href: '#pix' }] : []),
   ]
 }
 
-export function Closing({ message, contactInfo }: { message: string | null; contactInfo: string | null }) {
+export function Closing({
+  message,
+  contactInfo,
+  hasGifts,
+}: {
+  message: string | null
+  contactInfo: string | null
+  /** the page renders the #gifts section (gifts flag on and a non-empty catalog) */
+  hasGifts: boolean
+}) {
   return (
     <Reveal
       as="section"
@@ -66,7 +77,7 @@ export function Closing({ message, contactInfo }: { message: string | null; cont
           aria-label="Atalhos do convite"
           className="grid grid-cols-2 border-t border-[rgba(227,200,145,.35)]"
         >
-          {shortcuts().map((s, i) => (
+          {shortcuts(hasGifts).map((s, i) => (
             <a
               key={s.href}
               href={s.href}

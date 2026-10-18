@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { deleteGiftsByName, seedGifts } from './db'
 import { E2E_GUEST_TOKEN } from './fixtures'
 
 const invitePath = `/c/${E2E_GUEST_TOKEN}`
@@ -30,13 +31,30 @@ test('adds the event to the calendar as an .ics file', async ({ page }) => {
   expect(body).toContain('BEGIN:VCALENDAR')
 })
 
-test('closing shows the RSVP, venue, gifts and Pix shortcuts (flags on in e2e)', async ({ page }) => {
-  // playwright.config.ts runs the server with FEATURES=gifts,pix; flags off is covered by the Closing unit test
-  const shortcuts = page.getByRole('navigation', { name: 'Atalhos do convite' })
-  await expect(shortcuts.getByRole('link', { name: 'Presença' })).toBeVisible()
-  await expect(shortcuts.getByRole('link', { name: 'Local' })).toBeVisible()
-  await expect(shortcuts.getByRole('link', { name: 'Presentes' })).toHaveAttribute('href', '#gifts')
-  await expect(shortcuts.getByRole('link', { name: 'Pix' })).toHaveAttribute('href', '#pix')
+test.describe('closing shortcuts', () => {
+  const GIFT = 'E2E Closing Presente'
+  test.afterEach(async () => {
+    await deleteGiftsByName([GIFT])
+  })
+
+  test('closing shows the RSVP, venue, gifts and Pix shortcuts (flags on, catalog not empty)', async ({ page }) => {
+    // playwright.config.ts runs the server with FEATURES=gifts,pix; flags off is covered by the Closing unit test
+    await seedGifts([{ name: GIFT, category: 'Casa' }])
+    await page.reload()
+    await page.getByRole('button', { name: 'Entrar sem animação' }).click()
+    const shortcuts = page.getByRole('navigation', { name: 'Atalhos do convite' })
+    await expect(shortcuts.getByRole('link', { name: 'Presença' })).toBeVisible()
+    await expect(shortcuts.getByRole('link', { name: 'Local' })).toBeVisible()
+    await expect(shortcuts.getByRole('link', { name: 'Presentes' })).toHaveAttribute('href', '#gifts')
+    await expect(shortcuts.getByRole('link', { name: 'Pix' })).toHaveAttribute('href', '#pix')
+  })
+
+  test('an empty gift catalog shows no dead "Presentes" shortcut', async ({ page }) => {
+    await expect(page.locator('#gifts')).toHaveCount(0)
+    const shortcuts = page.getByRole('navigation', { name: 'Atalhos do convite' })
+    await expect(shortcuts.getByRole('link', { name: 'Pix' })).toHaveAttribute('href', '#pix')
+    await expect(shortcuts.getByRole('link', { name: 'Presentes' })).toHaveCount(0)
+  })
 })
 
 test('hero CTA anchors to the RSVP section', async ({ page }) => {
