@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { db } from '@/server/db/client'
-import { gifts } from '@/server/db/schema'
+import { gifts, guests } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
 import {
   adminReleaseGift,
@@ -45,13 +45,26 @@ describe('gifts repo', () => {
     expect(row.reservedAt).not.toBeNull()
   })
 
-  it('lets exactly one of two concurrent reserves win', async () => {
+  it('lets exactly one of many concurrent reserves win', async () => {
     const g = await createGift(base)
-    const one = await makeGuest()
-    const two = await makeGuest()
-    const results = await Promise.all([reserveGift(g.id, one.id), reserveGift(g.id, two.id)])
+    const many = await Promise.all(Array.from({ length: 10 }, () => makeGuest()))
+    const results = await Promise.all(many.map((x) => reserveGift(g.id, x.id)))
     expect(results.filter((r) => r === 'reserved')).toHaveLength(1)
-    expect(results.filter((r) => r === 'taken')).toHaveLength(1)
+    expect(results.filter((r) => r === 'taken')).toHaveLength(9)
+    const winner = many[results.indexOf('reserved')]
+    const [row] = await db.select().from(gifts).where(eq(gifts.id, g.id))
+    expect(row.guestId).toBe(winner.id)
+  })
+
+  it('updateGift returns null for an unknown id', async () => {
+    expect(await updateGift('00000000-0000-4000-8000-000000000000', base)).toBeNull()
+  })
+
+  it('orders by sortOrder within a category', async () => {
+    const z = await createGift({ ...base, name: 'Z' })
+    const a = await createGift({ ...base, name: 'A' })
+    await db.update(gifts).set({ sortOrder: 5 }).where(eq(gifts.id, a.id))
+    expect((await listGiftsAdmin()).map((g) => g.id)).toEqual([z.id, a.id])
   })
 
   it('releases only for the owner', async () => {
@@ -87,7 +100,6 @@ describe('gifts repo', () => {
     const g = await createGift(base)
     const one = await makeGuest()
     await reserveGift(g.id, one.id)
-    const { guests } = await import('@/server/db/schema')
     await db.delete(guests).where(eq(guests.id, one.id))
     const [row] = await db.select().from(gifts).where(eq(gifts.id, g.id))
     expect(row.guestId).toBeNull()

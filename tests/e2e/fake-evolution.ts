@@ -6,7 +6,7 @@ import './load-env'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { deflateSync } from 'node:zlib'
 
-export const FAKE_EVOLUTION_PORT = Number(process.env.FAKE_EVOLUTION_PORT ?? 4010)
+export const FAKE_EVOLUTION_PORT = Number(process.env.FAKE_EVOLUTION_PORT || 4010)
 export const FAKE_EVOLUTION_URL = `http://127.0.0.1:${FAKE_EVOLUTION_PORT}`
 export const FAKE_EVOLUTION_API_KEY = 'test-key'
 /** Sending to this number answers like Evolution does for a number without WhatsApp. */

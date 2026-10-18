@@ -64,12 +64,12 @@ export async function reserveGift(
   return exists ? 'taken' : 'not_found'
 }
 
-const FREE = { guestId: null, reservedAt: null }
+const FREE = { guestId: null, reservedAt: null, updatedAt: sql`now()` }
 
 export async function releaseGift(giftId: string, guestId: string): Promise<boolean> {
   const rows = await db
     .update(gifts)
-    .set({ ...FREE, updatedAt: new Date() })
+    .set(FREE)
     .where(and(eq(gifts.id, giftId), eq(gifts.guestId, guestId)))
     .returning({ id: gifts.id })
   return rows.length > 0
@@ -78,7 +78,7 @@ export async function releaseGift(giftId: string, guestId: string): Promise<bool
 export async function adminReleaseGift(giftId: string): Promise<boolean> {
   const rows = await db
     .update(gifts)
-    .set({ ...FREE, updatedAt: new Date() })
+    .set(FREE)
     .where(and(eq(gifts.id, giftId), sql`${gifts.guestId} is not null`))
     .returning({ id: gifts.id })
   return rows.length > 0

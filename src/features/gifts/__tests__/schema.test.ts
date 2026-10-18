@@ -9,6 +9,11 @@ describe('giftFormSchema', () => {
     ['250,90', 25090],
     ['1.250,00', 125000],
     ['0', 0],
+    ['250.90', 25090],
+    ['1.25', 125],
+    ['1.250', 125000],
+    ['R$ 250,90', 25090],
+    ['1.000.000,00', 100000000],
   ])('parses price %s into %i cents', (price, cents) => {
     const r = parse({ price })
     expect(r.success && r.data.priceCents).toBe(cents)
@@ -22,6 +27,12 @@ describe('giftFormSchema', () => {
   it('rejects an invalid or negative price', () => {
     expect(parse({ price: 'abc' }).success).toBe(false)
     expect(parse({ price: '-5' }).success).toBe(false)
+  })
+
+  it('rejects prices above R$ 1.000.000 and absurdly long numbers', () => {
+    expect(parse({ price: '1.000.000,01' }).success).toBe(false)
+    expect(parse({ price: '9'.repeat(30) }).success).toBe(false)
+    expect(parse({ price: '9'.repeat(30) + ',99' }).success).toBe(false)
   })
 
   it('defaults and trims the category', () => {
@@ -42,7 +53,13 @@ describe('giftFormSchema', () => {
     expect(r.success && r.data.imageUrl).toBeNull()
   })
 
-  it.each(['http://loja.com', 'javascript:alert(1)', 'loja.com', 'https://' + 'a'.repeat(2050)])(
+  it.each([
+    ['http://loja.com'],
+    ['javascript:alert(1)'],
+    ['loja.com'],
+    ['https://user:pass@loja.com/x'],
+    ['https://' + 'a'.repeat(2050)],
+  ])(
     'rejects link %s',
     (purchaseUrl) => {
       const r = parse({ purchaseUrl })
