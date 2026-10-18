@@ -36,6 +36,13 @@
       "when": 1792341308408,
       "tag": "0004_low_runaways",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792344892939,
+      "tag": "0005_puzzling_meltdown",
+      "breakpoints": true
     }
   ]
 }

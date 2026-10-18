@@ -56,6 +56,8 @@ export const guests = pgTable(
     message: text('message'),
     respondedAt: timestamp('responded_at', { withTimezone: true }),
     openedAt: timestamp('opened_at', { withTimezone: true }),
+    // Asaas customer for this guest; only used when ASAAS_REQUIRE_PAYER_CPF=true (the CPF itself is never stored)
+    asaasCustomerId: text('asaas_customer_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -87,6 +89,10 @@ export const settings = pgTable(
     rsvpPreferredDate: date('rsvp_preferred_date').default('2026-11-21'),
     rsvpNudgeText: text('rsvp_nudge_text').notNull().default(RSVP_NUDGE_TEXT_DEFAULT),
     rsvpFinalText: text('rsvp_final_text').notNull().default(RSVP_FINAL_TEXT_DEFAULT),
+    // generic Asaas customer ("Convidados — 15 anos da Isabella") used for every Pix charge
+    asaasCustomerId: text('asaas_customer_id'),
+    pixThanksMessage: text('pix_thanks_message'),
+    pixReceiverName: text('pix_receiver_name'),
   },
   (t) => [check('settings_single_row', sql`${t.id} = 1`)],
 )
@@ -138,6 +144,37 @@ export const gifts = pgTable(
   ],
 )
 
+export const pixStatus = pgEnum('pix_status', ['pending', 'paid', 'expired', 'cancelled', 'failed'])
+
+export const pixPayments = pgTable(
+  'pix_payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    guestId: uuid('guest_id').references(() => guests.id, { onDelete: 'set null' }),
+    amountCents: integer('amount_cents').notNull(),
+    asaasPaymentId: text('asaas_payment_id').unique(),
+    status: pixStatus('status').notNull().default('pending'),
+    qrImage: text('qr_image'), // base64 PNG
+    copyPaste: text('copy_paste'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('pix_payments_amount_minimum', sql`${t.amountCents} >= 7000`),
+    index('pix_payments_guest_status_idx').on(t.guestId, t.status),
+  ],
+)
+
+export const webhookEvents = pgTable('webhook_events', {
+  id: text('id').primaryKey(), // Asaas event id
+  type: text('type').notNull(),
+  paymentId: text('payment_id'),
+  receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp('processed_at', { withTimezone: true }),
+})
+
 export type Guest = typeof guests.$inferSelect
 export type NewGuest = typeof guests.$inferInsert
 export type Settings = typeof settings.$inferSelect
@@ -147,3 +184,6 @@ export type DispatchKind = (typeof dispatchKind.enumValues)[number]
 export type DispatchStatus = (typeof dispatchStatus.enumValues)[number]
 export type Gift = typeof gifts.$inferSelect
 export type NewGift = typeof gifts.$inferInsert
+export type PixPayment = typeof pixPayments.$inferSelect
+export type PixStatus = (typeof pixStatus.enumValues)[number]
+export type WebhookEvent = typeof webhookEvents.$inferSelect
