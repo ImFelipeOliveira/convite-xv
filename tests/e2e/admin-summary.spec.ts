@@ -48,7 +48,7 @@ test.describe('admin summary, messages and settings', () => {
     }
   })
 
-  test('summary, messages and deadline setting', async ({ page, browser }) => {
+  test('summary and messages', async ({ page, browser }) => {
     // two confirmed (one with 2 plus-ones) + one pending guest who opened the invite
     await page.goto('/admin/guests')
     for (const [name, limit] of [
@@ -117,25 +117,46 @@ test.describe('admin summary, messages and settings', () => {
     const item = page.getByRole('listitem').filter({ hasText: 'Mal posso esperar!' })
     await expect(item).toContainText('Resumo Sim Dois')
     await expect(item).toContainText('Confirmou')
+  })
 
-    // settings: deadline reflected on the invite
+  test('deadline setting: validation and the invite', async ({ page }) => {
     await page.goto('/admin/settings')
     const settingsForm = page.getByRole('form', { name: 'Configurações' })
-    await settingsForm.getByLabel('Prazo para confirmar').fill(DEADLINE)
+    const fieldset = settingsForm.locator('fieldset')
+    const deadline = settingsForm.getByLabel('Prazo para confirmar')
+    const preferred = settingsForm.getByLabel('Confirmar de preferência até')
+    const template = settingsForm.getByLabel('Mensagem do WhatsApp')
+    /** Saves and waits until the action finished (fieldset enabled again). */
+    const save = async () => {
+      await settingsForm.getByRole('button', { name: 'Salvar' }).click()
+      await expect(fieldset).toBeEnabled()
+    }
+
+    await expect(fieldset).toBeEnabled()
+    await deadline.fill(DEADLINE)
     // the stored preferred date (default 21/11) may fall after a near deadline: keep it on the deadline
-    await settingsForm.getByLabel('Confirmar de preferência até').fill(DEADLINE)
-    await settingsForm.getByRole('button', { name: 'Salvar' }).click()
+    await preferred.fill(DEADLINE)
+    await save()
     await expect(page.getByRole('status', { name: 'Notificações' })).toContainText('Configurações salvas.')
+    // after React's post-action form reset the fields show the saved values
+    await expect(deadline).toHaveValue(DEADLINE)
+    await expect(preferred).toHaveValue(DEADLINE)
 
     // the preferred date can't be after the deadline
-    await settingsForm.getByLabel('Confirmar de preferência até').fill(AFTER_DEADLINE)
-    await settingsForm.getByRole('button', { name: 'Salvar' }).click()
+    await preferred.fill(AFTER_DEADLINE)
+    await save()
     await expect(page.getByText('A data de preferência deve ser até o prazo para confirmar.')).toBeVisible()
-    await settingsForm.getByLabel('Confirmar de preferência até').fill(DEADLINE)
+    await expect(deadline).toHaveValue(DEADLINE)
+    await expect(preferred).toHaveValue(AFTER_DEADLINE)
+    await preferred.fill(DEADLINE)
+    await expect(preferred).toHaveValue(DEADLINE)
 
-    await settingsForm.getByLabel('Mensagem do WhatsApp').fill('Sem o link')
-    await settingsForm.getByRole('button', { name: 'Salvar' }).click()
+    await template.fill('Sem o link')
+    await save()
     await expect(page.getByText('A mensagem precisa conter {link}.')).toBeVisible()
+    await expect(template).toHaveValue('Sem o link')
+
+    // only the first save went through: the invite shows that deadline
 
     await page.goto(`/c/${E2E_GUEST_TOKEN}`)
     await page.getByRole('button', { name: 'Entrar sem animação' }).click()

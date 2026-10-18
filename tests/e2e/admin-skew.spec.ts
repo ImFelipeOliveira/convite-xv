@@ -81,6 +81,12 @@ test.describe('admin version skew', () => {
   })
 
   test('a gift draft (incl. the controlled photo field) survives the reload', async ({ page }) => {
+    // serve the photo locally: the preview must not depend on the network
+    const PNG_1PX = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    )
+    await page.route(GIFT_IMAGE, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1PX }))
     await page.goto('/admin/gifts')
     await page.getByRole('button', { name: 'Adicionar presente' }).first().click()
     const form = page.getByRole('form', { name: 'Novo presente' })
@@ -139,6 +145,8 @@ test.describe('admin version skew', () => {
     await expect(form).toBeHidden()
     await expect(rowOf(page, LOOPING)).toBeVisible()
     expect(await page.evaluate(() => sessionStorage.getItem('xv:skew-reloads'))).toBeNull()
+    // the draft kept by the blocked attempt is gone once the save went through
+    expect(await page.evaluate(() => Object.keys(sessionStorage).filter((k) => k.startsWith('xv:draft:')))).toEqual([])
   })
 })
 

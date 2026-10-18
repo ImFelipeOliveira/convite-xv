@@ -59,6 +59,13 @@ export function useSkewGuard() {
   )
 }
 
+/** The admin form states are `{ ok: false, … }` on validation/server errors (and `{ error }` for import). */
+function isErrorState(state: unknown): boolean {
+  if (!state || typeof state !== 'object') return false
+  const s = state as { ok?: unknown; error?: unknown }
+  return s.ok === false || (s.ok === undefined && !!s.error)
+}
+
 /**
  * Skew-safe useActionState action for a form (spread `formRef` on the <form>):
  * - on version skew it keeps the previous state, saves the submitted values as a draft and reloads;
@@ -91,7 +98,10 @@ export function useSkewSafeForm<S>(action: (prev: S, formData: FormData) => Prom
     async (prev: S, formData: FormData): Promise<S> => {
       const draft = draftKey ? { key: draftKey, values: formDataToValues(formData) } : undefined
       const result = await guard(() => action(prev, formData), { draft, onBlocked: refillAfterBlock })
-      return result === undefined ? prev : result
+      if (result === undefined) return prev
+      // saved: a draft left by an earlier blocked attempt must not resurface later
+      if (draftKey && !isErrorState(result)) clearDraft(window.location.pathname, draftKey)
+      return result
     },
     [guard, action, draftKey, refillAfterBlock],
   )
