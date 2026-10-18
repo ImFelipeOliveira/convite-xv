@@ -9,6 +9,11 @@ export async function findGuestByToken(token: string): Promise<Guest | null> {
   return row ?? null
 }
 
+export async function findGuestById(id: string): Promise<Guest | null> {
+  const [row] = await db.select().from(guests).where(eq(guests.id, id)).limit(1)
+  return row ?? null
+}
+
 /** Returns true when this call set openedAt (the first open). */
 export async function markOpened(id: string): Promise<boolean> {
   const rows = await db
@@ -52,7 +57,7 @@ export async function createGuest(d: {
 export async function updateGuest(
   id: string,
   d: Partial<{ name: string; phone: string | null; plusOnesLimit: number }>,
-): Promise<Guest> {
+): Promise<Guest | undefined> {
   const [row] = await db
     .update(guests)
     .set({ ...d, updatedAt: sql`now()` })

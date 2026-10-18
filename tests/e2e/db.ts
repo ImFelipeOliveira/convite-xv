@@ -1,5 +1,5 @@
 // Direct access to the e2e TEST database (playwright.config loads .env.local into every process).
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray, ne } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { guests } from '../../src/server/db/schema'
@@ -15,6 +15,20 @@ export async function resetE2eGuestRsvp(): Promise<void> {
       .update(guests)
       .set({ rsvpStatus: 'pending', plusOnes: 0, message: null, phone: null, respondedAt: null })
       .where(eq(guests.token, E2E_GUEST_TOKEN))
+  } finally {
+    await client.end()
+  }
+}
+
+/** Removes guests an e2e spec created (never the shared fixture guest). */
+export async function deleteGuestsByName(names: string[]): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    await drizzle(client)
+      .delete(guests)
+      .where(and(inArray(guests.name, names), ne(guests.token, E2E_GUEST_TOKEN)))
   } finally {
     await client.end()
   }

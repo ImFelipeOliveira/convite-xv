@@ -3,6 +3,7 @@ import { makeGuest } from '../../../../tests/helpers/db'
 import {
   createGuest,
   deleteGuest,
+  findGuestById,
   findGuestByToken,
   getSummary,
   listGuests,
@@ -40,10 +41,13 @@ describe('guests repo', () => {
     const g = await createGuest({ name: 'Bia', phone: '(95) 99123-4567', plusOnesLimit: 2 })
     expect(g.token).toMatch(/^[0-9A-Za-z]{22}$/)
     const u = await updateGuest(g.id, { name: 'Bianca', plusOnesLimit: 3 })
-    expect(u.name).toBe('Bianca')
-    expect(u.plusOnesLimit).toBe(3)
-    expect(u.updatedAt.getTime()).toBeGreaterThanOrEqual(g.updatedAt.getTime())
+    expect(u?.name).toBe('Bianca')
+    expect(u?.plusOnesLimit).toBe(3)
+    expect(u?.updatedAt.getTime()).toBeGreaterThanOrEqual(g.updatedAt.getTime())
+    expect((await findGuestById(g.id))?.name).toBe('Bianca')
     await deleteGuest(g.id)
+    expect(await findGuestById(g.id)).toBeNull()
+    expect(await updateGuest(g.id, { name: 'X' })).toBeUndefined()
     expect(await listGuests()).toHaveLength(0)
   })
 
