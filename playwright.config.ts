@@ -1,12 +1,7 @@
+import './tests/e2e/load-env'
 import { defineConfig, devices } from '@playwright/test'
 import { FAKE_EVOLUTION_API_KEY, FAKE_EVOLUTION_URL } from './tests/e2e/fake-evolution'
 import { E2E_PORT } from './tests/e2e/fixtures'
-
-try {
-  process.loadEnvFile('.env.local')
-} catch {
-  // no .env.local: fall back to the process environment
-}
 
 const PORT = E2E_PORT
 const APP_URL = `http://localhost:${PORT}`
