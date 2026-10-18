@@ -142,6 +142,22 @@ test.describe('invite: background music', () => {
     await expect(page.getByRole('button', { name: 'Pausar música' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  test('a returning visitor (envelope skipped) gets the music on the first tap anywhere', async ({ page }) => {
+    await setE2eSettings({ musicKey: key, musicStartSeconds: 0 })
+    await page.goto(invitePath)
+    await page.getByRole('button', { name: 'Abrir o convite' }).click()
+    await expect(page.getByRole('button', { name: 'Pausar música' })).toBeVisible({ timeout: 5000 })
+    await page.evaluate(() => localStorage.removeItem('xv:music-paused'))
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Isabella' })).toBeVisible()
+    const audio = page.getByTestId('invite-music')
+    await expect(page.getByRole('button', { name: 'Tocar música' })).toHaveAttribute('aria-pressed', 'false')
+    expect(await audio.evaluate((el: HTMLAudioElement) => el.paused)).toBe(true)
+    await page.getByRole('heading', { name: 'Isabella' }).click()
+    await expect(page.getByRole('button', { name: 'Pausar música' })).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => !el.paused)).toBe(true)
+  })
+
   test('a guest who paused before is not greeted by music when opening the envelope', async ({ page }) => {
     await setE2eSettings({ musicKey: key, musicStartSeconds: 0 })
     await page.addInitScript(() => window.localStorage.setItem('xv:music-paused', '1'))

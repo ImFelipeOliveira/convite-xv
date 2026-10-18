@@ -7,9 +7,9 @@ import './music.css'
 //
 // - Browsers block autoplay with sound and iOS only plays when play() runs synchronously inside a tap,
 //   so the music starts from the envelope-open click (Opening calls startFromGesture in its handler).
-// - Returning visitors skip the envelope (localStorage 'xv:opened'). For them the music does NOT start on
-//   their first tap elsewhere: that tap is usually "Confirmar presença" or a gift, and sound starting
-//   mid-task would be a surprise. They get the toggle only (not pressed) and can play it from there.
+// - Returning visitors skip the envelope (localStorage 'xv:opened'). For them the music starts on their
+//   first tap anywhere on the invite (a click/keydown is a user gesture, so iOS allows it); a tap on the
+//   toggle itself is left to the toggle.
 // - A pause is remembered (localStorage), so a guest who paused once isn't greeted by music again.
 // - preload="none" keeps the first load light: nothing is downloaded until the guest opens the envelope.
 
@@ -53,6 +53,7 @@ export function InviteMusic({ src, startAt, children }: { src: string; startAt: 
   const fadeFrame = useRef<number | null>(null)
   const resumeWhenVisible = useRef(false)
   const startApplied = useRef(false)
+  const gestureStarted = useRef(false)
   const [playing, setPlaying] = useState(false)
   const [shown, setShown] = useState(false)
 
@@ -118,6 +119,7 @@ export function InviteMusic({ src, startAt, children }: { src: string; startAt: 
   const api = useMemo<InviteMusicApi>(
     () => ({
       startFromGesture: () => {
+        gestureStarted.current = true
         if (!readPaused()) play(true)
       },
       revealed: () => setShown(true),
@@ -143,6 +145,26 @@ export function InviteMusic({ src, startAt, children }: { src: string; startAt: 
   }, [play])
 
   useEffect(() => () => stopFade(), [])
+
+  // a returning visitor (no envelope tap): the first tap anywhere starts the music, unless they paused before
+  useEffect(() => {
+    if (!shown || gestureStarted.current || readPaused()) return
+    const onFirstGesture = (event: Event) => {
+      disarm()
+      const audio = audioRef.current
+      if (!audio || !audio.paused || gestureStarted.current) return
+      if (event.target instanceof Element && event.target.closest('.invite-music-toggle')) return
+      gestureStarted.current = true
+      play(true)
+    }
+    const disarm = () => {
+      document.removeEventListener('click', onFirstGesture, true)
+      document.removeEventListener('keydown', onFirstGesture, true)
+    }
+    document.addEventListener('click', onFirstGesture, true)
+    document.addEventListener('keydown', onFirstGesture, true)
+    return disarm
+  }, [shown, play])
 
   const toggle = () => {
     const audio = audioRef.current
