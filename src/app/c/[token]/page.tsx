@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { headers } from 'next/headers'
 import { connection } from 'next/server'
@@ -17,6 +18,13 @@ import { isLinkPreviewBot } from '@/lib/bots'
 // before this lookup, so notFound() here can't change the status). The gate needs the guest,
 // so this segment is blocking by design: no static shell to validate.
 export const instant = false
+
+export const metadata: Metadata = {
+  metadataBase: new URL(process.env.APP_URL ?? 'http://localhost:3000'),
+  title: 'Isabella · 15 anos',
+  description: 'Você recebeu um convite. Toque para abrir a carta.',
+  openGraph: { type: 'website' },
+}
 
 /** Request time for the countdown's first frame and the RSVP deadline (kept out of render: Date.now is impure). */
 async function requestTime(): Promise<number> {
