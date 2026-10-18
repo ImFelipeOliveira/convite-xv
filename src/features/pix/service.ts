@@ -8,12 +8,15 @@ import { isValidCpf } from './cpf'
 import { pixDueDate } from './due-date'
 import { PIX_MAX_CENTS, PIX_MIN_CENTS } from './limits'
 import {
+  countActivePending,
   findGuestPayment,
   findGuestPixState,
+  findLatestActivePending,
   findReusablePending,
   getGenericCustomerId,
   getGuestCustomer,
   insertPendingPayment,
+  recentPayerCpfHashes,
   saveGenericCustomerId,
   saveGuestCustomer,
   settlePendingPayment,
@@ -34,6 +37,15 @@ const MAX_CONCURRENT = 4
 /** How long a generation over the limit waits for a free slot before answering `busy`. */
 const SLOT_WAIT_MS = 3_000
 const GENERIC_CUSTOMER_LOCK = 'pix:generic-customer'
+/**
+ * Per-guest caps (a leaked invite link must not flood the Asaas account): charges still waiting for
+ * payment, and distinct payer CPFs (each one a new Asaas customer) over a rolling day.
+ */
+export const MAX_ACTIVE_PENDING_PER_GUEST = 3
+export const MAX_PAYER_CPFS_PER_GUEST_PER_DAY = 3
+const PAYER_CPF_WINDOW_MS = 24 * 3600_000
+/** Per guest: one generation running and at most one more waiting for it; any more answer `busy`. */
+const MAX_QUEUED_PER_GUEST = 2
 
 export type PixView = {
   id: string
@@ -54,6 +66,10 @@ export type PixError =
   | 'invalid_cpf'
   /** too many generations at once: try again in a few seconds */
   | 'busy'
+  /** the guest already has MAX_ACTIVE_PENDING_PER_GUEST charges waiting (none for this amount) */
+  | 'too_many_pending'
+  /** payer-CPF mode: MAX_PAYER_CPFS_PER_GUEST_PER_DAY distinct CPFs used for this guest today */
+  | 'too_many_payers'
 
 export type PixDeps = {
   /** undefined = read from env; null = not configured */
@@ -108,6 +124,27 @@ function releaseSlot(): void {
   slotWaiters.shift()?.()
 }
 
+// Per-guest queue (single app instance): one guest's generations run one at a time, so a leaked link
+// can never hold more than one of the MAX_CONCURRENT slots; a double submit waits and reuses the charge.
+const guestQueues = new Map<string, { tail: Promise<void>; size: number }>()
+
+/** Waits for the guest's turn and resolves to its release; null when the guest's queue is full. */
+function enterGuestQueue(guestId: string): Promise<() => void> | null {
+  const queue = guestQueues.get(guestId) ?? { tail: Promise.resolve(), size: 0 }
+  if (queue.size >= MAX_QUEUED_PER_GUEST) return null
+  queue.size += 1
+  guestQueues.set(guestId, queue)
+  let finish!: () => void
+  const mine = new Promise<void>((r) => (finish = r))
+  const previous = queue.tail
+  queue.tail = previous.then(() => mine)
+  return previous.then(() => () => {
+    finish()
+    queue.size -= 1
+    if (queue.size === 0 && guestQueues.get(guestId) === queue) guestQueues.delete(guestId)
+  })
+}
+
 function resolve(deps: PixDeps) {
   return {
     config: deps.config === undefined ? readAsaasConfig() : deps.config,
@@ -158,28 +195,41 @@ export function cpfHash(normalizedCpf: string): string {
     .digest('hex')
 }
 
+type CustomerResult = { ok: true; id: string } | { ok: false; error: 'unavailable' | 'too_many_payers' }
+
 async function customerFor(
   guest: Pick<Guest, 'id' | 'name'>,
-  cpf: string | null,
+  cpf: { value: string; hash: string } | null,
   config: AsaasConfig,
   fetchImpl: typeof fetch,
+  at: Date,
   tx: Executor,
-): Promise<string | null> {
+): Promise<CustomerResult> {
   if (cpf) {
     // already under this guest's lock. The customer carries the CPF it was created with: reused only
     // for that same CPF; another family member's CPF (or a pre-0009 customer without hash) gets a new one
-    const hash = cpfHash(cpf)
     const existing = await getGuestCustomer(guest.id, tx)
-    if (existing && existing.cpfHash === hash) return existing.id
-    const created = await ensureCustomer(config, { name: guest.name, cpfCnpj: cpf }, fetchImpl)
+    if (existing && existing.cpfHash === cpf.hash) return { ok: true, id: existing.id }
+    // a CPF not seen on this guest's charges in the last day is one more payer: at most 3 a day
+    const recent = await recentPayerCpfHashes(guest.id, new Date(at.getTime() - PAYER_CPF_WINDOW_MS), tx)
+    if (!recent.includes(cpf.hash) && recent.length >= MAX_PAYER_CPFS_PER_GUEST_PER_DAY) {
+      log.warn({ guestId: guest.id, code: 'too_many_payers' }, 'pix payer cap reached')
+      return { ok: false, error: 'too_many_payers' }
+    }
+    const created = await ensureCustomer(config, { name: guest.name, cpfCnpj: cpf.value }, fetchImpl)
     if (!created.ok) {
       log.warn({ guestId: guest.id, code: created.error }, 'pix customer failed')
-      return null
+      return { ok: false, error: 'unavailable' }
     }
-    await saveGuestCustomer(guest.id, { id: created.value.id, cpfHash: hash }, tx)
+    await saveGuestCustomer(guest.id, { id: created.value.id, cpfHash: cpf.hash }, tx)
     if (existing) log.info({ guestId: guest.id }, 'pix customer replaced for another payer CPF')
-    return created.value.id
+    return { ok: true, id: created.value.id }
   }
+  const generic = await genericCustomer(config, fetchImpl, tx)
+  return generic ? { ok: true, id: generic } : { ok: false, error: 'unavailable' }
+}
+
+async function genericCustomer(config: AsaasConfig, fetchImpl: typeof fetch, tx: Executor): Promise<string | null> {
   const cached = await getGenericCustomerId(tx)
   if (cached) return cached
   // first charge ever: one creator at a time (the lock lasts until the caller's transaction ends)
@@ -205,8 +255,10 @@ async function customerFor(
  * payment id and its QR code, so a failure never leaves an orphan row; if anything fails after the
  * charge exists, the charge is deleted at Asaas (best effort). Runs under a per-guest advisory lock, so
  * a double submit gets the same charge. Never throws: Asaas and infrastructure failures answer
- * `unavailable`; at most 4 run at once per instance (the excess waits up to 3 s, then `busy`). The CPF
- * (payer-CPF mode) goes to Asaas only: never stored, never logged.
+ * `unavailable`; at most 4 run at once per instance (the excess waits up to 3 s, then `busy`), and one
+ * guest runs one at a time (one more may wait its turn; beyond that, `busy`). Per guest: at most 3
+ * charges waiting for payment (`too_many_pending`) and, in payer-CPF mode, 3 distinct payer CPFs a day
+ * (`too_many_payers`). The CPF goes to Asaas only: never stored (just its keyed hash), never logged.
  */
 export async function generatePix(
   guest: Pick<Guest, 'id' | 'name'>,
@@ -221,21 +273,31 @@ export async function generatePix(
   const resolved = resolve(deps)
   const config = resolved.config
   if (!config) return { ok: false, error: 'not_configured' }
-  if (!(await acquireSlot(deps.slotWaitMs ?? SLOT_WAIT_MS))) {
-    log.warn({ guestId: guest.id, code: 'busy' }, 'pix generation over the concurrency limit')
+  const turn = enterGuestQueue(guest.id)
+  if (!turn) {
+    log.warn({ guestId: guest.id, code: 'busy' }, 'pix generation already running for this guest')
     return { ok: false, error: 'busy' }
   }
+  const leaveQueue = await turn
   try {
-    // one check-then-create per guest at a time: a double submit gets the same charge
-    return await withAdvisoryLock(`pix:guest:${guest.id}`, (tx) =>
-      createOrReuse(guest, amountCents, payer, { ...resolved, config }, tx),
-    )
-  } catch (err) {
-    // infrastructure failures (pool, lock timeout, commit): never a throw to the caller
-    log.error({ guestId: guest.id, err }, 'pix generation failed')
-    return { ok: false, error: 'unavailable' }
+    if (!(await acquireSlot(deps.slotWaitMs ?? SLOT_WAIT_MS))) {
+      log.warn({ guestId: guest.id, code: 'busy' }, 'pix generation over the concurrency limit')
+      return { ok: false, error: 'busy' }
+    }
+    try {
+      // one check-then-create per guest at a time (also across instances): a double submit gets the same charge
+      return await withAdvisoryLock(`pix:guest:${guest.id}`, (tx) =>
+        createOrReuse(guest, amountCents, payer, { ...resolved, config }, tx),
+      )
+    } catch (err) {
+      // infrastructure failures (pool, lock timeout, commit): never a throw to the caller
+      log.error({ guestId: guest.id, err }, 'pix generation failed')
+      return { ok: false, error: 'unavailable' }
+    } finally {
+      releaseSlot()
+    }
   } finally {
-    releaseSlot()
+    leaveQueue()
   }
 }
 
@@ -253,16 +315,26 @@ async function createOrReuse(
   const reusable = await findReusablePending(guest.id, amountCents, at, tx)
   if (reusable) return { ok: true, payment: toPixView(reusable) }
 
-  let cpf: string | null = null
+  if ((await countActivePending(guest.id, at, tx)) >= MAX_ACTIVE_PENDING_PER_GUEST) {
+    // at the cap, a charge still payable for this very amount beats a refusal (even with little time left)
+    const latest = await findLatestActivePending(guest.id, amountCents, at, tx)
+    if (latest) return { ok: true, payment: toPixView(latest) }
+    log.warn({ guestId: guest.id, code: 'too_many_pending' }, 'pix pending cap reached')
+    return { ok: false, error: 'too_many_pending' }
+  }
+
+  let cpf: { value: string; hash: string } | null = null
   if (requireCpf) {
     const raw = payer.cpf?.trim() ?? ''
     if (!raw) return { ok: false, error: 'cpf_required' }
     if (!isValidCpf(raw)) return { ok: false, error: 'invalid_cpf' }
-    cpf = raw.replace(/\D/g, '')
+    const value = raw.replace(/\D/g, '')
+    cpf = { value, hash: cpfHash(value) }
   }
 
-  const customerId = await customerFor(guest, cpf, config, fetchImpl, tx)
-  if (!customerId) return { ok: false, error: 'unavailable' }
+  const customer = await customerFor(guest, cpf, config, fetchImpl, at, tx)
+  if (!customer.ok) return { ok: false, error: customer.error }
+  const customerId = customer.id
 
   const id = randomUUID()
   const charge = await createPixPayment(
@@ -304,6 +376,7 @@ async function createOrReuse(
         qrImage: qr.value.encodedImage,
         copyPaste: qr.value.payload,
         expiresAt: parseAsaasDateTime(qr.value.expirationDate),
+        payerCpfHash: cpf?.hash ?? null,
         now: at,
       },
       tx,

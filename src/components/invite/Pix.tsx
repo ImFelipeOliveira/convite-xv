@@ -38,6 +38,8 @@ const EXPIRED_MESSAGE = 'Este Pix expirou. Gere um novo.'
 
 const GENERATE_ERRORS: Record<Exclude<PixActionError, 'below_minimum' | 'above_maximum' | 'invalid_cpf' | 'cpf_required'>, string> = {
   busy: 'Muitas solicitações agora. Tente em alguns segundos.',
+  too_many_pending: 'Você já tem Pix aguardando pagamento. Use um deles ou aguarde alguns minutos.',
+  too_many_payers: 'Este convite já usou o limite de CPFs por hoje. Use um CPF já informado ou tente amanhã.',
   not_configured: 'Pix indisponível no momento.',
   unavailable: 'Não foi possível gerar o Pix agora.',
   not_found: 'Não foi possível gerar o Pix agora.',

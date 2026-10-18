@@ -57,6 +57,60 @@ export async function findReusablePending(
   return row ?? null
 }
 
+/** Pending charges without a known expiry count as active for this long after creation. */
+const UNKNOWN_EXPIRY_ACTIVE_MS = 24 * 3600_000
+
+/** `pending` and still payable at `now` (unknown expiry: created within the last day). */
+function activePending(guestId: string, now: Date) {
+  return and(
+    eq(pixPayments.guestId, guestId),
+    eq(pixPayments.status, 'pending'),
+    or(
+      gt(pixPayments.expiresAt, now),
+      and(
+        isNull(pixPayments.expiresAt),
+        gt(pixPayments.createdAt, new Date(now.getTime() - UNKNOWN_EXPIRY_ACTIVE_MS)),
+      ),
+    ),
+  )
+}
+
+/** How many of the guest's charges are still waiting for payment (the per-guest cap). */
+export async function countActivePending(guestId: string, now: Date, q: Executor = db): Promise<number> {
+  const [row] = await q
+    .select({ n: sql<number>`count(*)::int` })
+    .from(pixPayments)
+    .where(activePending(guestId, now))
+  return row?.n ?? 0
+}
+
+/** The guest's newest still-payable pending charge for exactly this amount (whatever its time left). */
+export async function findLatestActivePending(
+  guestId: string,
+  amountCents: number,
+  now: Date,
+  q: Executor = db,
+): Promise<PixPayment | null> {
+  const [row] = await q
+    .select()
+    .from(pixPayments)
+    .where(and(activePending(guestId, now), eq(pixPayments.amountCents, amountCents)))
+    .orderBy(desc(pixPayments.createdAt))
+    .limit(1)
+  return row ?? null
+}
+
+/** Distinct payer CPF hashes on the guest's charges created after `since` (never the CPFs). */
+export async function recentPayerCpfHashes(guestId: string, since: Date, q: Executor = db): Promise<string[]> {
+  const rows = await q
+    .selectDistinct({ hash: pixPayments.payerCpfHash })
+    .from(pixPayments)
+    .where(
+      and(eq(pixPayments.guestId, guestId), isNotNull(pixPayments.payerCpfHash), gt(pixPayments.createdAt, since)),
+    )
+  return rows.flatMap((r) => (r.hash ? [r.hash] : []))
+}
+
 /** Inserts inside a savepoint, so a failure leaves the caller's transaction usable. */
 export async function insertPendingPayment(
   input: {
@@ -67,6 +121,8 @@ export async function insertPendingPayment(
     qrImage: string
     copyPaste: string
     expiresAt: Date | null
+    /** payer-CPF mode only: keyed hash of the payer CPF (never the CPF) */
+    payerCpfHash?: string | null
     now: Date
   },
   q: Executor = db,

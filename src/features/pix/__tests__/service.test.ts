@@ -642,3 +642,177 @@ describe('getPixStatus for a refunded charge', () => {
     expect(view).toMatchObject({ id: a.payment.id, status: 'cancelled', paidAt: null })
   })
 })
+
+/** A valid CPF (check digits computed) from 9 base digits. */
+function cpfFrom(base: string): string {
+  const digits = base.split('').map(Number)
+  for (const len of [9, 10]) {
+    const sum = digits.slice(0, len).reduce((acc, d, i) => acc + d * (len + 1 - i), 0)
+    const r = (sum * 10) % 11
+    digits.push(r === 10 ? 0 : r)
+  }
+  return digits.join('')
+}
+
+describe('generatePix per-guest caps', () => {
+  it('allows at most 3 active pending charges per guest; a 4th amount is refused without calling Asaas', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    for (const amount of [7000, 8000, 9000]) expect((await generatePix(guest, amount, deps(f))).ok).toBe(true)
+    const before = f.calls.length
+    expect(await generatePix(guest, 10000, deps(f))).toEqual({ ok: false, error: 'too_many_pending' })
+    expect(f.calls.length).toBe(before)
+    expect(await rows()).toHaveLength(3)
+    // another guest is not affected
+    expect((await generatePix(await makeGuest(), 10000, deps(f))).ok).toBe(true)
+  })
+
+  it('at the cap, an amount already pending still gets its charge back (even one close to expiring)', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const made = []
+    for (const amount of [7000, 8000, 9000]) made.push(await generatePix(guest, amount, deps(f)))
+    // QRs expire 2026-10-20T02:59:59Z: 10 min before, none is reusable by the 15-min margin
+    const close = new Date('2026-10-20T02:50:00Z')
+    const again = await generatePix(guest, 9000, deps(f, { now: () => close }))
+    const third = made[2]
+    expect(again.ok && third.ok && again.payment.id === third.payment.id).toBe(true)
+    expect(await generatePix(guest, 10000, deps(f, { now: () => close }))).toEqual({
+      ok: false,
+      error: 'too_many_pending',
+    })
+    expect(await rows()).toHaveLength(3)
+  })
+
+  it('expired, paid and cancelled charges do not count toward the cap', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const a = await generatePix(guest, 7000, deps(f))
+    const b = await generatePix(guest, 8000, deps(f))
+    await generatePix(guest, 9000, deps(f))
+    if (!a.ok || !b.ok) throw new Error('expected ok')
+    await db.update(pixPayments).set({ status: 'paid' }).where(eq(pixPayments.id, a.payment.id))
+    await db.update(pixPayments).set({ status: 'cancelled' }).where(eq(pixPayments.id, b.payment.id))
+    expect((await generatePix(guest, 10000, deps(f))).ok).toBe(true)
+    expect((await generatePix(guest, 11000, deps(f))).ok).toBe(true)
+    expect(await generatePix(guest, 12000, deps(f))).toEqual({ ok: false, error: 'too_many_pending' })
+    // once they expire, new charges are possible again
+    const later = new Date('2026-10-20T03:00:00Z')
+    expect((await generatePix(guest, 12000, deps(f, { now: () => later }))).ok).toBe(true)
+  })
+
+  it('counts a pending charge without a known expiry as active for a day', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas({
+      'GET /payments/:id/pixQrCode': () => json({ encodedImage: 'x', payload: 'y', expirationDate: null }),
+    })
+    for (const amount of [7000, 8000, 9000]) expect((await generatePix(guest, amount, deps(f))).ok).toBe(true)
+    expect(await generatePix(guest, 10000, deps(f))).toEqual({ ok: false, error: 'too_many_pending' })
+    const nextDay = new Date(NOW.getTime() + 25 * 3600_000)
+    expect((await generatePix(guest, 10000, deps(f, { now: () => nextDay }))).ok).toBe(true)
+  })
+
+  it('one guest holds at most one generation slot: concurrent submits of the same token queue (one waits, more get busy)', async () => {
+    let open!: () => void
+    const gate = new Promise<void>((r) => (open = r))
+    const f = fakeAsaas({
+      'POST /payments': async () => {
+        await gate
+        return json({ id: `pay_${Math.random()}`, status: 'PENDING' })
+      },
+    })
+    const hog = await makeGuest()
+    const others = await Promise.all(Array.from({ length: 3 }, () => makeGuest()))
+    const d = deps(f, { slotWaitMs: 100 })
+    const hogCalls = [generatePix(hog, 7000, d), generatePix(hog, 7000, d), generatePix(hog, 7000, d)]
+    // give the hog's calls a head start so they would grab every free slot without the guard
+    await new Promise((r) => setTimeout(r, 20))
+    const otherCalls = others.map((g) => generatePix(g, 7000, d))
+    await new Promise((r) => setTimeout(r, 400))
+    open()
+    const hogResults = await Promise.all(hogCalls)
+    const otherResults = await Promise.all(otherCalls)
+    // the other guests all got a slot
+    expect(otherResults.every((r) => r.ok)).toBe(true)
+    // the hog: one ran, one waited for it and got the same charge, the third was told to retry
+    const ok = hogResults.filter((r) => r.ok)
+    expect(ok).toHaveLength(2)
+    expect(new Set(ok.map((r) => r.ok && r.payment.id)).size).toBe(1)
+    expect(hogResults.filter((r) => !r.ok && r.error === 'busy')).toHaveLength(1)
+    // the guard was released: the same guest can generate again
+    expect((await generatePix(hog, 8000, deps(f))).ok).toBe(true)
+  })
+
+  it('releases the per-guest guard when a generation fails', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const boom = () => {
+      throw new Error('pool exhausted')
+    }
+    expect(await generatePix(guest, 7000, deps(f, { now: boom }))).toEqual({ ok: false, error: 'unavailable' })
+    expect((await generatePix(guest, 7000, deps(f))).ok).toBe(true)
+  })
+
+  describe('payer CPF mode: distinct payers per guest per day', () => {
+    const cpfs = ['100000001', '200000002', '300000003', '400000004'].map(cpfFrom)
+
+    /** Pays a charge so the pending cap never gets in the way of the CPF cap. */
+    async function payAll() {
+      await db.update(pixPayments).set({ status: 'paid' })
+    }
+
+    it('creates customers for at most 3 distinct CPFs a day; a 4th is refused before Asaas', async () => {
+      const guest = await makeGuest()
+      const f = fakeAsaas()
+      const d = deps(f, { requireCpf: true })
+      for (const [i, cpf] of cpfs.slice(0, 3).entries()) {
+        expect((await generatePix(guest, 7000 + i * 1000, d, { cpf })).ok).toBe(true)
+        await payAll()
+      }
+      const before = f.calls.length
+      expect(await generatePix(guest, 10000, d, { cpf: cpfs[3] })).toEqual({ ok: false, error: 'too_many_payers' })
+      expect(f.calls.length).toBe(before)
+      expect(f.calls.filter((c) => c.key === 'POST /customers')).toHaveLength(3)
+    })
+
+    it('a CPF already used today still works at the cap, and a new one works the next day', async () => {
+      const guest = await makeGuest()
+      const f = fakeAsaas()
+      const d = deps(f, { requireCpf: true })
+      for (const [i, cpf] of cpfs.slice(0, 3).entries()) {
+        expect((await generatePix(guest, 7000 + i * 1000, d, { cpf })).ok).toBe(true)
+        await payAll()
+      }
+      // the first payer again (stored customer is the third one's: a new customer, but no new payer)
+      expect((await generatePix(guest, 12000, d, { cpf: cpfs[0] })).ok).toBe(true)
+      await payAll()
+      const nextDay = new Date(NOW.getTime() + 24 * 3600_000 + 60_000)
+      expect((await generatePix(guest, 13000, deps(f, { requireCpf: true, now: () => nextDay }), { cpf: cpfs[3] })).ok).toBe(
+        true,
+      )
+    })
+
+    it('stores only the CPF hash on the charge, never the CPF', async () => {
+      const guest = await makeGuest()
+      const f = fakeAsaas()
+      expect((await generatePix(guest, 7000, deps(f, { requireCpf: true }), { cpf: cpfs[0] })).ok).toBe(true)
+      const [row] = await rows()
+      expect(row.payerCpfHash).toMatch(/^[0-9a-f]{64}$/)
+      expect(JSON.stringify(row)).not.toContain(cpfs[0])
+      const [g] = await db.select().from(guests).where(eq(guests.id, guest.id))
+      expect(row.payerCpfHash).toBe(g.asaasCustomerCpfHash)
+    })
+
+    it('the cap is per guest', async () => {
+      const one = await makeGuest()
+      const two = await makeGuest()
+      const f = fakeAsaas()
+      const d = deps(f, { requireCpf: true })
+      for (const [i, cpf] of cpfs.slice(0, 3).entries()) {
+        expect((await generatePix(one, 7000 + i * 1000, d, { cpf })).ok).toBe(true)
+        await payAll()
+      }
+      expect((await generatePix(two, 7000, d, { cpf: cpfs[3] })).ok).toBe(true)
+    })
+  })
+})

@@ -175,6 +175,9 @@ export const pixPayments = pgTable(
     paidAt: timestamp('paid_at', { withTimezone: true }),
     // a refund that arrived after the payment was paid (status stays `paid`; the admin sees "Estornado")
     refundedAt: timestamp('refunded_at', { withTimezone: true }),
+    // payer-CPF mode: keyed hash (HMAC, same as guests.asaas_customer_cpf_hash) of the CPF the charge was
+    // made for, never the CPF. Counts the distinct payers per guest per day (new Asaas customers cap).
+    payerCpfHash: text('payer_cpf_hash'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

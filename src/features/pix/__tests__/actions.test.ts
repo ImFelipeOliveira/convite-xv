@@ -105,6 +105,22 @@ describe('generatePixAction', () => {
     expect(calls).toEqual([])
   })
 
+  it('answers too_many_pending once the guest has 3 charges waiting, even from fresh IPs', async () => {
+    const guest = await makeGuest()
+    const calls = stubAsaas()
+    for (const amount of ['7000', '8000', '9000']) {
+      ip.current = `203.0.113.${amount.slice(0, 1)}`
+      expect((await generatePixAction(null, form({ token: guest.token, amount, cpf: VALID_CPF }))).ok).toBe(true)
+    }
+    ip.current = '203.0.113.200'
+    const before = calls.length
+    expect(await generatePixAction(null, form({ token: guest.token, amount: '10000', cpf: VALID_CPF }))).toEqual({
+      ok: false,
+      error: 'too_many_pending',
+    })
+    expect(calls.length).toBe(before)
+  })
+
   it('answers invalid_cpf for a bad CPF', async () => {
     const guest = await makeGuest()
     stubAsaas()

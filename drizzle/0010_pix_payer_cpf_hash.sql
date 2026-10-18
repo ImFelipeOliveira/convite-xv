@@ -1,0 +1,1 @@
+ALTER TABLE "pix_payments" ADD COLUMN "payer_cpf_hash" text;
