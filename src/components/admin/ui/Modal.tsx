@@ -82,6 +82,7 @@ export function Modal({
       ref={ref}
       aria-labelledby={labelledBy}
       aria-label={label}
+      data-placement={placement}
       onCancel={(e) => {
         e.preventDefault()
         onCloseRef.current()

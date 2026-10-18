@@ -367,6 +367,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         regionLabel="Tabela de convidados"
         searchLabel="Buscar convidado"
         searchPlaceholder="Buscar por nome ou telefone"
+        searchPlaceholderPhone="Buscar convidado"
         filters={FILTERS}
         emptyState={emptyState}
         emptyMessage="Nenhum convidado encontrado com essa busca."

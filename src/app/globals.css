@@ -156,6 +156,10 @@ body {
     padding-top: var(--space-3);
     border-top: 1px solid var(--hairline);
   }
+  /* rows without actions: no empty footer */
+  .dt-table td[data-card='full']:empty {
+    display: none;
+  }
 }
 
 @keyframes spin {

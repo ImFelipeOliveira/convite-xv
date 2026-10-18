@@ -129,6 +129,33 @@ describe('connectQr', () => {
     })
   })
 
+  it('prefixes a raw base64 qr with the png data url header', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(json({}, 403))
+      .mockResolvedValueOnce(json({ base64: 'iVBORw0KGgo', code: '2@abc', pairingCode: null }))
+    expect(await connectQr(cfg, f)).toEqual({
+      ok: true,
+      value: { qrDataUrl: 'data:image/png;base64,iVBORw0KGgo' },
+    })
+  })
+
+  it('reads a qr nested under qrcode (create-style answer)', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(json({}, 403))
+      .mockResolvedValueOnce(json({ qrcode: { base64: 'data:image/png;base64,CCC', code: 'x' } }))
+    expect(await connectQr(cfg, f)).toEqual({
+      ok: true,
+      value: { qrDataUrl: 'data:image/png;base64,CCC' },
+    })
+  })
+
+  it('returns null qr when only a count comes back (qr not ready yet)', async () => {
+    const f = vi.fn().mockResolvedValueOnce(json({}, 403)).mockResolvedValueOnce(json({ count: 0 }))
+    expect(await connectQr(cfg, f)).toEqual({ ok: true, value: { qrDataUrl: null } })
+  })
+
   it('returns null qr when already connected', async () => {
     const f = vi
       .fn()

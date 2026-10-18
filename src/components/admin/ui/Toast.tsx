@@ -91,6 +91,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     () => false,
   )
   const topDialog = useSyncExternalStore(subscribeTopDialog, getTopDialog, () => null)
+  // phones: a bottom sheet (filters, more actions) keeps its buttons at the bottom; toasts go to the top
+  const overBottomSheet = topDialog?.dataset.placement === 'bottom'
   const api = useMemo<ToastApi>(
     () => ({ success: (m) => push('success', m), error: (m) => push('error', m) }),
     [push],
@@ -101,13 +103,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {mounted &&
         // an open modal <dialog> sits in the top layer and makes the rest of the page inert:
         // render the region inside the topmost dialog so toasts stay visible and dismissible.
-        // Phones: lifted above sticky bottom bars (settings save bar); desktop: bottom-right, clear of header actions
+        // Phones: lifted above sticky bottom bars (settings save bar), or at the top over a bottom sheet;
+        // desktop: bottom-right, clear of header actions
         createPortal(
           <div
             role="status"
             aria-live="polite"
             aria-label="Notificações"
-            className="pointer-events-none fixed inset-x-4 bottom-24 z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-6 sm:bottom-6"
+            className={`pointer-events-none fixed inset-x-4 z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:top-auto sm:right-6 sm:bottom-6 ${
+              overBottomSheet ? 'top-[max(1rem,env(safe-area-inset-top))] bottom-auto' : 'bottom-24'
+            }`}
           >
             {items.map((item) => (
               <ToastCard key={item.id} item={item} onDismiss={dismiss} />

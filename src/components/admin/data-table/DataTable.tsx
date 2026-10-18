@@ -30,7 +30,16 @@ import {
   SlidersHorizontal,
   X,
 } from 'lucide-react'
-import { useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type Ref,
+} from 'react'
 import { buttonClass, focusRing, inputClass } from '../styles'
 import { CloseButton, Modal } from '../ui/Modal'
 import { formatRange, matchesSearch } from './helpers'
@@ -46,8 +55,6 @@ export type DataTableColumnMeta = {
   hideOnTablet?: boolean
   /** Hidden between 640px and 1024px (tablet without the sidebar). */
   hideOnSmallTablet?: boolean
-  /** Hidden between 640px and 1536px (only on wide desktops). */
-  hideBelowWide?: boolean
   align?: 'start' | 'end'
   /** Pinned to the right edge while the table scrolls sideways (row actions). */
   stickyEnd?: boolean
@@ -84,7 +91,13 @@ type Props<T extends RowData> = {
   initialSorting?: SortingState
   searchLabel?: string
   searchPlaceholder?: string
+  /** Shorter placeholder for phones (the field is narrow next to "Filtros"). */
+  searchPlaceholderPhone?: string
   filters?: DataTableFilter[]
+  /** Chip selections to start with (e.g. from query params): { columnId: value }. */
+  initialFilters?: Record<string, string>
+  /** Called whenever the chip selections change ({ columnId: value }, unselected columns omitted). */
+  onFiltersChange?: (filters: Record<string, string>) => void
   /** Shown when there is no data at all (with the primary actions). */
   emptyState?: ReactNode
   /** Shown when search/filters match nothing. */
@@ -119,17 +132,25 @@ function sortIcon(dir: false | 'asc' | 'desc') {
 
 const tabletHidden = 'sm:max-xl:hidden'
 const smallTabletHidden = 'sm:max-lg:hidden'
-const belowWideHidden = 'sm:max-2xl:hidden'
 const stickyEndCell =
   'sm:sticky sm:right-0 sm:z-[1] sm:bg-paper sm:shadow-[-10px_0_10px_-10px_rgba(90,33,54,.25)]'
 const hiddenClass = (meta?: DataTableColumnMeta) =>
-  meta?.hideBelowWide
-    ? belowWideHidden
-    : meta?.hideOnTablet
-      ? tabletHidden
-      : meta?.hideOnSmallTablet
-        ? smallTabletHidden
-        : ''
+  meta?.hideOnTablet ? tabletHidden : meta?.hideOnSmallTablet ? smallTabletHidden : ''
+
+const PHONE_QUERY = '(max-width: 639.98px)'
+function subscribePhone(onChange: () => void) {
+  const mq = window.matchMedia(PHONE_QUERY)
+  mq.addEventListener('change', onChange)
+  return () => mq.removeEventListener('change', onChange)
+}
+/** Below the `sm` breakpoint (640px); false while server rendering. */
+function useIsPhone(): boolean {
+  return useSyncExternalStore(
+    subscribePhone,
+    () => window.matchMedia(PHONE_QUERY).matches,
+    () => false,
+  )
+}
 
 export function DataTable<T extends RowData>({
   data,
@@ -138,7 +159,10 @@ export function DataTable<T extends RowData>({
   initialSorting = [],
   searchLabel = 'Buscar',
   searchPlaceholder,
+  searchPlaceholderPhone,
   filters = [],
+  initialFilters,
+  onFiltersChange,
   emptyState,
   emptyMessage,
   pageSize = 20,
@@ -149,6 +173,9 @@ export function DataTable<T extends RowData>({
   const [pageIndexRequested, setPageIndex] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const filtersButtonRef = useRef<HTMLButtonElement>(null)
+  const isPhone = useIsPhone()
+  // the bottom sheet is a phone-only control: close it when the viewport grows past 640px (rotation)
+  if (filtersOpen && !isPhone) setFiltersOpen(false) // render-phase state adjustment
 
   const defaultColumn = useMemo(() => ({ enableSorting: false, filterFn: equalsFilter }), [])
 
@@ -158,7 +185,10 @@ export function DataTable<T extends RowData>({
     data,
     getRowId,
     defaultColumn,
-    initialState: { sorting: initialSorting },
+    initialState: {
+      sorting: initialSorting,
+      columnFilters: Object.entries(initialFilters ?? {}).map(([id, value]) => ({ id, value })),
+    },
     // pagination is controlled: the index is clamped below so it stays valid after deletions
     state: { pagination: { pageIndex: pageIndexRequested, pageSize } },
     onPaginationChange: (updater) =>
@@ -171,6 +201,20 @@ export function DataTable<T extends RowData>({
   })
 
   const globalFilter = String(table.state.globalFilter ?? '')
+  const filtersKey = JSON.stringify(table.state.columnFilters)
+  const onFiltersChangeRef = useRef(onFiltersChange)
+  useEffect(() => {
+    onFiltersChangeRef.current = onFiltersChange
+  })
+  const reportedKey = useRef(filtersKey)
+  useEffect(() => {
+    if (reportedKey.current === filtersKey) return
+    reportedKey.current = filtersKey
+    const list = JSON.parse(filtersKey) as { id: string; value: unknown }[]
+    onFiltersChangeRef.current?.(
+      Object.fromEntries(list.filter((f) => f.value !== undefined).map((f) => [f.id, String(f.value)])),
+    )
+  }, [filtersKey])
   const filteredCount = table.getFilteredRowModel().rows.length
   const pageCount = Math.max(1, Math.ceil(filteredCount / pageSize))
   const pageIndex = Math.min(pageIndexRequested, pageCount - 1)
@@ -277,7 +321,7 @@ export function DataTable<T extends RowData>({
                 table.setGlobalFilter(e.target.value)
                 resetPage()
               }}
-              placeholder={searchPlaceholder}
+              placeholder={isPhone && searchPlaceholderPhone ? searchPlaceholderPhone : searchPlaceholder}
               autoComplete="off"
               className={`${inputClass} pr-11 pl-10 [&::-webkit-search-cancel-button]:hidden`}
             />

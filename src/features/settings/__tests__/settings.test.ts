@@ -8,6 +8,8 @@ const valid = {
   contactInfo: 'Fale com a Isabella',
   closingMessage: 'Te esperamos!',
   whatsappInviteTemplate: 'Oi! Seu convite: {link}',
+  reminderD7Text: 'Falta uma semana! {link}',
+  reminderD1Text: 'É amanhã! {link}',
 }
 const parse = (over: Record<string, string>) =>
   settingsFormSchema(TODAY).safeParse({ ...valid, ...over })
@@ -19,6 +21,18 @@ describe('settings form schema', () => {
     expect(messages(parse({ whatsappInviteTemplate: 'Oi, venha!' }))).toContain(
       'A mensagem precisa conter {link}.',
     )
+  })
+
+  it('requires {link} in both reminder texts', () => {
+    expect(messages(parse({ reminderD7Text: 'Falta uma semana!' }))).toContain('A mensagem precisa conter {link}.')
+    expect(messages(parse({ reminderD1Text: 'É amanhã!' }))).toContain('A mensagem precisa conter {link}.')
+    const r = parse({ reminderD7Text: '' })
+    expect(r.success).toBe(false)
+  })
+
+  it('limits reminder texts to 600 characters', () => {
+    expect(messages(parse({ reminderD7Text: '{link}' + 'a'.repeat(600) }))).toContain('Use até 600 caracteres.')
+    expect(messages(parse({ reminderD1Text: '{link}' + 'a'.repeat(600) }))).toContain('Use até 600 caracteres.')
   })
 
   it('rejects a deadline after the party', () => {

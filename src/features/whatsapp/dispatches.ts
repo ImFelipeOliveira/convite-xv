@@ -152,6 +152,25 @@ export async function claimDueReminder(now: Date): Promise<MessageDispatch | nul
   return row ?? null
 }
 
+/**
+ * Re-arms a failed reminder for the dispatcher's next pass (now, fresh retry budget).
+ * Invites and reminders in any other status are never touched. Returns whether a row changed.
+ */
+export async function retryFailedReminder(id: string): Promise<boolean> {
+  const rows = await db
+    .update(messageDispatches)
+    .set({ status: 'scheduled', scheduledFor: sql`now()`, attempts: 0, errorCode: null, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(messageDispatches.id, id),
+        eq(messageDispatches.status, 'failed'),
+        sql`${messageDispatches.kind} <> 'invite'`,
+      ),
+    )
+    .returning({ id: messageDispatches.id })
+  return rows.length > 0
+}
+
 export async function rescheduleReminder(id: string, at: Date, errorCode: string): Promise<void> {
   await db
     .update(messageDispatches)

@@ -13,6 +13,7 @@ import {
   markDispatchSent,
   recoverStuckSending,
   rescheduleReminder,
+  retryFailedReminder,
   upsertReminder,
 } from '../dispatches'
 
@@ -231,5 +232,42 @@ describe('dispatches repo', () => {
         { guestId: g.id, kind: 'reminder_d1', status: 'scheduled' },
       ]),
     ).rejects.toThrow()
+  })
+  it('retryFailedReminder re-arms only a failed reminder: scheduled now, attempts 0, no error', async () => {
+    const g = await makeGuest()
+    const [failed] = await db
+      .insert(messageDispatches)
+      .values({
+        guestId: g.id,
+        kind: 'reminder_d1',
+        status: 'failed',
+        attempts: 3,
+        errorCode: 'not_connected',
+        scheduledFor: new Date('2026-12-26T14:00:00Z'),
+      })
+      .returning()
+    const before = Date.now()
+    expect(await retryFailedReminder(failed.id)).toBe(true)
+    const [row] = await rows(g.id)
+    expect(row).toMatchObject({ status: 'scheduled', attempts: 0, errorCode: null })
+    expect(Math.abs(row.scheduledFor!.getTime() - before)).toBeLessThan(10_000)
+  })
+
+  it('retryFailedReminder never touches invites or non-failed reminders', async () => {
+    const g = await makeGuest()
+    const [invite] = await db
+      .insert(messageDispatches)
+      .values({ guestId: g.id, kind: 'invite', status: 'failed', attempts: 1, errorCode: 'timeout' })
+      .returning()
+    const [sent] = await db
+      .insert(messageDispatches)
+      .values({ guestId: g.id, kind: 'reminder_d7', status: 'sent', attempts: 1 })
+      .returning()
+    expect(await retryFailedReminder(invite.id)).toBe(false)
+    expect(await retryFailedReminder(sent.id)).toBe(false)
+    expect(await retryFailedReminder('00000000-0000-4000-8000-000000000000')).toBe(false)
+    const after = await rows(g.id)
+    expect(after.find((r) => r.id === invite.id)).toMatchObject({ status: 'failed', errorCode: 'timeout' })
+    expect(after.find((r) => r.id === sent.id)).toMatchObject({ status: 'sent' })
   })
 })

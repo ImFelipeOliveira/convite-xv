@@ -6,7 +6,14 @@ import { logger } from '@/lib/logger'
 import { getSettings, saveSettings } from './repo'
 import { settingsFormSchema, todayInBoaVista } from './schema'
 
-const FIELDS = ['rsvpDeadline', 'contactInfo', 'closingMessage', 'whatsappInviteTemplate'] as const
+const FIELDS = [
+  'rsvpDeadline',
+  'contactInfo',
+  'closingMessage',
+  'whatsappInviteTemplate',
+  'reminderD7Text',
+  'reminderD1Text',
+] as const
 type Field = (typeof FIELDS)[number]
 
 export type SettingsFormState =

@@ -29,6 +29,13 @@ const optionalText = (max: number) =>
     .max(max, `Use até ${max} caracteres.`)
     .transform((v) => (v === '' ? null : v))
 
+/** WhatsApp message text edited by the family: up to 600 characters, must carry the invite link. */
+const messageTemplate = z
+  .string()
+  .trim()
+  .max(600, 'Use até 600 caracteres.')
+  .refine((v) => v.includes('{link}'), 'A mensagem precisa conter {link}.')
+
 /**
  * Admin settings form. `today` is 'YYYY-MM-DD' in America/Boa_Vista (see todayInBoaVista).
  * `storedDeadline` is the saved deadline: keeping it unchanged is always allowed, even once it has passed.
@@ -43,11 +50,9 @@ export function settingsFormSchema(today: string, storedDeadline?: string) {
       .refine((v) => !isRealDate(v) || v > MAX_DEADLINE || v >= today || v === storedDeadline, 'O prazo não pode estar no passado.'),
     contactInfo: optionalText(200),
     closingMessage: optionalText(600),
-    whatsappInviteTemplate: z
-      .string()
-      .trim()
-      .max(600, 'Use até 600 caracteres.')
-      .refine((v) => v.includes('{link}'), 'A mensagem precisa conter {link}.'),
+    whatsappInviteTemplate: messageTemplate,
+    reminderD7Text: messageTemplate,
+    reminderD1Text: messageTemplate,
   })
 }
 

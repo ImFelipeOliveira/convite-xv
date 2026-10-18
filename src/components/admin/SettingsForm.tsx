@@ -12,6 +12,8 @@ type Values = {
   contactInfo: string
   closingMessage: string
   whatsappInviteTemplate: string
+  reminderD7Text: string
+  reminderD1Text: string
 }
 
 type Props = { initial: Values }
@@ -130,6 +132,55 @@ export function SettingsForm({ initial }: Props) {
               required
               defaultValue={values.whatsappInviteTemplate}
               {...a11y('whatsappInviteTemplate')}
+              className={`${inputClass} resize-y leading-relaxed`}
+            />
+          </Field>
+        </Section>
+        <Section
+          title="Lembretes automáticos"
+          description="Enviados pelo WhatsApp a quem confirmou presença: 20/12 e 26/12, às 10h (horário de Boa Vista)."
+        >
+          <Field
+            id="settings-reminderD7Text"
+            label="Lembrete 7 dias antes"
+            required
+            error={errors.reminderD7Text}
+            helper={
+              <>
+                Sai no domingo, 20/12, às 10h. Use <code>{'{nome}'}</code> e <code>{'{link}'}</code>; até 600
+                caracteres.
+              </>
+            }
+          >
+            <textarea
+              name="reminderD7Text"
+              rows={4}
+              maxLength={600}
+              required
+              defaultValue={values.reminderD7Text}
+              {...a11y('reminderD7Text')}
+              className={`${inputClass} resize-y leading-relaxed`}
+            />
+          </Field>
+          <Field
+            id="settings-reminderD1Text"
+            label="Lembrete na véspera"
+            required
+            error={errors.reminderD1Text}
+            helper={
+              <>
+                Sai no sábado, 26/12, às 10h. Use <code>{'{nome}'}</code> e <code>{'{link}'}</code>; até 600
+                caracteres.
+              </>
+            }
+          >
+            <textarea
+              name="reminderD1Text"
+              rows={4}
+              maxLength={600}
+              required
+              defaultValue={values.reminderD1Text}
+              {...a11y('reminderD1Text')}
               className={`${inputClass} resize-y leading-relaxed`}
             />
           </Field>

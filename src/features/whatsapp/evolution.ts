@@ -104,11 +104,34 @@ export async function connectQr(
   if (!isSuccess(c) && c.status !== 403 && c.status !== 409) {
     return fail(c.status === 401 ? 'unauthorized' : 'provider_error')
   }
+  return fetchQr(cfg, fetchImpl)
+}
+
+/**
+ * GET /instance/connect only (the instance must exist): starts pairing when closed and answers the
+ * current QR while connecting (WhatsApp rotates it every ~20 s). `null` = connected or not ready yet.
+ */
+export async function fetchQr(
+  cfg: EvolutionConfig,
+  fetchImpl: FetchImpl = fetch,
+): Promise<EvolutionResult<{ qrDataUrl: string | null }>> {
   const r = await call(cfg, 'GET', `/instance/connect/${cfg.instance}`, undefined, fetchImpl)
   if (!r.ok) return fail(r.error)
   if (!isSuccess(r.raw)) return fail(mapFailure(r.raw))
-  const base64 = pick(r.raw.body, 'base64')
-  return { ok: true, value: { qrDataUrl: typeof base64 === 'string' && base64 ? base64 : null } }
+  return { ok: true, value: { qrDataUrl: toQrDataUrl(r.raw.body) } }
+}
+
+/**
+ * The QR image from a connect answer. Evolution v2 sends `base64` either as a full data URL or as
+ * raw base64 (sometimes nested under `qrcode`); `code`/`pairingCode`/`count` alone mean no image yet.
+ */
+function toQrDataUrl(body: unknown): string | null {
+  const raw = pick(body, 'base64') ?? pick(body, 'qrcode', 'base64')
+  if (typeof raw !== 'string') return null
+  const value = raw.trim()
+  if (!value) return null
+  if (value.startsWith('data:image/')) return value
+  return /^[A-Za-z0-9+/=\s]+$/.test(value) ? `data:image/png;base64,${value.replace(/\s/g, '')}` : null
 }
 
 export async function logout(

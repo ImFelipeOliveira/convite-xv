@@ -21,6 +21,8 @@ export default async function SettingsPage() {
           contactInfo: s.contactInfo ?? '',
           closingMessage: s.closingMessage ?? '',
           whatsappInviteTemplate: s.whatsappInviteTemplate,
+          reminderD7Text: s.reminderD7Text,
+          reminderD1Text: s.reminderD1Text,
         }}
       />
     </div>
