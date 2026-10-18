@@ -1,15 +1,27 @@
 'use client'
 
-import { Download, Ellipsis, FileUp, Link2, MessageCircle, Pencil, Trash2, UserPlus, Users } from 'lucide-react'
+import {
+  Download,
+  Ellipsis,
+  FileUp,
+  Link2,
+  MessageCircle,
+  Pencil,
+  Trash2,
+  TriangleAlert,
+  UserPlus,
+  Users,
+} from 'lucide-react'
 import { useMemo, useRef, useState, useTransition } from 'react'
 import { deleteGuestAction } from '@/features/guests/actions'
+import { joinNames } from '@/features/guests/duplicates'
 import { createDataTableColumnHelper, DataTable, type DataTableFilter } from './data-table/DataTable'
 import { compareText, formatBoaVistaDateTime } from './data-table/helpers'
 import { buttonClass, focusRing } from './styles'
 import { GuestForm } from './GuestForm'
 import { GuestImportForm } from './GuestImportForm'
 import { SendInviteButton, type LastInvite } from './SendInviteButton'
-import { RsvpBadge, type RsvpStatusValue } from './ui/Badge'
+import { Badge, RsvpBadge, type RsvpStatusValue } from './ui/Badge'
 import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
 import { ConfirmDialog } from './ui/ConfirmDialog'
@@ -34,6 +46,10 @@ export type GuestRow = {
   lastInvite: LastInvite
   /** filter value of the "Convite" chips (`sending` counts as sent) */
   inviteStatus: 'none' | 'sent' | 'failed'
+  /** names of the OTHER guests with the same phone (empty when the phone is unique or missing) */
+  duplicatePhoneWith: string[]
+  /** filter value of the "Alertas" chip */
+  alert: 'duplicatePhone' | 'none'
 }
 
 type SheetState = { kind: 'new' } | { kind: 'edit'; guest: GuestRow } | { kind: 'import' } | null
@@ -60,6 +76,24 @@ const FILTERS: DataTableFilter[] = [
     ],
   },
 ]
+
+const ALERTS_FILTER: DataTableFilter = {
+  columnId: 'alert',
+  label: 'Alertas',
+  options: [{ value: 'duplicatePhone', label: 'Telefone repetido' }],
+}
+
+function DuplicatePhoneBadge({ names }: { names: string[] }) {
+  const description = `Mesmo telefone de ${joinNames(names)}`
+  return (
+    <span title={description} className="inline-flex">
+      <Badge tone="gold" icon={<TriangleAlert aria-hidden="true" className="size-3.5" strokeWidth={2} />}>
+        Telefone repetido
+        <span className="sr-only">. {description}.</span>
+      </Badge>
+    </span>
+  )
+}
 
 const moreItem = `flex min-h-12 items-center gap-3 rounded-[2px] px-3 text-left text-[16px] text-wine transition-colors duration-(--dur-micro) hover:bg-blush active:bg-petal/60 ${focusRing}`
 
@@ -167,8 +201,20 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         helper.accessor('phone', {
           header: 'Telefone',
           meta: { searchable: true, className: 'whitespace-nowrap tabular-nums' },
-          cell: (info) => info.getValue() || <span className="text-muted">—</span>,
+          cell: ({ row }) =>
+            row.original.phone ? (
+              <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                {row.original.phone}
+                {row.original.duplicatePhoneWith.length > 0 && (
+                  <DuplicatePhoneBadge names={row.original.duplicatePhoneWith} />
+                )}
+              </span>
+            ) : (
+              <span className="text-muted">—</span>
+            ),
         }),
+        // feeds the "Alertas" chip only (the badge lives in the phone cell)
+        helper.accessor('alert', { header: 'Alertas', meta: { hidden: true } }),
         helper.accessor('plusOnesLimit', {
           header: 'Limite',
           enableSorting: true,
@@ -191,6 +237,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
                 name: row.original.name,
                 hasPhone: row.original.hasPhone,
                 lastInvite: row.original.lastInvite,
+                duplicatePhoneWith: row.original.duplicatePhoneWith,
               }}
             />
           ),
@@ -249,6 +296,9 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
   }
 
   const closeSheet = () => setSheet(null)
+  // the "Alertas" group only shows up while some guest has a repeated phone
+  const hasAlerts = guests.some((g) => g.alert !== 'none')
+  const filters = useMemo(() => (hasAlerts ? [...FILTERS, ALERTS_FILTER] : FILTERS), [hasAlerts])
 
   const emptyState = (
     <div className="flex flex-col items-center gap-5 border border-dashed border-hairline-strong bg-paper px-6 py-16 text-center">
@@ -368,7 +418,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         searchLabel="Buscar convidado"
         searchPlaceholder="Buscar por nome ou telefone"
         searchPlaceholderPhone="Buscar convidado"
-        filters={FILTERS}
+        filters={filters}
         emptyState={emptyState}
         emptyMessage="Nenhum convidado encontrado com essa busca."
       />
@@ -414,7 +464,8 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         >
           <GuestImportForm
             onImported={(r) => {
-              if (r.errors.length === 0) closeSheet()
+              // keep the report open while it has line errors or warnings to read
+              if (r.errors.length === 0 && !r.warnings?.length) closeSheet()
             }}
           />
         </Sheet>

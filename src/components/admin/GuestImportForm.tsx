@@ -1,9 +1,9 @@
 'use client'
 
-import { FileSpreadsheet } from 'lucide-react'
+import { FileSpreadsheet, TriangleAlert } from 'lucide-react'
 import { useActionState, useEffect, useState } from 'react'
 import { importGuestsAction, type ImportGuestsState } from '@/features/guests/actions'
-import { formatImportSummary } from '@/features/guests/import-report'
+import { formatImportSummary, formatImportWarning } from '@/features/guests/import-report'
 import { fieldErrorClass, helperClass, labelClass, requiredMark } from './styles'
 import { Button } from './ui/Button'
 import { useToast } from './ui/Toast'
@@ -79,7 +79,23 @@ export function GuestImportForm({
           {state.error ? (
             <p className={fieldErrorClass}>{state.error}</p>
           ) : (
-            <p className={state.errors.length ? 'text-wine' : 'text-sage'}>{formatImportSummary(state)}</p>
+            <div className="flex flex-col gap-3">
+              <p className={state.errors.length ? 'text-wine' : 'text-sage'}>{formatImportSummary(state)}</p>
+              {state.warnings && state.warnings.length > 0 && (
+                // imported anyway: warnings never block a row (errors do)
+                <div className="flex flex-col gap-1.5 border-t border-hairline pt-3">
+                  <p id="import-warnings" className="flex items-center gap-1.5 font-medium text-gold-text">
+                    <TriangleAlert aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.75} />
+                    Avisos
+                  </p>
+                  <ul aria-labelledby="import-warnings" className="flex flex-col gap-1 text-wine">
+                    {state.warnings.map((w) => (
+                      <li key={w.line}>{formatImportWarning(w)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -1,8 +1,10 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useActionState, useEffect } from 'react'
+import { TriangleAlert } from 'lucide-react'
+import { useActionState, useEffect, useRef, useState } from 'react'
 import { saveGuestAction, type GuestFormState } from '@/features/guests/actions'
+import { joinNames } from '@/features/guests/duplicates'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
@@ -22,10 +24,19 @@ export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
   const [state, action, pending] = useActionState<GuestFormState, FormData>(saveGuestAction, null)
   const toast = useToast()
   const router = useRouter()
+  const phoneRef = useRef<HTMLInputElement>(null)
+  const warningRef = useRef<HTMLDivElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  // the duplicate warning answers one submitted phone: editing the field dismisses it
+  const [dismissed, setDismissed] = useState<GuestFormState>(null)
 
   useEffect(() => {
     if (!state) return
-    if (state.ok) {
+    if (!state.ok && state.duplicatePhone) {
+      // not an error: the inline warning asks for a decision (focus moves there)
+      warningRef.current?.focus()
+    } else if (state.ok) {
       toast.success(state.message)
       onSaved?.()
       if (redirectTo) router.push(redirectTo)
@@ -46,9 +57,12 @@ export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
   }
   const errors = failed?.fieldErrors ?? {}
   const prefix = guest ? `edit-${guest.id}` : 'new'
+  const duplicate = failed?.duplicatePhone && dismissed !== state ? failed.duplicatePhone : null
+  const duplicateId = `${prefix}-phone-duplicate`
 
   return (
     <form
+      ref={formRef}
       action={action}
       aria-label={guest ? 'Editar convidado' : 'Novo convidado'}
       className="flex flex-col gap-6"
@@ -88,13 +102,55 @@ export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
             inputMode="tel"
             autoComplete="off"
             placeholder="(95) 99123-4567"
+            ref={phoneRef}
             defaultValue={values.phone}
+            onChange={() => {
+              if (duplicate) setDismissed(state)
+            }}
             aria-invalid={!!errors.phone}
             id={`${prefix}-phone`}
-            aria-describedby={fieldDescribedBy(`${prefix}-phone`, true)}
+            aria-describedby={`${fieldDescribedBy(`${prefix}-phone`, true)}${duplicate ? ` ${duplicateId}` : ''}`}
             className={inputClass}
           />
         </Field>
+        {duplicate && (
+          <div
+            ref={warningRef}
+            tabIndex={-1}
+            role="group"
+            aria-labelledby={duplicateId}
+            className="-mt-2 flex flex-col gap-3 border border-gold/50 bg-gold-wash p-4 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-wine"
+          >
+            <p id={duplicateId} role="alert" className="flex gap-2 text-sm text-wine">
+              <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-gold-text" strokeWidth={1.75} />
+              <span>Este telefone já está cadastrado para {joinNames(duplicate.names)}.</span>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                // submits through the hidden confirm button at the end of the form, so Enter in a
+                // field still means plain "Salvar" (the first submit button in tree order)
+                onClick={() => formRef.current?.requestSubmit(confirmRef.current)}
+                pending={pending}
+                pendingLabel="Salvando…"
+              >
+                Salvar mesmo assim
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                onClick={() => {
+                  setDismissed(state)
+                  phoneRef.current?.focus()
+                  phoneRef.current?.select()
+                }}
+              >
+                Corrigir telefone
+              </Button>
+            </div>
+          </div>
+        )}
         <Field
           id={`${prefix}-limit`}
           label="Limite de acompanhantes"
@@ -128,6 +184,9 @@ export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
           Salvar
         </Button>
       </div>
+      {duplicate && (
+        <button ref={confirmRef} type="submit" name="confirmDuplicatePhone" value="1" hidden tabIndex={-1} />
+      )}
     </form>
   )
 }

@@ -9,6 +9,7 @@ import {
   deleteGuest,
   findGuestById,
   findGuestByToken,
+  findGuestsByPhone,
   getSummary,
   listGuests,
   markOpened,
@@ -94,6 +95,42 @@ describe('guests repo', () => {
     await makeGuest({ rsvpStatus: 'yes', plusOnes: 0 })
     await makeGuest({ rsvpStatus: 'no' })
     await makeGuest({ rsvpStatus: 'pending' })
-    expect(await getSummary()).toEqual({ total: 4, yes: 2, no: 1, pending: 1, confirmedPeople: 4 })
+    expect(await getSummary()).toEqual({
+      total: 4,
+      yes: 2,
+      no: 1,
+      pending: 1,
+      confirmedPeople: 4,
+      pendingPeopleMax: 3,
+      maxPossiblePeople: 7,
+    })
+  })
+
+  it('summarizes the people who may still come (pending guests with their limits, "no" excluded)', async () => {
+    await makeGuest({ rsvpStatus: 'yes', plusOnes: 1, plusOnesLimit: 3 })
+    await makeGuest({ rsvpStatus: 'pending', plusOnesLimit: 0 })
+    await makeGuest({ rsvpStatus: 'pending', plusOnesLimit: 4 })
+    await makeGuest({ rsvpStatus: 'no', plusOnesLimit: 6 })
+    const s = await getSummary()
+    expect(s.confirmedPeople).toBe(2)
+    expect(s.pendingPeopleMax).toBe(6)
+    expect(s.maxPossiblePeople).toBe(8)
+  })
+
+  it('summarizes an empty list as zeros', async () => {
+    const s = await getSummary()
+    expect(s.pendingPeopleMax).toBe(0)
+    expect(s.maxPossiblePeople).toBe(0)
+  })
+
+  it('findGuestsByPhone normalizes the input and can exclude the guest being edited', async () => {
+    const ana = await makeGuest({ name: 'Ana', phone: '+5595991234567' })
+    const bia = await makeGuest({ name: 'Bia', phone: '+5595991234567' })
+    await makeGuest({ name: 'Caio', phone: '+5595988887777' })
+    await makeGuest({ name: 'Duda', phone: null })
+    expect((await findGuestsByPhone('(95) 99123-4567')).map((g) => g.name)).toEqual(['Ana', 'Bia'])
+    expect(await findGuestsByPhone('+5595991234567', ana.id)).toEqual([{ id: bia.id, name: 'Bia' }])
+    expect(await findGuestsByPhone('(95) 97777-6666')).toEqual([])
+    expect(await findGuestsByPhone('123')).toEqual([])
   })
 })

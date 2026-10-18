@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { GuestsTable, type GuestRow } from '@/components/admin/GuestsTable'
 import { requireAdmin } from '@/features/admin-auth/guard'
+import { otherGuestsSharingPhone } from '@/features/guests/duplicates'
 import { formatPhone } from '@/features/guests/phone'
 import { listGuests } from '@/features/guests/repo'
 import { inviteUrl, whatsappUrl } from '@/features/guests/whatsapp'
@@ -19,8 +20,10 @@ function people(g: Guest): number | null {
 export default async function GuestsPage() {
   await requireAdmin()
   const [list, settings, invites] = await Promise.all([listGuests(), getSettings(), lastInvitePerGuest()])
+  const sharedPhones = otherGuestsSharingPhone(list)
   // minimized rows: only what the table shows or its actions need
   const rows: GuestRow[] = list.map((g) => {
+    const duplicatePhoneWith = sharedPhones.get(g.id) ?? []
     const invite = invites.get(g.id)
     // invites are only ever sending / sent / failed
     const last =
@@ -41,6 +44,8 @@ export default async function GuestsPage() {
       lastInvite: last,
       // an invite in flight counts as "Enviado" so the chip counts add up
       inviteStatus: !last ? 'none' : last.status === 'failed' ? 'failed' : 'sent',
+      duplicatePhoneWith,
+      alert: duplicatePhoneWith.length > 0 ? 'duplicatePhone' : 'none',
     }
   })
   const confirmed = list.filter((g) => g.rsvpStatus === 'yes').length

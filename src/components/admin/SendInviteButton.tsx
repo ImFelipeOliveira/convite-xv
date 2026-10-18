@@ -2,6 +2,7 @@
 
 import { CircleCheck, RotateCw, Send } from 'lucide-react'
 import { useEffect, useRef, useState, useTransition } from 'react'
+import { joinNames } from '@/features/guests/duplicates'
 import { sendInviteAction } from '@/features/whatsapp/actions'
 import { inviteErrorMessage } from '@/features/whatsapp/invite-result'
 import { formatBoaVistaDateTime } from './data-table/helpers'
@@ -15,12 +16,20 @@ export type LastInvite = { status: 'sending' | 'sent' | 'failed'; at: string } |
 export function SendInviteButton({
   guest,
 }: {
-  guest: { id: string; name: string; hasPhone: boolean; lastInvite: LastInvite }
+  guest: {
+    id: string
+    name: string
+    hasPhone: boolean
+    lastInvite: LastInvite
+    /** other guests with the same phone: the first send asks for confirmation too */
+    duplicatePhoneWith?: string[]
+  }
 }) {
   const toast = useToast()
   const [pending, startTransition] = useTransition()
   const [confirming, setConfirming] = useState(false)
   const resendRef = useRef<HTMLButtonElement>(null)
+  const sendRef = useRef<HTMLButtonElement>(null)
   const confirmRef = useRef<HTMLButtonElement>(null)
   const retryRef = useRef<HTMLButtonElement>(null)
   const firstName = guest.name.trim().split(/\s+/)[0] ?? guest.name
@@ -31,8 +40,8 @@ export function SendInviteButton({
 
   function cancel() {
     setConfirming(false)
-    // the "Reenviar" button is rendered again on the next paint
-    requestAnimationFrame(() => resendRef.current?.focus())
+    // the "Reenviar" / "Enviar convite" button is rendered again on the next paint
+    requestAnimationFrame(() => (resendRef.current ?? sendRef.current)?.focus())
   }
 
   function send() {
@@ -57,10 +66,40 @@ export function SendInviteButton({
   const when = last ? formatBoaVistaDateTime(last.at) : ''
   // compact form for the table cell / card: "12/10 14:30"
   const short = when.replace(' às ', ' ')
+  const sharedWith = guest.duplicatePhoneWith ?? []
+
+  if (!last && confirming) {
+    return (
+      <div
+        role="group"
+        aria-label={`Confirmar envio para ${guest.name}`}
+        className="flex flex-col gap-2"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && !pending) {
+            e.stopPropagation()
+            cancel()
+          }
+        }}
+      >
+        <p className="max-w-[28ch] text-sm whitespace-normal text-wine">
+          Este número também é de {joinNames(sharedWith)}. Enviar mesmo assim?
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button ref={confirmRef} size="sm" pending={pending} pendingLabel="Enviando…" onClick={send}>
+            Enviar mesmo assim
+          </Button>
+          <Button size="sm" variant="ghost" onClick={cancel} disabled={pending}>
+            Cancelar
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   if (!last) {
     return (
       <Button
+        ref={sendRef}
         size="sm"
         variant="secondary"
         // full width inside the phone card
@@ -68,7 +107,7 @@ export function SendInviteButton({
         icon={<Send aria-hidden="true" className="size-4" strokeWidth={1.75} />}
         pending={pending}
         pendingLabel="Enviando…"
-        onClick={send}
+        onClick={sharedWith.length > 0 ? () => setConfirming(true) : send}
         aria-label={`Enviar convite para ${guest.name}`}
       >
         Enviar convite
@@ -113,6 +152,7 @@ export function SendInviteButton({
       >
         <p className="max-w-[28ch] text-sm whitespace-normal text-wine">
           Já enviado em <span className="whitespace-nowrap">{when}</span> — enviar de novo?
+          {sharedWith.length > 0 && <> Este número também é de {joinNames(sharedWith)}.</>}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button ref={confirmRef} size="sm" pending={pending} pendingLabel="Enviando…" onClick={send}>

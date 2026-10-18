@@ -106,6 +106,11 @@ test.describe('admin summary, messages and settings', () => {
     await page.goto('/admin')
     await expect(page.getByRole('heading', { name: 'Resumo' })).toBeVisible()
     await expect(page.getByText('Pessoas confirmadas').locator('..')).toContainText('4')
+    // pending: the e2e guest (limit 2) + Resumo Aberto (limit 0) → 3 + 1; maximum 4 + 4
+    await expect(page.getByText('Ainda podem vir', { exact: true }).locator('..')).toContainText('4')
+    await expect(page.getByText('Pendentes + acompanhantes permitidos')).toBeVisible()
+    await expect(page.getByText('Máximo possível', { exact: true }).locator('..')).toContainText('8')
+    await expect(page.getByText('Confirmadas + ainda podem vir')).toBeVisible()
     await expect(page.getByRole('progressbar', { name: /Confirmados/ })).toBeVisible()
     const opened = page.getByRole('region', { name: 'Abriram e não responderam' })
     await expect(opened.getByText('Resumo Aberto')).toBeVisible()

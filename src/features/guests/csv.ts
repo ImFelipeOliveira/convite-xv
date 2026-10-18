@@ -1,7 +1,7 @@
 import Papa from 'papaparse'
 import { EVENT } from '@/features/event/event'
 import type { Guest, RsvpStatus } from '@/server/db/schema'
-import type { CsvLineError } from './import-report'
+import type { CsvLineError, CsvLineWarning } from './import-report'
 import { formatPhone } from './phone'
 import { guestFormSchema } from './schema'
 import { inviteUrl } from './whatsapp'
@@ -56,6 +56,20 @@ function parseRows(body: string, delimiter: string): { rows: Row[]; malformed: n
  * A file whose only column is `nome` is read one whole line per name (so "Silva, João" stays intact).
  */
 export function parseGuestsCsv(text: string): { valid: ImportedGuest[]; errors: CsvLineError[] } {
+  const { rows, errors } = parseGuestsCsvRows(text)
+  return { valid: rows.map(toImportedGuest), errors }
+}
+
+/** Drops the file line (what createGuests inserts). */
+export function toImportedGuest(row: ImportedGuest & { line: number }): ImportedGuest {
+  return { name: row.name, phone: row.phone, plusOnesLimit: row.plusOnesLimit }
+}
+
+/** Same as parseGuestsCsv, keeping the file line of each valid row (for the import warnings). */
+export function parseGuestsCsvRows(text: string): {
+  rows: Array<ImportedGuest & { line: number }>
+  errors: CsvLineError[]
+} {
   const body = text.replace(/^\uFEFF/, '')
   const headerLine = body.split(/\r?\n/, 1)[0]
   const firstCell = headerLine.trim().replace(/^"(.*)"$/, '$1').trim().toLowerCase()
@@ -65,15 +79,15 @@ export function parseGuestsCsv(text: string): { valid: ImportedGuest[]; errors: 
       ? NO_DELIMITER
       : Papa.parse<string[]>(headerLine, { delimitersToGuess: [';', ','] }).meta.delimiter
   const { rows: allRows, malformed } = parseRows(body, delimiter)
-  if (malformed.includes(1)) return { valid: [], errors: [{ line: 1, reason: MALFORMED_LINE }] }
+  if (malformed.includes(1)) return { rows: [], errors: [{ line: 1, reason: MALFORMED_LINE }] }
   const [header, ...rows] = allRows
   const headers = (header?.cells ?? []).map((h) => h.trim().toLowerCase())
   const nameIdx = headers.indexOf(NAME_HEADER)
-  if (nameIdx < 0) return { valid: [], errors: [{ line: 1, reason: 'Cabeçalho "nome" obrigatório' }] }
+  if (nameIdx < 0) return { rows: [], errors: [{ line: 1, reason: 'Cabeçalho "nome" obrigatório' }] }
   const phoneIdx = headers.indexOf(PHONE_HEADER)
   const limitIdx = headers.indexOf(LIMIT_HEADER)
 
-  const valid: ImportedGuest[] = []
+  const valid: Array<ImportedGuest & { line: number }> = []
   const errors: CsvLineError[] = malformed.map((line) => ({ line, reason: MALFORMED_LINE }))
   for (const { line, cells } of rows) {
     if (cells.every((cell) => cell.trim() === '')) continue
@@ -83,11 +97,31 @@ export function parseGuestsCsv(text: string): { valid: ImportedGuest[]; errors: 
       phone: cell(phoneIdx),
       plusOnesLimit: cell(limitIdx).trim() || '0',
     })
-    if (parsed.success) valid.push(parsed.data)
+    if (parsed.success) valid.push({ line, ...parsed.data })
     else errors.push({ line, reason: parsed.error.issues[0].message })
   }
   errors.sort((a, b) => a.line - b.line)
-  return { valid, errors }
+  return { rows: valid, errors }
+}
+
+/**
+ * Rows whose phone repeats an existing guest or another row of the same file: still imported,
+ * reported as warnings naming the existing guests first, then the other rows.
+ */
+export function duplicatePhoneWarnings(
+  rows: Array<{ line: number; name: string; phone: string | null }>,
+  existing: Array<{ phone: string; name: string }>,
+): CsvLineWarning[] {
+  const warnings: CsvLineWarning[] = []
+  for (const row of rows) {
+    if (!row.phone) continue
+    const names = [
+      ...existing.filter((g) => g.phone === row.phone).map((g) => g.name),
+      ...rows.filter((r) => r !== row && r.phone === row.phone).map((r) => r.name),
+    ]
+    if (names.length) warnings.push({ line: row.line, names })
+  }
+  return warnings
 }
 
 const STATUS_LABEL: Record<RsvpStatus, string> = { pending: 'Pendente', yes: 'Sim', no: 'Não' }

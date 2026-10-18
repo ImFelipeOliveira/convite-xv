@@ -5,9 +5,16 @@ import { z } from 'zod'
 import { requireAdmin } from '@/features/admin-auth/guard'
 import { syncRemindersForGuest } from '@/features/whatsapp/reminders'
 import { logger } from '@/lib/logger'
-import { parseGuestsCsv } from './csv'
-import type { CsvLineError } from './import-report'
-import { createGuest, createGuests, deleteGuest, updateGuest } from './repo'
+import { duplicatePhoneWarnings, parseGuestsCsvRows, toImportedGuest } from './csv'
+import type { CsvLineError, CsvLineWarning } from './import-report'
+import {
+  createGuest,
+  createGuests,
+  deleteGuest,
+  findGuestsByPhone,
+  findGuestsByPhones,
+  updateGuest,
+} from './repo'
 import { guestFormSchema } from './schema'
 
 const GUESTS_PATH = '/admin/guests'
@@ -22,6 +29,8 @@ export type GuestFormState =
       ok: false
       error?: string
       fieldErrors?: Partial<Record<GuestField, string>>
+      /** Other guests already have this phone: nothing saved until the admin confirms. */
+      duplicatePhone?: { names: string[] }
       values?: Record<GuestField, string>
     }
   | null
@@ -29,6 +38,8 @@ export type GuestFormState =
 export type ImportGuestsState = {
   imported: number
   errors: CsvLineError[]
+  /** Imported rows whose phone repeats another guest (informational). */
+  warnings?: CsvLineWarning[]
   /** File-level problem (missing, too big, too many rows): nothing was imported. */
   error?: string
 } | null
@@ -61,6 +72,12 @@ export async function saveGuestAction(
       fieldErrors[key] ??= issue.message
     }
     return { ok: false, fieldErrors, values }
+  }
+
+  // a shared phone is allowed (e.g. a couple), but only after the admin confirms it
+  if (parsed.data.phone && text(formData, 'confirmDuplicatePhone') !== '1') {
+    const others = await findGuestsByPhone(parsed.data.phone, id || undefined)
+    if (others.length > 0) return { ok: false, duplicatePhone: { names: others.map((g) => g.name) }, values }
   }
 
   if (!id) {
@@ -105,7 +122,8 @@ export async function importGuestsAction(
   if (file.size > MAX_IMPORT_BYTES) {
     return { imported: 0, errors: [], error: 'O arquivo deve ter no máximo 1 MB.' }
   }
-  const { valid, errors } = parseGuestsCsv(await file.text())
+  const { rows, errors } = parseGuestsCsvRows(await file.text())
+  const valid = rows.map(toImportedGuest)
   if (valid.length + errors.length > MAX_IMPORT_ROWS) {
     return {
       imported: 0,
@@ -115,7 +133,10 @@ export async function importGuestsAction(
   }
 
   let imported: number
+  let warnings: CsvLineWarning[]
   try {
+    const phones = [...new Set(valid.flatMap((g) => (g.phone ? [g.phone] : [])))]
+    warnings = duplicatePhoneWarnings(rows, await findGuestsByPhones(phones))
     imported = await createGuests(valid)
   } catch (err) {
     logger.error(
@@ -125,9 +146,9 @@ export async function importGuestsAction(
     return { imported: 0, errors, error: 'Nenhum convidado foi importado. Tente novamente.' }
   }
   logger.info(
-    { event: 'admin.guests_imported', imported, errors: errors.length, adminId },
+    { event: 'admin.guests_imported', imported, errors: errors.length, warnings: warnings.length, adminId },
     'guests imported',
   )
   revalidatePath(GUESTS_PATH)
-  return { imported, errors }
+  return { imported, errors, warnings }
 }

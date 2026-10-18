@@ -8,7 +8,7 @@ test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.22' }, storageState
 
 const CSV =
   '\uFEFFnome;telefone;limite_acompanhantes\nJoão Ávila;(95) 99123-4567;2\nMaria;;0\n\nPedro;123;1\n'
-const OWN_GUESTS = ['Ana Teste', 'João Ávila', 'Maria', 'Pedro', 'Paginação Nova']
+const OWN_GUESTS = ['Ana Teste', 'João Ávila', 'Maria', 'Pedro', 'Paginação Nova', 'Repetido Um', 'Repetido Dois', 'Repetido Três']
 const SEED_PREFIX = 'Paginação'
 
 const rowOf = (page: Page, name: string) => page.getByRole('row').filter({ hasText: name })
@@ -182,6 +182,94 @@ test.describe('admin guests', () => {
     const csv = await res.text()
     expect(csv).toContain('nome;telefone;limite_acompanhantes;resposta')
     expect(csv).toContain('Ana Teste;(95) 98888-7777;3;Pendente')
+  })
+
+  test('a repeated phone asks before saving, is flagged in the list and filtered under Alertas', async ({
+    page,
+  }) => {
+    const PHONE = '(95) 93333-2222'
+    await page.goto('/admin/guests')
+
+    let form = await openNewGuestSheet(page)
+    await form.getByLabel('Nome').fill('Repetido Um')
+    await form.getByLabel('Telefone').fill(PHONE)
+    await form.getByRole('button', { name: 'Salvar' }).click()
+    await expect(toast(page)).toContainText('Convidado adicionado.')
+    await expect(form).toBeHidden()
+
+    // same phone in another format: warned, nothing saved yet
+    form = await openNewGuestSheet(page)
+    await form.getByLabel('Nome').fill('Repetido Dois')
+    await form.getByLabel('Telefone').fill('95933332222')
+    await form.getByRole('button', { name: 'Salvar', exact: true }).click()
+    const warning = form.getByText('Este telefone já está cadastrado para Repetido Um.')
+    await expect(warning).toBeVisible()
+    await expect(rowOf(page, 'Repetido Dois')).toHaveCount(0)
+
+    // "Corrigir telefone" puts the cursor back in the field and dismisses the warning
+    await form.getByRole('button', { name: 'Corrigir telefone' }).click()
+    await expect(form.getByLabel('Telefone')).toBeFocused()
+    await expect(warning).toBeHidden()
+
+    // Enter in a field is plain "Salvar": warned again, then confirmed
+    await form.getByLabel('Nome').press('Enter')
+    await expect(warning).toBeVisible()
+    await form.getByRole('button', { name: 'Salvar mesmo assim' }).click()
+    await expect(toast(page)).toContainText('Convidado adicionado.')
+    await expect(form).toBeHidden()
+
+    // the other guest's name is in each row (badge description): match the row by its first cell
+    const ownRow = (name: string) => page.getByRole('row').filter({ hasText: new RegExp(`^${name}`) })
+    for (const [name, other] of [
+      ['Repetido Um', 'Repetido Dois', 'Repetido Três'],
+      ['Repetido Dois', 'Repetido Um'],
+    ]) {
+      await expect(ownRow(name).getByText('Telefone repetido')).toBeVisible()
+      await expect(ownRow(name)).toContainText(`Mesmo telefone de ${other}`)
+    }
+    await expect(rowOf(page, 'Ana Teste').getByText('Telefone repetido')).toHaveCount(0)
+
+    // the first WhatsApp send asks like "Reenviar" does
+    const sendButton = ownRow('Repetido Dois').getByRole('button', { name: 'Enviar convite para Repetido Dois' })
+    await sendButton.click()
+    const confirm = page.getByRole('group', { name: 'Confirmar envio para Repetido Dois' })
+    await expect(confirm).toContainText('Este número também é de Repetido Um. Enviar mesmo assim?')
+    await confirm.getByRole('button', { name: 'Cancelar' }).click()
+    await expect(confirm).toHaveCount(0)
+    await expect(sendButton).toBeFocused()
+
+    // "Alertas" filter (phones: in the Filtros sheet) isolates them
+    await page.getByRole('button', { name: 'Filtros', exact: true }).click()
+    const sheet = page.getByRole('dialog', { name: 'Filtros' })
+    await sheet
+      .getByRole('group', { name: 'Alertas' })
+      .getByRole('button', { name: /^Telefone repetido/ })
+      .click()
+    await sheet.getByRole('button', { name: /^Ver resultados/ }).click()
+    await expect(sheet).toBeHidden()
+    await expect(page.getByRole('row').filter({ hasText: 'Repetido' })).toHaveCount(2)
+    await expect(rowOf(page, E2E_GUEST_NAME)).toHaveCount(0)
+    await expect(rowOf(page, 'Ana Teste')).toHaveCount(0)
+
+    // CSV import: a repeated phone is imported anyway and reported as a warning (not an error)
+    await page.getByRole('button', { name: 'Mais ações' }).click()
+    await page.getByRole('dialog', { name: 'Mais ações' }).getByRole('button', { name: 'Importar planilha' }).click()
+    const importForm = page.getByRole('form', { name: 'Importar convidados' })
+    await importForm.getByLabel('Arquivo CSV').setInputFiles({
+      name: 'repetidos.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from(`nome;telefone\nRepetido Três;${PHONE}\n`, 'utf-8'),
+    })
+    await importForm.getByRole('button', { name: 'Importar' }).click()
+    await expect(importForm.getByText('1 importado', { exact: true })).toBeVisible()
+    await expect(
+      importForm.getByRole('list', { name: 'Avisos' }).getByText('Linha 2: telefone repetido (Repetido Dois e Repetido Um)'),
+    ).toBeVisible()
+    await page
+      .getByRole('dialog', { name: 'Importar planilha' })
+      .getByRole('button', { name: 'Fechar', exact: true })
+      .click()
+    await expect(page.getByRole('row').filter({ hasText: 'Repetido' })).toHaveCount(3)
   })
 
   test.describe('data table', () => {

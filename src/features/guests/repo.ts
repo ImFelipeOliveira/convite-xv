@@ -1,6 +1,7 @@
-import { and, asc, eq, ilike, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, ilike, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { db } from '@/server/db/client'
 import { guests, type Guest, type RsvpStatus } from '@/server/db/schema'
+import { normalizePhone } from './phone'
 import { generateToken, isValidToken } from './token'
 
 export async function findGuestByToken(token: string): Promise<Guest | null> {
@@ -12,6 +13,33 @@ export async function findGuestByToken(token: string): Promise<Guest | null> {
 export async function findGuestById(id: string): Promise<Guest | null> {
   const [row] = await db.select().from(guests).where(eq(guests.id, id)).limit(1)
   return row ?? null
+}
+
+/** Other guests with this phone (any input format; normalized to E.164), by name. */
+export async function findGuestsByPhone(
+  phone: string,
+  excludeId?: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const e164 = normalizePhone(phone)
+  if (!e164) return []
+  const conditions = [eq(guests.phone, e164)]
+  if (excludeId) conditions.push(ne(guests.id, excludeId))
+  return db
+    .select({ id: guests.id, name: guests.name })
+    .from(guests)
+    .where(and(...conditions))
+    .orderBy(asc(guests.name))
+}
+
+/** Guests holding any of these E.164 phones (the CSV import's duplicate check). */
+export async function findGuestsByPhones(phones: string[]): Promise<Array<{ phone: string; name: string }>> {
+  if (phones.length === 0) return []
+  const rows = await db
+    .select({ phone: guests.phone, name: guests.name })
+    .from(guests)
+    .where(inArray(guests.phone, phones))
+    .orderBy(asc(guests.name))
+  return rows.flatMap((r) => (r.phone ? [{ phone: r.phone, name: r.name }] : []))
 }
 
 /** Returns true when this call set openedAt (the first open). */
@@ -113,6 +141,10 @@ export async function getSummary(): Promise<{
   no: number
   pending: number
   confirmedPeople: number
+  /** pending guests if all of them came with every companion allowed: Σ (1 + plusOnesLimit) */
+  pendingPeopleMax: number
+  /** confirmedPeople + pendingPeopleMax */
+  maxPossiblePeople: number
 }> {
   const [r] = await db
     .select({
@@ -121,7 +153,8 @@ export async function getSummary(): Promise<{
       no: sql<number>`count(*) filter (where ${guests.rsvpStatus} = 'no')::int`,
       pending: sql<number>`count(*) filter (where ${guests.rsvpStatus} = 'pending')::int`,
       confirmedPeople: sql<number>`coalesce(sum(1 + ${guests.plusOnes}) filter (where ${guests.rsvpStatus} = 'yes'), 0)::int`,
+      pendingPeopleMax: sql<number>`coalesce(sum(1 + ${guests.plusOnesLimit}) filter (where ${guests.rsvpStatus} = 'pending'), 0)::int`,
     })
     .from(guests)
-  return r
+  return { ...r, maxPossiblePeople: r.confirmedPeople + r.pendingPeopleMax }
 }

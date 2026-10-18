@@ -5,9 +5,11 @@ import {
   CircleX,
   Eye,
   Gift,
+  Hourglass,
   MessageSquareHeart,
   Send,
   Settings,
+  TrendingUp,
   UserPlus,
   Users,
 } from 'lucide-react'
@@ -86,36 +88,54 @@ export default async function AdminHomePage() {
         </ul>
       </section>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-        <div className="col-span-2 lg:col-span-1">
+      <div className="flex flex-col gap-3 sm:gap-4">
+        {/* people first (the number the family plans the party with), then the guest counts */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+          <div className="col-span-2 lg:col-span-1">
+            <StatCard
+              emphasis
+              icon={<Users className={icon} strokeWidth={1.75} />}
+              value={summary.confirmedPeople}
+              label="Pessoas confirmadas"
+              hint="Convidados + acompanhantes"
+            />
+          </div>
           <StatCard
-            emphasis
-            icon={<Users className={icon} strokeWidth={1.75} />}
-            value={summary.confirmedPeople}
-            label="Pessoas confirmadas"
-            hint="Convidados + acompanhantes"
+            icon={<Hourglass className={icon} strokeWidth={1.75} />}
+            value={summary.pendingPeopleMax}
+            label="Ainda podem vir"
+            hint="Pendentes + acompanhantes permitidos"
+          />
+          <StatCard
+            icon={<TrendingUp className={icon} strokeWidth={1.75} />}
+            value={summary.maxPossiblePeople}
+            label="Máximo possível"
+            hint="Confirmadas + ainda podem vir"
           />
         </div>
-        <StatCard
-          icon={<Users className={icon} strokeWidth={1.75} />}
-          value={summary.total}
-          label="Convidados"
-        />
-        <StatCard
-          icon={<CircleCheck className={icon} strokeWidth={1.75} />}
-          value={summary.yes}
-          label="Confirmados"
-        />
-        <StatCard
-          icon={<CircleX className={icon} strokeWidth={1.75} />}
-          value={summary.no}
-          label="Recusados"
-        />
-        <StatCard
-          icon={<CircleHelp className={icon} strokeWidth={1.75} />}
-          value={summary.pending}
-          label="Pendentes"
-        />
+
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          <StatCard
+            icon={<Users className={icon} strokeWidth={1.75} />}
+            value={summary.total}
+            label="Convidados"
+          />
+          <StatCard
+            icon={<CircleCheck className={icon} strokeWidth={1.75} />}
+            value={summary.yes}
+            label="Confirmados"
+          />
+          <StatCard
+            icon={<CircleX className={icon} strokeWidth={1.75} />}
+            value={summary.no}
+            label="Recusados"
+          />
+          <StatCard
+            icon={<CircleHelp className={icon} strokeWidth={1.75} />}
+            value={summary.pending}
+            label="Pendentes"
+          />
+        </div>
       </div>
 
       <Link
