@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db } from '@/server/db/client'
 import { gifts } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
@@ -23,6 +23,11 @@ let n = 0
 beforeEach(() => {
   ip.current = `198.51.100.${++n}`
   hook.calls = []
+  vi.stubEnv('FEATURES', 'gifts')
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 const base = { category: 'Beleza', priceCents: null, imageUrl: null, purchaseUrl: null }
@@ -127,5 +132,18 @@ describe('releaseGiftAction', () => {
     const g = await createGift({ ...base, name: 'Perfume' })
     const res = await releaseGiftAction(null, form({ token: 'NaoExiste0000000000000', giftId: g.id }))
     expect(res).toEqual({ ok: false, error: 'not_found' })
+  })
+})
+
+describe('gifts feature flag off', () => {
+  it('rejects reserve and release with invalid, changing nothing', async () => {
+    vi.stubEnv('FEATURES', 'pix')
+    const guest = await makeGuest()
+    const g = await createGift({ ...base, name: 'Perfume' })
+    expect(await reserveGiftAction(null, form({ token: guest.token, giftId: g.id }))).toEqual({ ok: false, error: 'invalid' })
+    expect(await releaseGiftAction(null, form({ token: guest.token, giftId: g.id }))).toEqual({ ok: false, error: 'invalid' })
+    const [row] = await db.select({ guestId: gifts.guestId }).from(gifts).where(eq(gifts.id, g.id))
+    expect(row.guestId).toBeNull()
+    expect(hook.calls).toEqual([])
   })
 })

@@ -2,6 +2,7 @@
 
 import { headers } from 'next/headers'
 import { z } from 'zod'
+import { isFeatureEnabled } from '@/features/event/flags'
 import { findGuestByToken } from '@/features/guests/repo'
 import { logger } from '@/lib/logger'
 import { getClientIp, rateLimit } from '@/lib/rate-limit'
@@ -41,6 +42,11 @@ async function run(op: Op, formData: FormData): Promise<GiftActionResult> {
   const ip = getClientIp(await headers())
   if (!rateLimit(`gift:${ip}`, { max: 20, windowMs: 60_000 }).ok) {
     logger.warn({ event: 'rate_limit.exceeded', route: 'gift' }, 'rate limit exceeded')
+    return { ok: false, error: 'invalid' }
+  }
+  // defense in depth: the section is not rendered with the flag off, but the actions stay reachable
+  if (!isFeatureEnabled('gifts')) {
+    logger.warn({ event: `gift.${op}_rejected`, reason: 'feature_disabled' }, 'gift action rejected')
     return { ok: false, error: 'invalid' }
   }
   try {
