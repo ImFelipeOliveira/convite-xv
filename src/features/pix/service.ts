@@ -65,7 +65,7 @@ export type PixError =
   | 'unavailable'
   | 'cpf_required'
   | 'invalid_cpf'
-  /** payer-CPF mode: the payer's full name is missing or invalid (see normalizePayerName) */
+  /** payer-CPF mode: the payer's first name is missing or invalid (see normalizePayerName) */
   | 'invalid_payer_name'
   /** too many generations at once: try again in a few seconds */
   | 'busy'

@@ -13,7 +13,7 @@ vi.mock('next/headers', () => ({
 }))
 
 const VALID_CPF = '529.982.247-25'
-const PAYER_NAME = 'Tia Rosa Lima'
+const PAYER_NAME = 'Rosa'
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -131,16 +131,16 @@ describe('generatePixAction', () => {
     expect(calls.length).toBe(before)
   })
 
-  it('creates the Asaas customer with the payer’s name (not the guest’s), never logging it', async () => {
+  it('creates the Asaas customer with the payer’s first name (not the guest’s), never logging it', async () => {
     const guest = await makeGuest({ name: 'Convidada Ana' })
     stubAsaas()
     const spies = (['info', 'warn', 'error'] as const).map((level) => vi.spyOn(logger, level))
     const res = await generatePixAction(
       null,
-      form({ token: guest.token, amount: '7000', cpf: VALID_CPF, payerName: '  Tia   Rosa Lima ' }),
+      form({ token: guest.token, amount: '7000', cpf: VALID_CPF, payerName: '  Rosa ' }),
     )
     expect(res.ok).toBe(true)
-    expect(customerBodies).toEqual([{ name: 'Tia Rosa Lima', cpfCnpj: '52998224725', notificationDisabled: true }])
+    expect(customerBodies).toEqual([{ name: 'Rosa', cpfCnpj: '52998224725', notificationDisabled: true }])
     for (const spy of spies) expect(JSON.stringify(spy.mock.calls)).not.toMatch(/Rosa|52998224725/)
   })
 
@@ -148,7 +148,7 @@ describe('generatePixAction', () => {
     const guest = await makeGuest()
     const calls = stubAsaas()
     const warn = vi.spyOn(logger, 'warn')
-    for (const payerName of [undefined, '', 'Rosa', '  Ro  ', 'Rosa\nLima', `Rosa ${'a'.repeat(100)}`]) {
+    for (const payerName of [undefined, '', ' R ', 'Rosa\nLima', 'Rosa Lima', 'Rosa1', 'a'.repeat(41)]) {
       const values: Record<string, string> = { token: guest.token, amount: '7000', cpf: VALID_CPF }
       if (payerName !== undefined) values.payerName = payerName
       expect(await generatePixAction(null, form(values))).toEqual({ ok: false, error: 'invalid_payer_name' })

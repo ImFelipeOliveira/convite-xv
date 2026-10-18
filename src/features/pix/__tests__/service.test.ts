@@ -8,7 +8,7 @@ import { withAdvisoryLock } from '../repo'
 import { GENERIC_CUSTOMER_NAME, generatePix, getGuestPixState, getPixStatus, resetPollClock } from '../service'
 
 /** The payer's full name typed in the invite (the CPF holder, not the guest). */
-const PAYER = 'Tia Rosa Lima'
+const PAYER = 'Rosa'
 const config = { apiKey: 'k', baseUrl: 'http://asaas.test/v3', webhookToken: null }
 const NOW = new Date('2026-10-18T15:00:00Z') // 11h in Boa Vista
 
@@ -296,11 +296,11 @@ describe('generatePix', () => {
       expect(f.calls).toEqual([])
     })
 
-    it('requires a valid payer name (trimmed, 3–100 chars, two words, no control characters)', async () => {
+    it('requires a valid payer name (trimmed, 2–40 chars, one word of letters, no control characters)', async () => {
       const guest = await makeGuest()
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
-      for (const name of [undefined, null, '', 'Rosa', ' R ', 'Rosa\u0007 Lima', `Rosa ${'a'.repeat(100)}`]) {
+      for (const name of [undefined, null, '', ' R ', 'Rosa\u0007', 'Rosa Lima', 'Rosa1', 'a'.repeat(41)]) {
         expect(await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name })).toEqual({
           ok: false,
           error: 'invalid_payer_name',
@@ -309,14 +309,14 @@ describe('generatePix', () => {
       expect(f.calls).toEqual([])
     })
 
-    it('names the customer after the trimmed payer name, and reuses it for the same CPF with another name', async () => {
+    it('names the customer after the trimmed first name, and reuses it for the same CPF with another name', async () => {
       const guest = await makeGuest({ name: 'Ana Souza' })
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
-      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name: '  Tia   Rosa Lima ' })).ok).toBe(true)
-      expect((await generatePix(guest, 10000, d, { cpf: '529.982.247-25', name: 'Rosa Lima' })).ok).toBe(true)
+      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name: '  Rosa ' })).ok).toBe(true)
+      expect((await generatePix(guest, 10000, d, { cpf: '529.982.247-25', name: 'Lia' })).ok).toBe(true)
       const customers = f.calls.filter((c) => c.key === 'POST /customers')
-      expect(customers.map((c) => (c.body as { name: string }).name)).toEqual(['Tia Rosa Lima'])
+      expect(customers.map((c) => (c.body as { name: string }).name)).toEqual(['Rosa'])
       const payments = f.calls.filter((c) => c.key === 'POST /payments')
       expect(payments.map((c) => (c.body as { customer: string }).customer)).toEqual(['cus_1', 'cus_1'])
     })

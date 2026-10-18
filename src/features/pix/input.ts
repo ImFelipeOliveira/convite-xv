@@ -41,20 +41,26 @@ export function normalizeReaisInput(typed: string): string {
   return maskReais(typed)
 }
 
-export const PAYER_NAME_MIN = 3
-export const PAYER_NAME_MAX = 100
+export const PAYER_NAME_MIN = 2
+export const PAYER_NAME_MAX = 40
+export const PAYER_NAME_MESSAGE = 'Digite seu primeiro nome.'
 const CONTROL_CHARS = /\p{Cc}/u
+const FIRST_NAME =/^[\p{L}\p{M}'\u2019-]+$/u
+
+/** The first word of a full name ('Ana Souza' → 'Ana'): the payer-name field's prefill. */
+export function firstName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0] ?? ''
+}
 
 /**
- * The payer's full name (the Asaas customer, the holder of the typed CPF): trimmed, inner spaces
- * collapsed, 3–100 characters, at least two words, no control characters. Anything else → null.
+ * The payer's first name (the Asaas customer name): trimmed, 2–40 characters, a single word of
+ * letters (any Unicode letter), apostrophes and hyphens; no control characters. Anything else → null.
  */
 export function normalizePayerName(value: string): string | null {
   if (typeof value !== 'string' || CONTROL_CHARS.test(value)) return null
-  const name = value.replace(/\s+/g, ' ').trim()
+  const name = value.trim()
   if (name.length < PAYER_NAME_MIN || name.length > PAYER_NAME_MAX) return null
-  if (name.split(' ').length < 2) return null
-  return name
+  return FIRST_NAME.test(name) ? name : null
 }
 
 const PNG_DATA_URL = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/

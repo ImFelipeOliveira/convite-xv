@@ -62,9 +62,9 @@ export async function generatePixAction(
       logger.warn({ event: 'pix.generate_rejected', guestId: guest.id, reason: 'invalid' }, 'pix action rejected')
       return { ok: false, error: 'invalid' }
     }
-    // payer-CPF mode: the payer's full name names the Asaas customer (the CPF holder, maybe not the guest)
-    const payerName = field(formData, 'payerName')
-    if (requirePayerCpf() && !normalizePayerName(payerName)) {
+    // payer-CPF mode: the payer's first name names the Asaas customer (never stored, never logged)
+    const payerName = normalizePayerName(field(formData, 'payerName'))
+    if (requirePayerCpf() && !payerName) {
       logger.warn(
         { event: 'pix.generate_rejected', guestId: guest.id, reason: 'invalid_payer_name' },
         'pix action rejected',
@@ -75,7 +75,7 @@ export async function generatePixAction(
       guest,
       Number(amount),
       {},
-      { cpf: field(formData, 'cpf') || null, name: payerName || null },
+      { cpf: field(formData, 'cpf') || null, name: payerName },
     )
     if (!result.ok) {
       logger.info({ event: 'pix.generate_rejected', guestId: guest.id, reason: result.error }, 'pix action rejected')

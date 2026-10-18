@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseReais } from '../format'
-import { looksLikeThousands, maskCpf, maskReais, normalizePayerName, normalizeReaisInput, qrImageSrc } from '../input'
+import { firstName, looksLikeThousands, maskCpf, maskReais, normalizePayerName, normalizeReaisInput, qrImageSrc } from '../input'
 
 describe('maskReais', () => {
   it('treats a typed "." as the decimal separator', () => {
@@ -81,31 +81,35 @@ describe('qrImageSrc', () => {
 })
 
 describe('normalizePayerName', () => {
-  it('trims and collapses inner spaces of a full name', () => {
-    expect(normalizePayerName('  Maria   da Silva ')).toBe('Maria da Silva')
-    expect(normalizePayerName('Ana Souza')).toBe('Ana Souza')
-    expect(normalizePayerName('Jo Li')).toBe('Jo Li')
+  it('accepts a single first name, trimmed', () => {
+    expect(normalizePayerName('  Maria ')).toBe('Maria')
+    expect(normalizePayerName('Jo')).toBe('Jo')
   })
 
-  it('needs at least two words', () => {
-    expect(normalizePayerName('Maria')).toBeNull()
-    expect(normalizePayerName('   Maria   ')).toBeNull()
-    expect(normalizePayerName('')).toBeNull()
+  it('accepts any Unicode letter, apostrophe and hyphen', () => {
+    for (const ok of ['José', 'Zoë', 'Ângela', 'Łukasz', 'Ana-Clara', "D'Ávila", 'D’Ávila', '李雷']) {
+      expect(normalizePayerName(ok)).toBe(ok)
+    }
   })
 
-  it('takes 3 to 100 characters after trimming', () => {
-    expect(normalizePayerName('A B')).toBe('A B')
+  it('takes 2 to 40 characters after trimming', () => {
     expect(normalizePayerName(' A ')).toBeNull()
-    const long = `Maria ${'a'.repeat(94)}`
-    expect(long).toHaveLength(100)
-    expect(normalizePayerName(long)).toBe(long)
-    expect(normalizePayerName(`${long}a`)).toBeNull()
+    expect(normalizePayerName('')).toBeNull()
+    expect(normalizePayerName('a'.repeat(40))).toBe('a'.repeat(40))
+    expect(normalizePayerName('a'.repeat(41))).toBeNull()
   })
 
-  it('rejects control characters', () => {
-    expect(normalizePayerName('Maria\nSilva')).toBeNull()
-    expect(normalizePayerName('Maria\tSilva')).toBeNull()
-    expect(normalizePayerName('Maria Silva\u0000')).toBeNull()
-    expect(normalizePayerName('Maria \u007fSilva')).toBeNull()
+  it('rejects several words, digits, symbols and control characters', () => {
+    for (const bad of ['Maria Silva', 'Maria1', 'Ma_ria', 'Maria@', 'Maria\nSilva', 'Maria\t', 'Maria\u0000', '\u007fMaria']) {
+      expect(normalizePayerName(bad)).toBeNull()
+    }
+  })
+})
+
+describe('firstName', () => {
+  it('is the first word of the full name', () => {
+    expect(firstName('  Ana   Souza ')).toBe('Ana')
+    expect(firstName('Maria')).toBe('Maria')
+    expect(firstName('')).toBe('')
   })
 })

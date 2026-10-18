@@ -203,6 +203,10 @@ export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: (
       if (typeof body?.cpfCnpj !== 'string' || !/^\d{11}$/.test(body.cpfCnpj)) {
         return json(res, 400, { errors: [{ code: 'invalid_cpfCnpj', description: 'CPF obrigatório' }] })
       }
+      // the customer is named after the payer's first name only: one word of 2-40 letters
+      if (typeof body?.name !== 'string' || !/^[\p{L}\p{M}'\u2019-]{2,40}$/u.test(body.name)) {
+        return json(res, 400, { errors: [{ code: 'invalid_name', description: 'Nome inválido' }] })
+      }
       customerNames.push(String(body.name))
       return json(res, 200, { id: `cus_fake_${++customerN}`, name: body.name })
     }

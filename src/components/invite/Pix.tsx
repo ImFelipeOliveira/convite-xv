@@ -13,7 +13,9 @@ import { formatCents, parseReais } from '@/features/pix/format'
 import {
   looksLikeThousands,
   maskCpf,
+  firstName,
   normalizePayerName,
+  PAYER_NAME_MESSAGE,
   normalizeReaisInput,
   PAYER_NAME_MAX,
   qrImageSrc,
@@ -43,7 +45,6 @@ const MIN_MESSAGE = 'O valor mínimo para presentear via Pix é de R$ 70,00.'
 const MAX_MESSAGE = 'O valor máximo é R$ 10.000,00.'
 const THOUSANDS_HINT = 'Digite sem ponto (ex.: 1000,00).'
 const CPF_MESSAGE = 'CPF inválido. Confira os números.'
-const PAYER_NAME_MESSAGE = 'Informe o nome completo (nome e sobrenome) de quem paga.'
 const EXPIRED_MESSAGE = 'Este Pix expirou. Gere um novo.'
 
 const GENERATE_ERRORS: Record<Exclude<PixActionError, 'below_minimum' | 'above_maximum' | 'invalid_cpf' | 'cpf_required' | 'invalid_payer_name'>, string> = {
@@ -101,7 +102,7 @@ export function Pix({
   id: string
   token: string
   guestFirstName: string
-  /** the guest's full name: the payer-name field starts with it */
+  /** the guest's full name: the payer-name field starts with its first word */
   guestName: string
   requireCpf: boolean
   thanksMessage: string | null
@@ -119,7 +120,7 @@ export function Pix({
   const [touched, setTouched] = useState(false)
   const [cpf, setCpf] = useState('')
   const [cpfError, setCpfError] = useState(false)
-  const [payerName, setPayerName] = useState(() => guestName.trim())
+  const [payerName, setPayerName] = useState(() => firstName(guestName))
   const [payerNameError, setPayerNameError] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -468,13 +469,13 @@ export function Pix({
               {requireCpf && (
                 <div className="mt-[18px] flex flex-col gap-2">
                   <label htmlFor={payerNameId} className="font-sans text-[13px] font-medium tracking-[.02em] text-wine">
-                    Nome completo de quem paga
+                    Seu primeiro nome
                   </label>
                   <input
                     ref={payerNameRef}
                     id={payerNameId}
                     type="text"
-                    autoComplete="name"
+                    autoComplete="given-name"
                     autoCapitalize="words"
                     spellCheck={false}
                     maxLength={PAYER_NAME_MAX}
@@ -500,7 +501,7 @@ export function Pix({
                     </span>
                   ) : (
                     <span id={payerNameHelpId} className="font-sans text-[12px] leading-[1.45] text-deep-rose">
-                      O titular do CPF abaixo.
+                      Usado só para gerar o Pix.
                     </span>
                   )}
                 </div>

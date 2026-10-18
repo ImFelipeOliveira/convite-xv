@@ -125,7 +125,7 @@ Sobe a Evolution em `http://localhost:8080`, usando o Postgres do compose (`?sch
 
 ## Pix (Asaas)
 
-O convidado gera um QR Code Pix no convite (seção Pix, mínimo R$ 70,00, máximo R$ 10.000,00) e a tela vira “Pix recebido.” quando o Asaas confirma. O Asaas exige CPF do pagador para cobranças Pix: o convidado informa o nome completo de quem paga (já preenchido com o nome do convidado, editável) e o CPF dessa pessoa, que pode ser outro familiar. O cliente no Asaas é criado com esse nome e CPF; os dois vão só para o Asaas (nunca são gravados nem logados). Um Pix pago conta como presente: os lembretes de presente pelo WhatsApp desse convidado são cancelados.
+O convidado gera um QR Code Pix no convite (seção Pix, mínimo R$ 70,00, máximo R$ 10.000,00) e a tela vira “Pix recebido.” quando o Asaas confirma. O Asaas exige CPF do pagador para cobranças Pix: o convidado informa só o primeiro nome (já preenchido com o primeiro nome do convidado, editável) e o CPF de quem paga, que pode ser outro familiar. O cliente no Asaas é criado com esse primeiro nome e o CPF; os dois vão só para o Asaas (nunca são gravados nem logados). Um Pix pago conta como presente: os lembretes de presente pelo WhatsApp desse convidado são cancelados.
 
 ### Chaves e ambientes
 
