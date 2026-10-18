@@ -46,6 +46,8 @@ export default defineConfig({
       EVOLUTION_URL: FAKE_EVOLUTION_URL,
       EVOLUTION_API_KEY: FAKE_EVOLUTION_API_KEY,
       EVOLUTION_INSTANCE: 'convite-xv',
+      // no background reminder sends during e2e (src/instrumentation.ts)
+      DISPATCHER_ENABLED: 'false',
     },
   },
 })

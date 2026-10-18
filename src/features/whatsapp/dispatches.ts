@@ -193,3 +193,28 @@ export async function recoverStuckSending(now: Date): Promise<number> {
     RETURNING id`)
   return rows.length
 }
+
+/** Cancels a claimed reminder (the guest is no longer eligible for it). */
+export async function markDispatchCancelled(id: string): Promise<void> {
+  await db
+    .update(messageDispatches)
+    .set({ status: 'cancelled', updatedAt: sql`now()` })
+    .where(eq(messageDispatches.id, id))
+}
+
+/**
+ * Puts a claimed reminder back for later without consuming the attempt the claim counted
+ * (e.g. the WhatsApp instance disconnected: the message was never handed to the provider).
+ */
+export async function deferReminder(id: string, at: Date, errorCode: string): Promise<void> {
+  await db
+    .update(messageDispatches)
+    .set({
+      status: 'scheduled',
+      scheduledFor: at,
+      errorCode,
+      attempts: sql`greatest(${messageDispatches.attempts} - 1, 0)`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(messageDispatches.id, id))
+}
