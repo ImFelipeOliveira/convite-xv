@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseReais } from '../format'
-import { maskCpf, maskReais, qrImageSrc } from '../input'
+import { looksLikeThousands, maskCpf, maskReais, qrImageSrc } from '../input'
 
 describe('maskReais', () => {
   it('treats a typed "." as the decimal separator', () => {
@@ -19,6 +19,21 @@ describe('maskReais', () => {
     expect(maskReais(',5')).toBe('0,5')
     expect(maskReais('007')).toBe('7')
     expect(maskReais('12345678')).toBe('1234567')
+  })
+})
+
+describe('looksLikeThousands', () => {
+  it('flags a "." (or a 3-digit ",") after 1–3 digits: a thousands separator, not cents', () => {
+    expect(looksLikeThousands('1.000')).toBe(true)
+    expect(looksLikeThousands('10.000')).toBe(true)
+    expect(looksLikeThousands('1.000,00')).toBe(true)
+    expect(looksLikeThousands('1,000')).toBe(true)
+  })
+
+  it('leaves decimals and plain amounts alone', () => {
+    for (const v of ['70.5', '100.50', '1000', '1000,00', '1250,5', '70,50', '', '1.00']) {
+      expect(looksLikeThousands(v)).toBe(false)
+    }
   })
 })
 

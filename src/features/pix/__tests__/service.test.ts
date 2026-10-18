@@ -72,6 +72,14 @@ describe('generatePix', () => {
     expect(await rows()).toEqual([])
   })
 
+  it('rejects above the R$ 10.000,00 maximum without calling Asaas (exactly R$ 10.000,00 is fine)', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    expect(await generatePix(guest, 1_000_001, deps(f))).toEqual({ ok: false, error: 'above_maximum' })
+    expect(f.calls).toEqual([])
+    expect(await generatePix(guest, 1_000_000, deps(f))).toMatchObject({ ok: true, payment: { amountCents: 1_000_000 } })
+  })
+
   it('answers not_configured without an Asaas config', async () => {
     const guest = await makeGuest()
     const f = fakeAsaas()

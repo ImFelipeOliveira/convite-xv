@@ -22,6 +22,7 @@ import {
 const log = childLogger({ module: 'pix' })
 
 export const PIX_MIN_CENTS = 7000
+export const PIX_MAX_CENTS = 1_000_000
 // pt-BR: shown to the payer in Asaas / their bank app
 export const GENERIC_CUSTOMER_NAME = 'Convidados — 15 anos da Isabella'
 const PAYMENT_DESCRIPTION = 'Presente Pix — 15 anos da Isabella'
@@ -45,6 +46,7 @@ export type PixView = {
 
 export type PixError =
   | 'below_minimum'
+  | 'above_maximum'
   | 'not_configured'
   | 'unavailable'
   | 'cpf_required'
@@ -188,6 +190,7 @@ export async function generatePix(
   if (!Number.isSafeInteger(amountCents) || amountCents < PIX_MIN_CENTS) {
     return { ok: false, error: 'below_minimum' }
   }
+  if (amountCents > PIX_MAX_CENTS) return { ok: false, error: 'above_maximum' }
   const resolved = resolve(deps)
   const config = resolved.config
   if (!config) return { ok: false, error: 'not_configured' }

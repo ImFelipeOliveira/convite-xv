@@ -10,7 +10,7 @@ import {
 } from '@/features/pix/actions'
 import { isValidCpf } from '@/features/pix/cpf'
 import { formatCents, parseReais } from '@/features/pix/format'
-import { maskCpf, maskReais, qrImageSrc } from '@/features/pix/input'
+import { looksLikeThousands, maskCpf, maskReais, qrImageSrc } from '@/features/pix/input'
 import type { PixView } from '@/features/pix/service'
 import { useGiftChoice } from './GiftChoice'
 import { Reveal, RevealItem } from './Reveal'
@@ -22,6 +22,7 @@ import './pix.css'
 // only in this form's state, goes only to the action, and is cleared after a successful generation.
 
 const MIN_CENTS = 7000
+const MAX_CENTS = 1_000_000
 const VALUES = [7000, 10000, 15000, 20000, 30000]
 const DEFAULT_PICK = 10000
 const POLL_EVERY_MS = 5_000
@@ -30,11 +31,13 @@ const COPIED_MS = 2_400
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-wine'
 
 const MIN_MESSAGE = 'O valor mínimo para presentear via Pix é de R$ 70,00.'
+const MAX_MESSAGE = 'O valor máximo é R$ 10.000,00.'
+const THOUSANDS_HINT = 'Use vírgula para centavos (ex.: 70,50).'
 const CPF_MESSAGE = 'CPF inválido. Confira os números.'
 const EXPIRED_MESSAGE = 'Este Pix expirou. Gere um novo.'
 const DEFAULT_THANKS = 'Seu carinho chegou. Obrigada por fazer parte desse dia!'
 
-const GENERATE_ERRORS: Record<Exclude<PixActionError, 'below_minimum' | 'invalid_cpf' | 'cpf_required'>, string> = {
+const GENERATE_ERRORS: Record<Exclude<PixActionError, 'below_minimum' | 'above_maximum' | 'invalid_cpf' | 'cpf_required'>, string> = {
   busy: 'Muitas solicitações agora. Tente em alguns segundos.',
   not_configured: 'Pix indisponível no momento.',
   unavailable: 'Não foi possível gerar o Pix agora.',
@@ -114,10 +117,20 @@ export function Pix({
   const codeRef = useRef<HTMLInputElement>(null)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  const customCents = parseReais(raw)
+  // "1.000" reads like thousands: ask for a comma before cents instead of guessing (never R$ 1,00)
+  const thousandsHint = custom && looksLikeThousands(raw)
+  const customCents = thousandsHint ? null : parseReais(raw)
   const cents = custom ? customCents : pick
-  const valid = cents !== null && cents >= MIN_CENTS
-  const showMinError = custom && touched && !valid
+  const valid = cents !== null && cents >= MIN_CENTS && cents <= MAX_CENTS
+  const amountError = !custom
+    ? null
+    : thousandsHint
+      ? THOUSANDS_HINT
+      : touched && !valid
+        ? cents !== null && cents > MAX_CENTS
+          ? MAX_MESSAGE
+          : MIN_MESSAGE
+        : null
 
   useEffect(() => () => clearTimeout(copiedTimer.current), [])
 
@@ -251,7 +264,7 @@ export function Pix({
       focusTitle()
       return
     }
-    if (result.error === 'below_minimum') {
+    if (result.error === 'below_minimum' || result.error === 'above_maximum') {
       setCustom(true)
       setTouched(true)
     } else if (result.error === 'invalid_cpf' || result.error === 'cpf_required') {
@@ -385,29 +398,31 @@ export function Pix({
                       placeholder="70,00"
                       value={raw}
                       onChange={(e) => {
-                        setRaw(maskReais(e.target.value))
+                        const typed = e.target.value
+                        setRaw(looksLikeThousands(typed) ? typed.replace(/[^\d.,]/g, '').slice(0, 12) : maskReais(typed))
                         setError(null)
                       }}
                       onBlur={() => {
                         setTouched(true)
+                        if (looksLikeThousands(raw)) return
                         if (/^[\d.]+$/.test(raw)) setRaw(`${raw},00`)
                         else if (/,\d$/.test(raw)) setRaw(`${raw}0`)
                       }}
-                      aria-invalid={showMinError}
+                      aria-invalid={amountError !== null}
                       aria-describedby={amountHelpId}
                       className={`box-border h-14 w-full rounded-[2px] border bg-paper pr-4 pl-12 font-sans text-[18px] text-wine placeholder:text-muted ${FOCUS} ${
-                        showMinError ? 'border-error' : 'border-[rgba(184,149,90,.8)]'
+                        amountError ? 'border-error' : 'border-[rgba(184,149,90,.8)]'
                       }`}
                     />
                   </div>
-                  {showMinError ? (
+                  {amountError ? (
                     <span
                       id={amountHelpId}
                       role="alert"
                       className="pix-shake flex items-start gap-[6px] font-sans text-[13px] leading-[1.4] text-error"
                     >
                       <AlertIcon />
-                      {MIN_MESSAGE}
+                      {amountError}
                     </span>
                   ) : (
                     <span id={amountHelpId} className="font-sans text-[12px] text-deep-rose">

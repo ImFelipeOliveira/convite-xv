@@ -83,6 +83,16 @@ describe('generatePixAction', () => {
     expect(calls).toEqual([])
   })
 
+  it('rejects above the R$ 10.000,00 maximum without calling Asaas', async () => {
+    const guest = await makeGuest()
+    const calls = stubAsaas()
+    expect(await generatePixAction(null, form({ token: guest.token, amount: '1000001', cpf: VALID_CPF }))).toEqual({
+      ok: false,
+      error: 'above_maximum',
+    })
+    expect(calls).toEqual([])
+  })
+
   it('rejects a malformed amount', async () => {
     const guest = await makeGuest()
     const calls = stubAsaas()
