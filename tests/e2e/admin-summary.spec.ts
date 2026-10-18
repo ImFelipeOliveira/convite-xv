@@ -1,19 +1,12 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { deleteGuestsByName, resetE2eGuestRsvp, resetE2eSettings } from './db'
-import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
+import { ADMIN_STORAGE_STATE, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
-test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.23' } })
+// signed in through the saved admin session (auth.setup.ts); the gate test opts out of it
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.23' }, storageState: ADMIN_STORAGE_STATE })
 
 const OWN_GUESTS = ['Resumo Sim Um', 'Resumo Sim Dois', 'Resumo Aberto']
-
-async function signIn(page: Page) {
-  await page.goto('/admin/login')
-  await page.getByLabel('E-mail').fill(E2E_ADMIN_EMAIL)
-  await page.getByLabel('Senha', { exact: true }).fill(E2E_ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/admin$/)
-}
 
 test.describe('admin summary, messages and settings', () => {
   test.afterAll(async () => {
@@ -22,7 +15,11 @@ test.describe('admin summary, messages and settings', () => {
     await resetE2eSettings()
   })
 
-  test('messages and settings are gated without a session', async ({ request }) => {
+  test('messages and settings are gated without a session', async ({ playwright, baseURL }) => {
+    const request = await playwright.request.newContext({
+      baseURL,
+      storageState: { cookies: [], origins: [] },
+    })
     for (const path of ['/admin/messages', '/admin/settings']) {
       const res = await request.get(path, { maxRedirects: 0 })
       expect(res.status(), path).toBe(307)
@@ -34,8 +31,6 @@ test.describe('admin summary, messages and settings', () => {
   })
 
   test('summary, messages and deadline setting', async ({ page, browser }) => {
-    await signIn(page)
-
     // two confirmed (one with 2 plus-ones) + one pending guest who opened the invite
     await page.goto('/admin/guests')
     for (const [name, limit] of [

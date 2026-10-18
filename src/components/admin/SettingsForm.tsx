@@ -4,7 +4,7 @@ import { useActionState, useEffect } from 'react'
 import { saveSettingsAction, type SettingsFormState } from '@/features/settings/actions'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
-import { describedBy, Field } from './ui/Field'
+import { Field, fieldDescribedBy } from './ui/Field'
 import { useToast } from './ui/Toast'
 
 type Values = {
@@ -50,9 +50,10 @@ export function SettingsForm({ initial }: Props) {
   const failed = state && !state.ok ? state : null
   const values = failed?.values ?? initial
   const errors = failed?.fieldErrors ?? {}
-  const a11y = (key: keyof Values, help = false) => ({
+  const a11y = (key: keyof Values) => ({
+    id: `settings-${key}`,
     'aria-invalid': !!errors[key],
-    'aria-describedby': describedBy(help && `settings-${key}-help`, `settings-${key}-error`),
+    'aria-describedby': fieldDescribedBy(`settings-${key}`, true),
   })
 
   return (
@@ -63,12 +64,11 @@ export function SettingsForm({ initial }: Props) {
           description="Até quando os convidados podem responder pelo convite."
         >
           <Field
+            id="settings-rsvpDeadline"
             label="Prazo para confirmar"
             required
-            errorId="settings-rsvpDeadline-error"
             error={errors.rsvpDeadline}
             helper="Data limite, no máximo 26/12/2026 (véspera da festa)."
-            helperId="settings-rsvpDeadline-help"
           >
             <input
               name="rsvpDeadline"
@@ -76,49 +76,46 @@ export function SettingsForm({ initial }: Props) {
               required
               max="2026-12-26"
               defaultValue={values.rsvpDeadline}
-              {...a11y('rsvpDeadline', true)}
+              {...a11y('rsvpDeadline')}
               className={`${inputClass} max-w-56`}
             />
           </Field>
           <Field
+            id="settings-contactInfo"
             label="Contato para dúvidas"
-            errorId="settings-contactInfo-error"
             error={errors.contactInfo}
             helper="Aparece no convite, por exemplo: “Fale com a Ana: (95) 99123-4567”."
-            helperId="settings-contactInfo-help"
           >
             <input
               name="contactInfo"
               maxLength={200}
               defaultValue={values.contactInfo}
-              {...a11y('contactInfo', true)}
+              {...a11y('contactInfo')}
               className={inputClass}
             />
           </Field>
         </Section>
         <Section title="Textos" description="Mensagens que os convidados leem no convite e no WhatsApp.">
           <Field
+            id="settings-closingMessage"
             label="Mensagem final do convite"
-            errorId="settings-closingMessage-error"
             error={errors.closingMessage}
             helper="Até 600 caracteres."
-            helperId="settings-closingMessage-help"
           >
             <textarea
               name="closingMessage"
               rows={3}
               maxLength={600}
               defaultValue={values.closingMessage}
-              {...a11y('closingMessage', true)}
+              {...a11y('closingMessage')}
               className={`${inputClass} resize-y leading-relaxed`}
             />
           </Field>
           <Field
+            id="settings-whatsappInviteTemplate"
             label="Mensagem do WhatsApp"
             required
-            errorId="settings-whatsappInviteTemplate-error"
             error={errors.whatsappInviteTemplate}
-            helperId="settings-whatsappInviteTemplate-help"
             helper={
               <>
                 Use <code>{'{nome}'}</code> para o primeiro nome e <code>{'{link}'}</code> onde o link do
@@ -132,13 +129,13 @@ export function SettingsForm({ initial }: Props) {
               maxLength={600}
               required
               defaultValue={values.whatsappInviteTemplate}
-              {...a11y('whatsappInviteTemplate', true)}
+              {...a11y('whatsappInviteTemplate')}
               className={`${inputClass} resize-y leading-relaxed`}
             />
           </Field>
         </Section>
       </fieldset>
-      <div className="sticky bottom-0 -mx-4 flex justify-end border-t border-hairline bg-paper/95 px-4 py-4 backdrop-blur-sm sm:mx-0 sm:px-0">
+      <div className="sticky bottom-0 -mx-4 flex justify-start border-t border-hairline bg-paper/95 px-4 py-4 backdrop-blur-sm sm:mx-0 sm:px-0">
         <Button type="submit" pending={pending} pendingLabel="Salvando…">
           Salvar
         </Button>

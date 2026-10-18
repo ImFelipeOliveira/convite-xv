@@ -9,9 +9,12 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { focusRing } from '../styles'
+import { getTopDialog, subscribeTopDialog } from './top-layer'
 
 type Tone = 'success' | 'error'
 type ToastItem = { id: number; tone: Tone; message: string }
@@ -27,13 +30,29 @@ export function useToast(): ToastApi {
 }
 
 function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: number) => void }) {
+  // success auto-dismisses after 4 s (paused while hovered or focused); errors stay until dismissed
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const remaining = useRef(DISMISS_MS)
+  const paused = hovered || focused
   useEffect(() => {
-    const t = setTimeout(() => onDismiss(item.id), DISMISS_MS)
-    return () => clearTimeout(t)
-  }, [item.id, onDismiss])
+    if (item.tone === 'error' || paused) return
+    const startedAt = Date.now()
+    const t = setTimeout(() => onDismiss(item.id), remaining.current)
+    return () => {
+      clearTimeout(t)
+      remaining.current = Math.max(0, remaining.current - (Date.now() - startedAt))
+    }
+  }, [item.id, item.tone, paused, onDismiss])
   const Icon = item.tone === 'success' ? CircleCheck : CircleAlert
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false)
+      }}
       className={`pointer-events-auto flex w-full items-start gap-3 border bg-paper py-3 pr-2 pl-4 text-[15px] text-wine shadow-paper motion-safe:animate-[toast-in_var(--dur-ui)_var(--ease-letter)] sm:w-[22rem] ${
         item.tone === 'success' ? 'border-sage/40' : 'border-error/40'
       }`}
@@ -56,6 +75,8 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: numbe
   )
 }
 
+const noopSubscribe = () => () => {}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
   const nextId = useRef(1)
@@ -64,6 +85,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const id = nextId.current++
     setItems((list) => [...list.slice(-2), { id, tone, message }])
   }, [])
+  const mounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  )
+  const topDialog = useSyncExternalStore(subscribeTopDialog, getTopDialog, () => null)
   const api = useMemo<ToastApi>(
     () => ({ success: (m) => push('success', m), error: (m) => push('error', m) }),
     [push],
@@ -71,16 +98,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div
-        role="status"
-        aria-live="polite"
-        aria-label="Notificações"
-        className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:top-5 sm:right-5 sm:bottom-auto"
-      >
-        {items.map((item) => (
-          <ToastCard key={item.id} item={item} onDismiss={dismiss} />
-        ))}
-      </div>
+      {mounted &&
+        // an open modal <dialog> sits in the top layer and makes the rest of the page inert:
+        // render the region inside the topmost dialog so toasts stay visible and dismissible.
+        // Phones: lifted above sticky bottom bars (settings save bar); desktop: bottom-right, clear of header actions
+        createPortal(
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label="Notificações"
+            className="pointer-events-none fixed inset-x-4 bottom-24 z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-6 sm:bottom-6"
+          >
+            {items.map((item) => (
+              <ToastCard key={item.id} item={item} onDismiss={dismiss} />
+            ))}
+          </div>,
+          topDialog ?? document.body,
+        )}
     </ToastContext.Provider>
   )
 }

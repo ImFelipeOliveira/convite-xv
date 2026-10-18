@@ -1,25 +1,34 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { deleteGuestsByName, seedGuests } from './db'
-import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
+import { ADMIN_STORAGE_STATE, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
-test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.22' } })
+// signed in through the saved admin session (auth.setup.ts); the gate test opts out of it
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.22' }, storageState: ADMIN_STORAGE_STATE })
 
-const CSV = '﻿nome;telefone;limite_acompanhantes\nJoão Ávila;(95) 99123-4567;2\nMaria;;0\n\nPedro;123;1\n'
+const CSV =
+  '\uFEFFnome;telefone;limite_acompanhantes\nJoão Ávila;(95) 99123-4567;2\nMaria;;0\n\nPedro;123;1\n'
 const OWN_GUESTS = ['Ana Teste', 'João Ávila', 'Maria', 'Pedro', 'Paginação Nova']
 const SEED_PREFIX = 'Paginação'
-
-async function signIn(page: Page) {
-  await page.goto('/admin/login')
-  await page.getByLabel('E-mail').fill(E2E_ADMIN_EMAIL)
-  await page.getByLabel('Senha', { exact: true }).fill(E2E_ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/admin$/)
-}
 
 const rowOf = (page: Page, name: string) => page.getByRole('row').filter({ hasText: name })
 const toast = (page: Page) => page.getByRole('status', { name: 'Notificações' })
 const cursorOf = (l: Locator) => l.evaluate((el) => getComputedStyle(el).cursor)
+
+/** Visible and actually on top: the element hit at its center belongs to it (not covered by a modal). */
+async function expectOnTop(l: Locator) {
+  await expect(l).toBeVisible()
+  const box = (await l.boundingBox())!
+  const hit = await l.evaluate(
+    (el, p) => {
+      const top = document.elementFromPoint(p.x, p.y)
+      return !!top && el.contains(top)
+    },
+    { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+  )
+  expect(hit, 'element is covered').toBe(true)
+}
+const toastCard = (page: Page, text: string) => toast(page).locator(':scope > div').filter({ hasText: text })
 
 async function openNewGuestSheet(page: Page) {
   await page.getByRole('button', { name: 'Adicionar convidado' }).first().click()
@@ -32,7 +41,11 @@ test.describe('admin guests', () => {
   test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
   test.afterAll(() => deleteGuestsByName(OWN_GUESTS))
 
-  test('guest list and export are gated without a session', async ({ request }) => {
+  test('guest list and export are gated without a session', async ({ playwright, baseURL }) => {
+    const request = await playwright.request.newContext({
+      baseURL,
+      storageState: { cookies: [], origins: [] },
+    })
     for (const path of ['/admin/guests', '/admin/guests/export', '/admin/whatsapp']) {
       const res = await request.get(path, { maxRedirects: 0 })
       expect(res.status(), path).toBe(307)
@@ -44,14 +57,25 @@ test.describe('admin guests', () => {
   })
 
   test('creates, copies link, edits, imports CSV and deletes', async ({ page }) => {
-    await signIn(page)
     await page.goto('/admin/guests')
     await expect(page.getByRole('heading', { name: 'Convidados' })).toBeVisible()
 
     // create in a sheet over the list
     const form = await openNewGuestSheet(page)
     await expect(form.getByLabel('Nome')).toBeFocused()
+    // accessible name is just the label (helper/error text are descriptions)
+    await expect(form.getByRole('textbox', { name: 'Nome', exact: true })).toBeVisible()
     await form.getByLabel('Nome').fill('Ana Teste')
+
+    // a save error inside the sheet: inline message + an error toast above the modal
+    await form.getByLabel('Telefone').fill('123')
+    await form.getByRole('button', { name: 'Salvar' }).click()
+    await expect(form.getByLabel('Telefone')).toHaveAttribute('aria-invalid', 'true')
+    const errorToast = toastCard(page, 'Revise os campos destacados.')
+    await expectOnTop(errorToast)
+    await errorToast.getByRole('button', { name: 'Fechar notificação' }).click()
+    await expect(errorToast).toHaveCount(0)
+
     await form.getByLabel('Telefone').fill('(95) 98888-7777')
     await form.getByLabel('Limite de acompanhantes').fill('1')
     await form.getByRole('button', { name: 'Salvar' }).click()
@@ -93,10 +117,11 @@ test.describe('admin guests', () => {
     })
     await importForm.getByRole('button', { name: 'Importar' }).click()
     await expect(page.getByText('2 importados, 1 erro (linha 5: Telefone inválido)')).toBeVisible()
-    await expect(toast(page)).toContainText('2 convidados importados')
+    // the sheet stays open (line errors): the toast must still be on top of it
+    await expectOnTop(toastCard(page, '2 convidados importados'))
     await page
       .getByRole('dialog', { name: 'Importar planilha' })
-      .getByRole('button', { name: 'Fechar' })
+      .getByRole('button', { name: 'Fechar', exact: true })
       .click()
     await expect(rowOf(page, 'João Ávila')).toBeVisible()
     await expect(rowOf(page, 'Maria')).toBeVisible()
@@ -114,6 +139,7 @@ test.describe('admin guests', () => {
     await deleteMaria.click()
     await dialog.getByRole('button', { name: 'Excluir' }).click()
     await expect(toast(page)).toContainText('Convidado excluído.')
+    await expect(page.getByLabel('Buscar')).toBeFocused()
     await expect(rowOf(page, 'Maria')).toHaveCount(0)
     await expect(rowOf(page, E2E_GUEST_NAME)).toBeVisible()
 
@@ -155,7 +181,6 @@ test.describe('admin guests', () => {
       page,
     }) => {
       await page.setViewportSize({ width: 1280, height: 800 })
-      await signIn(page)
       await page.goto('/admin/guests')
 
       // shell
@@ -212,6 +237,26 @@ test.describe('admin guests', () => {
         .getByRole('button', { name: 'Todas', exact: true })
         .click()
 
+      // the sidebar spans the page: at the bottom of a long list it still fills the viewport
+      await page.getByLabel('Buscar').fill('')
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      const sidebar = page.getByRole('complementary')
+      const sideBox = await sidebar.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        return {
+          top: r.top,
+          bottom: r.bottom,
+          vh: window.innerHeight,
+          bg: getComputedStyle(el).backgroundColor,
+        }
+      })
+      expect(sideBox.top).toBeLessThanOrEqual(0)
+      expect(sideBox.bottom).toBeGreaterThanOrEqual(sideBox.vh)
+      expect(sideBox.bg).toBe('rgb(247, 222, 219)')
+      await expect(nav.getByRole('link', { name: 'Convidados' })).toBeInViewport()
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await search.fill(SEED_PREFIX)
+
       // new-guest sheet over the list keeps the search term
       const form = await openNewGuestSheet(page)
       await form.getByLabel('Nome').fill('Paginação Nova')
@@ -223,7 +268,6 @@ test.describe('admin guests', () => {
     })
 
     test('mobile: drawer navigation, stacked cards and no horizontal scroll', async ({ page }) => {
-      await signIn(page)
       await page.goto('/admin/guests')
       await expect(page.getByRole('heading', { name: 'Convidados' })).toBeVisible()
 

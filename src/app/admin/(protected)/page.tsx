@@ -54,7 +54,7 @@ export default async function AdminHomePage() {
           role="progressbar"
           aria-label={`Confirmados ${summary.yes} de ${summary.total}`}
           aria-valuemin={0}
-          aria-valuemax={summary.total}
+          aria-valuemax={Math.max(1, summary.total)}
           aria-valuenow={summary.yes}
           className="flex h-3 overflow-hidden rounded-full bg-blush"
         >

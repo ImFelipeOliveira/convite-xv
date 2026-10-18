@@ -3,7 +3,7 @@
 import { House, LogOut, Menu, MessageCircle, MessageSquareHeart, Settings, Users } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Suspense, useState, type ReactNode } from 'react'
+import { Suspense, useRef, useState, type ReactNode } from 'react'
 import { signOut } from '@/features/admin-auth/actions'
 import { focusRing } from './styles'
 import { Modal, CloseButton } from './ui/Modal'
@@ -86,22 +86,27 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const menuButton = useRef<HTMLButtonElement>(null)
 
   return (
     <ToastProvider>
       <div className="min-h-dvh w-full bg-paper font-sans text-wine lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
         {/* desktop sidebar */}
-        <aside className="sticky top-0 hidden h-dvh flex-col gap-8 border-r border-hairline bg-blush px-4 py-6 lg:flex">
-          <div className="px-2">
-            <Brand />
+        {/* the grid cell spans the whole page height; only its content sticks */}
+        <aside className="hidden border-r border-hairline bg-blush lg:block">
+          <div className="sticky top-0 flex h-dvh flex-col gap-8 px-4 py-6">
+            <div className="px-2">
+              <Brand />
+            </div>
+            <Nav />
           </div>
-          <Nav />
         </aside>
 
         {/* mobile / tablet top bar */}
         <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-hairline bg-blush/95 px-2 backdrop-blur-sm sm:px-4 lg:hidden">
           <button
             type="button"
+            ref={menuButton}
             onClick={() => setDrawerOpen(true)}
             aria-label="Abrir menu"
             aria-expanded={drawerOpen}
@@ -113,6 +118,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </header>
         {drawerOpen && (
           <Modal
+            returnFocusRef={menuButton}
             onClose={() => setDrawerOpen(false)}
             placement="left"
             label="Menu"

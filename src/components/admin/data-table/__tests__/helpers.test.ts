@@ -15,6 +15,13 @@ describe('matchesSearch', () => {
     expect(matchesSearch('Maria', 'ana')).toBe(false)
   })
 
+  it('matches phones by digits regardless of formatting', () => {
+    expect(matchesSearch('(95) 99123-4567', '991234567')).toBe(true)
+    expect(matchesSearch('(95) 99123-4567', '95 99123')).toBe(true)
+    expect(matchesSearch('(95) 99123-4567', '99999')).toBe(false)
+    expect(matchesSearch('Ana 2', 'ana 9')).toBe(false)
+  })
+
   it('treats an empty query as a match and ignores non-text values', () => {
     expect(matchesSearch('Maria', '   ')).toBe(true)
     expect(matchesSearch(null, 'ana')).toBe(false)

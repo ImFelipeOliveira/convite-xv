@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { resetE2eGuestRsvp } from './db'
-import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_GUEST_TOKEN } from './fixtures'
+import { ADMIN_STORAGE_STATE, E2E_GUEST_TOKEN } from './fixtures'
 
 const invitePath = `/c/${E2E_GUEST_TOKEN}`
 
@@ -55,17 +55,17 @@ test('RSVP section has no serious accessibility violations', async ({ page }) =>
   expect(await seriousViolations(page, '#rsvp')).toEqual([])
 })
 
-test.describe('admin', () => {
-  // sign-in is limited to 5 attempts per client IP: use our own so the other specs' logins aren't starved
-  test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.15' } })
+test('admin login has no serious accessibility violations', async ({ page }) => {
+  await page.goto('/admin/login')
+  await expect(page.getByRole('heading', { name: 'Entrar no painel' })).toBeVisible()
+  expect(await seriousViolations(page)).toEqual([])
+})
 
-  test('guest list has no serious accessibility violations', async ({ page }) => {
-    await page.goto('/admin/login')
-    expect(await seriousViolations(page), '/admin/login').toEqual([])
-    await page.getByLabel('E-mail').fill(E2E_ADMIN_EMAIL)
-    await page.getByLabel('Senha', { exact: true }).fill(E2E_ADMIN_PASSWORD)
-    await page.getByRole('button', { name: 'Entrar' }).click()
-    await expect(page).toHaveURL(/\/admin$/)
+test.describe('admin', () => {
+  // signed in through the saved admin session (auth.setup.ts)
+  test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.15' }, storageState: ADMIN_STORAGE_STATE })
+
+  test('panel pages have no serious accessibility violations', async ({ page }) => {
     await page.goto('/admin/guests') // full load: no hidden previous page in the DOM
     await expect(page.getByRole('heading', { name: 'Convidados' })).toBeVisible()
     expect(await seriousViolations(page)).toEqual([])

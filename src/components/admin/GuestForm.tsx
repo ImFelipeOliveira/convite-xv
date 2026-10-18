@@ -5,7 +5,7 @@ import { useActionState, useEffect } from 'react'
 import { saveGuestAction, type GuestFormState } from '@/features/guests/actions'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
-import { describedBy, Field } from './ui/Field'
+import { Field, fieldDescribedBy } from './ui/Field'
 import { useToast } from './ui/Toast'
 
 type Props = {
@@ -56,12 +56,11 @@ export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
       {guest && <input type="hidden" name="id" value={guest.id} />}
       <fieldset disabled={pending} className="flex min-w-0 flex-col gap-5">
         <Field
+          id={`${prefix}-name`}
           label="Nome"
           required
-          errorId={`${prefix}-name-error`}
           error={errors.name}
           helper="Como aparece no convite e na mensagem do WhatsApp."
-          helperId={`${prefix}-name-help`}
         >
           <input
             name="name"
@@ -72,16 +71,16 @@ export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
             data-autofocus
             defaultValue={values.name}
             aria-invalid={!!errors.name}
-            aria-describedby={describedBy(`${prefix}-name-help`, `${prefix}-name-error`)}
+            id={`${prefix}-name`}
+            aria-describedby={fieldDescribedBy(`${prefix}-name`, true)}
             className={inputClass}
           />
         </Field>
         <Field
+          id={`${prefix}-phone`}
           label="Telefone"
-          errorId={`${prefix}-phone-error`}
           error={errors.phone}
           helper="Celular com DDD, para enviar o convite pelo WhatsApp."
-          helperId={`${prefix}-phone-help`}
         >
           <input
             name="phone"
@@ -91,17 +90,17 @@ export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
             placeholder="(95) 99123-4567"
             defaultValue={values.phone}
             aria-invalid={!!errors.phone}
-            aria-describedby={describedBy(`${prefix}-phone-help`, `${prefix}-phone-error`)}
+            id={`${prefix}-phone`}
+            aria-describedby={fieldDescribedBy(`${prefix}-phone`, true)}
             className={inputClass}
           />
         </Field>
         <Field
+          id={`${prefix}-limit`}
           label="Limite de acompanhantes"
           required
-          errorId={`${prefix}-limit-error`}
           error={errors.plusOnesLimit}
           helper="Quantas pessoas a mais o convidado pode levar (0 a 6)."
-          helperId={`${prefix}-limit-help`}
         >
           <input
             name="plusOnesLimit"
@@ -113,7 +112,8 @@ export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
             required
             defaultValue={values.plusOnesLimit}
             aria-invalid={!!errors.plusOnesLimit}
-            aria-describedby={describedBy(`${prefix}-limit-help`, `${prefix}-limit-error`)}
+            id={`${prefix}-limit`}
+            aria-describedby={fieldDescribedBy(`${prefix}-limit`, true)}
             className={`${inputClass} max-w-40 tabular-nums`}
           />
         </Field>

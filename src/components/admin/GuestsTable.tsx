@@ -1,7 +1,7 @@
 'use client'
 
 import { Download, FileUp, Link2, MessageCircle, Pencil, Trash2, UserPlus, Users } from 'lucide-react'
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import { deleteGuestAction } from '@/features/guests/actions'
 import { createDataTableColumnHelper, DataTable, type DataTableFilter } from './data-table/DataTable'
 import { compareText, formatBoaVistaDateTime } from './data-table/helpers'
@@ -54,8 +54,8 @@ function RowActions({
   onDelete,
 }: {
   guest: GuestRow
-  onEdit: (g: GuestRow) => void
-  onDelete: (g: GuestRow) => void
+  onEdit: (g: GuestRow, trigger: HTMLElement) => void
+  onDelete: (g: GuestRow, trigger: HTMLElement) => void
 }) {
   const toast = useToast()
   async function copyLink() {
@@ -96,7 +96,7 @@ function RowActions({
       </a>
       <button
         type="button"
-        onClick={() => onEdit(guest)}
+        onClick={(e) => onEdit(guest, e.currentTarget)}
         aria-label={`Editar ${guest.name}`}
         title="Editar"
         className={`${iconButton} ${labelled}`}
@@ -108,7 +108,7 @@ function RowActions({
       </button>
       <button
         type="button"
-        onClick={() => onDelete(guest)}
+        onClick={(e) => onDelete(guest, e.currentTarget)}
         aria-label={`Excluir ${guest.name}`}
         title="Excluir"
         className={`${iconButton} ${labelled} hover:!text-error max-sm:ml-auto`}
@@ -125,6 +125,13 @@ function RowActions({
 export function GuestsTable({ guests, description }: { guests: GuestRow[]; description: string }) {
   const [sheet, setSheet] = useState<SheetState>(null)
   const [deleting, setDeleting] = useState<GuestRow | null>(null)
+  // where focus goes when a sheet/dialog closes (stashed explicitly: Safari doesn't focus clicked buttons)
+  const returnFocus = useRef<HTMLElement | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const openSheet = (next: NonNullable<SheetState>, trigger: HTMLElement) => {
+    returnFocus.current = trigger
+    setSheet(next)
+  }
   const [pending, startTransition] = useTransition()
   const toast = useToast()
 
@@ -175,8 +182,14 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
           cell: ({ row }) => (
             <RowActions
               guest={row.original}
-              onEdit={(g) => setSheet({ kind: 'edit', guest: g })}
-              onDelete={(g) => setDeleting(g)}
+              onEdit={(g, trigger) => {
+                returnFocus.current = trigger
+                setSheet({ kind: 'edit', guest: g })
+              }}
+              onDelete={(g, trigger) => {
+                returnFocus.current = trigger
+                setDeleting(g)
+              }}
             />
           ),
         }),
@@ -191,6 +204,8 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
       const result = await deleteGuestAction(target.id)
       if (result.ok) {
         toast.success('Convidado excluído.')
+        // the row (and its trigger) is gone: continue from the search field
+        returnFocus.current = searchRef.current
         setDeleting(null)
       } else {
         toast.error('Não foi possível excluir o convidado. Tente de novo.')
@@ -214,14 +229,14 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
       <div className="flex flex-wrap justify-center gap-2">
         <Button
           icon={<UserPlus aria-hidden="true" className="size-[18px]" />}
-          onClick={() => setSheet({ kind: 'new' })}
+          onClick={(e) => openSheet({ kind: 'new' }, e.currentTarget)}
         >
           Adicionar convidado
         </Button>
         <Button
           variant="secondary"
           icon={<FileUp aria-hidden="true" className="size-[18px]" />}
-          onClick={() => setSheet({ kind: 'import' })}
+          onClick={(e) => openSheet({ kind: 'import' }, e.currentTarget)}
         >
           Importar planilha
         </Button>
@@ -238,14 +253,14 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
           <>
             <Button
               icon={<UserPlus aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />}
-              onClick={() => setSheet({ kind: 'new' })}
+              onClick={(e) => openSheet({ kind: 'new' }, e.currentTarget)}
             >
               Adicionar convidado
             </Button>
             <Button
               variant="secondary"
               icon={<FileUp aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />}
-              onClick={() => setSheet({ kind: 'import' })}
+              onClick={(e) => openSheet({ kind: 'import' }, e.currentTarget)}
             >
               Importar planilha
             </Button>
@@ -262,6 +277,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         columns={columns}
         getRowId={(g) => g.id}
         initialSorting={[{ id: 'name', desc: false }]}
+        searchInputRef={searchRef}
         searchLabel="Buscar convidado"
         searchPlaceholder="Buscar por nome ou telefone"
         filters={FILTERS}
@@ -271,6 +287,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
 
       {sheet?.kind === 'new' && (
         <Sheet
+          returnFocusRef={returnFocus}
           id="guest-sheet"
           title="Novo convidado"
           description="O link pessoal é criado ao salvar."
@@ -280,7 +297,13 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         </Sheet>
       )}
       {sheet?.kind === 'edit' && (
-        <Sheet id="guest-sheet" title="Editar convidado" description={sheet.guest.name} onClose={closeSheet}>
+        <Sheet
+          returnFocusRef={returnFocus}
+          id="guest-sheet"
+          title="Editar convidado"
+          description={sheet.guest.name}
+          onClose={closeSheet}
+        >
           <GuestForm
             guest={{
               id: sheet.guest.id,
@@ -295,6 +318,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
       )}
       {sheet?.kind === 'import' && (
         <Sheet
+          returnFocusRef={returnFocus}
           id="import-sheet"
           title="Importar planilha"
           description="Adicione vários convidados de uma vez."
@@ -310,6 +334,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
 
       {deleting && (
         <ConfirmDialog
+          returnFocusRef={returnFocus}
           title="Excluir convidado?"
           confirmLabel="Excluir"
           pendingLabel="Excluindo…"

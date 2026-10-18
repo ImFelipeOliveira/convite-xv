@@ -21,7 +21,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, Search, X } from 'lucide-react'
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import { useId, useMemo, useState, type ReactNode, type Ref } from 'react'
 import { buttonClass, focusRing, inputClass } from '../styles'
 import { formatRange, matchesSearch } from './helpers'
 
@@ -76,6 +76,7 @@ type Props<T extends RowData> = {
   /** Shown when search/filters match nothing. */
   emptyMessage: string
   pageSize?: number
+  searchInputRef?: Ref<HTMLInputElement>
 }
 
 // rows whose value equals the selected option (undefined = no filter)
@@ -116,6 +117,7 @@ export function DataTable<T extends RowData>({
   emptyState,
   emptyMessage,
   pageSize = 20,
+  searchInputRef,
 }: Props<T>) {
   const uid = useId()
   const [pageIndexRequested, setPageIndex] = useState(0)
@@ -182,6 +184,7 @@ export function DataTable<T extends RowData>({
             strokeWidth={1.75}
           />
           <input
+            ref={searchInputRef}
             id={`${uid}-search`}
             type="search"
             value={globalFilter}

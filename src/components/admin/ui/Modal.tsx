@@ -1,8 +1,9 @@
 'use client'
 
 import { X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { focusRing } from '../styles'
+import { pushDialog, removeDialog } from './top-layer'
 
 type Placement = 'center' | 'right' | 'left'
 
@@ -17,11 +18,17 @@ const placements: Record<Placement, string> = {
 
 /**
  * Native modal <dialog>: the browser makes the page inert (focus stays inside), Esc closes,
- * and focus goes back to whatever was focused before it opened. Render it only while open.
+ * and focus goes back to the opener when it unmounts. Render it only while open.
  * Mark the element that should receive focus with `data-autofocus`.
+ *
+ * `returnFocusRef` names the element to focus on close (Safari doesn't focus buttons on click,
+ * so `document.activeElement` is not a reliable opener); the caller may repoint it before closing.
+ * `onNativeClose` runs if the browser closes the dialog by itself (defaults to `onClose`).
  */
 export function Modal({
   onClose,
+  onNativeClose,
+  returnFocusRef,
   placement = 'center',
   labelledBy,
   label,
@@ -29,6 +36,8 @@ export function Modal({
   className = '',
 }: {
   onClose: () => void
+  onNativeClose?: () => void
+  returnFocusRef?: RefObject<HTMLElement | null>
   placement?: Placement
   labelledBy?: string
   label?: string
@@ -37,21 +46,32 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const onCloseRef = useRef(onClose)
+  const onNativeCloseRef = useRef(onNativeClose ?? onClose)
+  const unmounting = useRef(false)
   useEffect(() => {
     onCloseRef.current = onClose
+    onNativeCloseRef.current = onNativeClose ?? onClose
   })
 
   useLayoutEffect(() => {
     const dialog = ref.current
     if (!dialog) return
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    unmounting.current = false
+    const fallbackOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     if (!dialog.open) dialog.showModal()
+    pushDialog(dialog)
     // showModal() focuses the first focusable element; prefer the one the content marked
     dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus()
     return () => {
+      unmounting.current = true
+      removeDialog(dialog)
       if (dialog.open) dialog.close()
-      if (opener?.isConnected) opener.focus()
+      // read at close time on purpose: the caller may repoint it (e.g. to the search after a delete)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const target = returnFocusRef?.current ?? fallbackOpener
+      if (target?.isConnected) target.focus()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
@@ -62,6 +82,10 @@ export function Modal({
       onCancel={(e) => {
         e.preventDefault()
         onCloseRef.current()
+      }}
+      onClose={(e) => {
+        // closed by the browser, not by unmounting (or a dev re-mount that reopened it): sync React state
+        if (!unmounting.current && !e.currentTarget.open) onNativeCloseRef.current()
       }}
       onClick={(e) => {
         // a click on the ::backdrop targets the dialog element itself
@@ -93,16 +117,24 @@ export function Sheet({
   title,
   description,
   onClose,
+  returnFocusRef,
   children,
 }: {
   id: string
   title: string
   description?: string
   onClose: () => void
+  returnFocusRef?: RefObject<HTMLElement | null>
   children: ReactNode
 }) {
   return (
-    <Modal onClose={onClose} placement="right" labelledBy={`${id}-title`} className="border-l">
+    <Modal
+      onClose={onClose}
+      returnFocusRef={returnFocusRef}
+      placement="right"
+      labelledBy={`${id}-title`}
+      className="border-l"
+    >
       <div className="flex h-full flex-col">
         <div className="flex items-start gap-3 border-b border-hairline px-5 py-4 sm:px-6">
           <div className="flex flex-1 flex-col gap-1 pt-1.5">

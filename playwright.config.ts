@@ -24,9 +24,12 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
+    // signs the admin in once and saves the cookie (tests/e2e/.auth/admin.json) for the admin specs
+    { name: 'setup', testMatch: /auth\.setup\.ts/ },
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 } },
+      dependencies: ['setup'],
     },
   ],
   webServer: {

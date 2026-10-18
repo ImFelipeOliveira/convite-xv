@@ -16,7 +16,12 @@ export function matchesSearch(value: unknown, query: string): boolean {
   const q = normalizeText(query)
   if (!q) return true
   if (typeof value !== 'string' && typeof value !== 'number') return false
-  return normalizeText(String(value)).includes(q)
+  if (normalizeText(String(value)).includes(q)) return true
+  // phone-like queries also match by digits only: "991234567" finds "(95) 99123-4567"
+  const queryDigits = query.replace(/\D/g, '')
+  return (
+    queryDigits.length > 0 && !/\p{L}/u.test(query) && String(value).replace(/\D/g, '').includes(queryDigits)
+  )
 }
 
 const collator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true })

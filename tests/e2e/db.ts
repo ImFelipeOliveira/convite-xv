@@ -1,5 +1,5 @@
 // Direct access to the e2e TEST database (playwright.config loads .env.local into every process).
-import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, like, ne, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { guests, settings } from '../../src/server/db/schema'
@@ -57,6 +57,10 @@ export async function seedGuests(prefix: string, count: number, confirmed = 0): 
   const names = Array.from({ length: count }, (_, i) => `${prefix} ${String(i + 1).padStart(2, '0')}`)
   const client = postgres(url, { max: 1, onnotice: () => {} })
   try {
+    // leftovers of an interrupted run would collide on token / duplicate the rows
+    await drizzle(client)
+      .delete(guests)
+      .where(and(like(guests.name, `${prefix} %`), ne(guests.token, E2E_GUEST_TOKEN)))
     await drizzle(client)
       .insert(guests)
       .values(

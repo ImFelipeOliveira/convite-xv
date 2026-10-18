@@ -1,7 +1,7 @@
 'use client'
 
 import { TriangleAlert } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { Button } from './Button'
 import { Modal } from './Modal'
 
@@ -13,6 +13,7 @@ export function ConfirmDialog({
   pending,
   onConfirm,
   onCancel,
+  returnFocusRef,
 }: {
   title: string
   children: ReactNode
@@ -21,12 +22,20 @@ export function ConfirmDialog({
   pending: boolean
   onConfirm: () => void
   onCancel: () => void
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   const close = () => {
     if (!pending) onCancel()
   }
   return (
-    <Modal onClose={close} labelledBy="confirm-title" className="border">
+    <Modal
+      onClose={close}
+      // if the browser closes it anyway, mirror that in the parent state
+      onNativeClose={onCancel}
+      returnFocusRef={returnFocusRef}
+      labelledBy="confirm-title"
+      className="border"
+    >
       <div className="flex flex-col gap-5 p-6">
         <div className="flex items-start gap-4">
           <span

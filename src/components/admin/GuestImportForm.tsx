@@ -39,33 +39,36 @@ export function GuestImportForm({
           quiser, <code>telefone</code> e <code>limite_acompanhantes</code>.
         </p>
         <div className="flex flex-col gap-1.5">
-          <label className={labelClass}>
+          <label htmlFor="import-file" className={labelClass}>
             <span>
               Arquivo CSV
               <span aria-hidden="true" className={`${requiredMark} ml-0.5`}>
                 *
               </span>
             </span>
-            <span className="relative flex min-h-28 flex-col items-center justify-center gap-2 border border-dashed border-hairline-strong bg-blush/30 px-4 py-5 text-center transition-colors duration-(--dur-micro) hover:border-seal hover:bg-blush/60 has-focus-visible:outline-2 has-focus-visible:outline-offset-3 has-focus-visible:outline-wine">
-              <FileSpreadsheet aria-hidden="true" className="size-6 text-seal" strokeWidth={1.5} />
-              <span className="text-sm font-normal text-wine">{fileName ?? 'Escolher arquivo .csv'}</span>
-              <input
-                name="file"
-                type="file"
-                accept=".csv,text/csv"
-                required
-                aria-describedby="import-help"
-                onChange={(e) => {
-                  const file = e.currentTarget.files?.[0]
-                  setFileName(file?.name ?? null)
-                  e.currentTarget.setCustomValidity(
-                    file && file.size > MAX_BYTES ? 'O arquivo deve ter no máximo 1 MB.' : '',
-                  )
-                }}
-                className="absolute inset-0 cursor-pointer opacity-0"
-              />
-            </span>
           </label>
+          <div className="relative flex min-h-28 flex-col items-center justify-center gap-2 border border-dashed border-hairline-strong bg-blush/30 px-4 py-5 text-center transition-colors duration-(--dur-micro) hover:border-seal hover:bg-blush/60 has-focus-visible:outline-2 has-focus-visible:outline-offset-3 has-focus-visible:outline-wine">
+            <FileSpreadsheet aria-hidden="true" className="size-6 text-seal" strokeWidth={1.5} />
+            <span aria-hidden="true" className="text-sm font-normal text-wine">
+              {fileName ?? 'Escolher arquivo .csv'}
+            </span>
+            <input
+              id="import-file"
+              name="file"
+              type="file"
+              accept=".csv,text/csv"
+              required
+              aria-describedby="import-help"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0]
+                setFileName(file?.name ?? null)
+                e.currentTarget.setCustomValidity(
+                  file && file.size > MAX_BYTES ? 'O arquivo deve ter no máximo 1 MB.' : '',
+                )
+              }}
+              className="absolute inset-0 cursor-pointer opacity-0"
+            />
+          </div>
           <p id="import-help" className={helperClass}>
             Até 1 MB e 1000 convidados. Importar o mesmo arquivo de novo cria convidados repetidos.
           </p>
