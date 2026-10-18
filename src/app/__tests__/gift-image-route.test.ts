@@ -60,4 +60,43 @@ describe('POST /admin/api/gift-image', () => {
     const res = await POST(await request(fd, { origin: 'https://evil.example', host: 'localhost' }))
     expect(res.status).toBe(403)
   })
+
+  it('enforces the cap while streaming a body without Content-Length', async () => {
+    const chunk = new Uint8Array(1024 * 1024)
+    let sent = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent++ < 12) controller.enqueue(chunk)
+        else controller.close()
+      },
+    })
+    const req = new Request('http://localhost/admin/api/gift-image', {
+      method: 'POST',
+      body,
+      headers: { 'content-type': 'multipart/form-data; boundary=x' },
+      duplex: 'half',
+    } as RequestInit)
+    expect(req.headers.get('content-length')).toBeNull()
+    const res = await POST(req)
+    expect(res.status).toBe(413)
+    expect(await res.json()).toEqual({ ok: false, error: 'A foto é grande demais (máx. 8 MB).' })
+    // stopped reading soon after the cap instead of buffering everything
+    expect(sent).toBeLessThan(12)
+  })
+
+  it('parses a streamed upload under the cap', async () => {
+    const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#fff' } }).png().toBuffer()
+    const fd = new FormData()
+    fd.set('file', new File([new Uint8Array(png)], 'a.png'))
+    const encoded = new Response(fd)
+    const req = new Request('http://localhost/admin/api/gift-image', {
+      method: 'POST',
+      body: encoded.body,
+      headers: { 'content-type': encoded.headers.get('content-type')! },
+      duplex: 'half',
+    } as RequestInit)
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true })
+  })
 })

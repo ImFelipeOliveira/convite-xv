@@ -75,4 +75,11 @@ describe('uploadGiftImageAction', () => {
     })
     expect(await uploadGiftImageAction(form('texto'))).toMatchObject({ ok: false })
   })
+
+  it('answers with the generic message when production storage is not configured', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('MEDIA_DIR', '')
+    const res = await uploadGiftImageAction(form(new Blob([new Uint8Array(await png())])))
+    expect(res).toEqual({ ok: false, error: 'Não foi possível enviar a foto. Tente de novo.' })
+  })
 })

@@ -2,8 +2,11 @@ import sharp from 'sharp'
 
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 const MAX_SIDE = 1200
-// decompression-bomb guard: ~50 MP is well above any phone camera
-const MAX_INPUT_PIXELS = 50_000_000
+// decompression-bomb guard: 40 MP is above any phone camera
+const MAX_INPUT_PIXELS = 40_000_000
+
+// one libvips worker thread per image: uploads are rare and admin-only, so memory beats speed here
+sharp.concurrency(1)
 
 export type ProcessedImage = { data: Buffer; contentType: 'image/webp'; width: number; height: number }
 export type ImageError = { error: 'too_large' | 'unsupported' | 'invalid' }

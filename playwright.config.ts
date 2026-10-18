@@ -45,6 +45,8 @@ export default defineConfig({
       FEATURES: 'gifts,pix',
       // no background reminder sends during e2e (src/instrumentation.ts)
       DISPATCHER_ENABLED: 'false',
+      // gift photos on the local disk (production without S3_* refuses to fall back silently)
+      MEDIA_DIR: '.data/media',
     },
   },
 })

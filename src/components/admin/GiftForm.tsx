@@ -4,6 +4,7 @@ import { ChevronRight, ImageOff, ImagePlus, ImageUp, Trash2 } from 'lucide-react
 import { useActionState, useEffect, useId, useRef, useState, type DragEvent } from 'react'
 import { saveGiftAction, type GiftFormState } from '@/features/gifts/admin-actions'
 import { fieldErrorClass, focusRing, helperClass, inputClass, labelClass } from './styles'
+import { mediaUrl } from '@/features/media/keys'
 import { useImageFailed } from '@/lib/use-image-failed'
 import { Button, Spinner } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
@@ -66,7 +67,7 @@ const PHOTO_FAILED = 'Não foi possível enviar a foto. Tente de novo.'
 type UploadResponse = { ok: true; key: string; previewUrl: string } | { ok: false; error: string }
 
 /**
- * Uploaded photo: file picker (camera or gallery on phones), drag-and-drop on desktop, live preview,
+ * Uploaded photo: file picker (camera or gallery on phones; accept lists what the server takes), drag-and-drop on desktop, live preview,
  * "Trocar foto" / "Remover foto". The photo goes to POST /admin/api/gift-image right away; the form
  * then saves only its key (hidden `imageKey`).
  */
@@ -82,7 +83,7 @@ function GiftPhotoField({
   onUploadingChange: (uploading: boolean) => void
 }) {
   const [imageKey, setImageKey] = useState(initialKey)
-  const [preview, setPreview] = useState<string | null>(initialKey ? `/media/${initialKey}` : null)
+  const [preview, setPreview] = useState<string | null>(initialKey ? mediaUrl(initialKey) : null)
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [status, setStatus] = useState('')
@@ -179,7 +180,7 @@ function GiftPhotoField({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,image/avif"
         tabIndex={-1}
         aria-hidden="true"
         className="sr-only"

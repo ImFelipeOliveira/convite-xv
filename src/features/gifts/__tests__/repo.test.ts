@@ -13,6 +13,7 @@ import {
   releaseGift,
   reserveGift,
   updateGift,
+  updateGiftReturningPreviousImageKey,
 } from '../repo'
 import { toGiftViews } from '../view'
 
@@ -142,5 +143,19 @@ describe('gifts repo: counts and order', () => {
     const g = await createGift({ ...base, sortOrder: 4 })
     expect(g.sortOrder).toBe(4)
     expect((await updateGift(g.id, { ...base, sortOrder: 2 }))?.sortOrder).toBe(2)
+  })
+})
+
+describe('updateGiftReturningPreviousImageKey', () => {
+  it('returns the updated gift with the photo key it had before', async () => {
+    const key = 'gifts/0b0e6b3c-3f43-4a52-9a43-2f6a6b4c1d2e.webp'
+    const g = await createGift({ ...base, imageKey: key })
+    const res = await updateGiftReturningPreviousImageKey(g.id, { ...base, name: 'Panela nova', imageKey: null })
+    expect(res?.previousImageKey).toBe(key)
+    expect(res?.gift).toMatchObject({ id: g.id, name: 'Panela nova', imageKey: null })
+  })
+
+  it('returns null for an unknown id', async () => {
+    expect(await updateGiftReturningPreviousImageKey('00000000-0000-4000-8000-000000000000', base)).toBeNull()
   })
 })

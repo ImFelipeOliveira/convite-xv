@@ -58,6 +58,12 @@ describe('processGiftImage', () => {
     expect(await processGiftImage(jpeg.subarray(0, 40))).toEqual({ error: 'invalid' })
   })
 
+  it('rejects an image over 40 megapixels (decompression bomb) as invalid', async () => {
+    const huge = await solid(7000, 6000).png({ compressionLevel: 9 }).toBuffer()
+    expect(huge.length).toBeLessThan(8 * 1024 * 1024)
+    expect(await processGiftImage(huge)).toEqual({ error: 'invalid' })
+  })
+
   it('rejects more than 8 MB', async () => {
     expect(MAX_UPLOAD_BYTES).toBe(8 * 1024 * 1024)
     const big = Buffer.alloc(MAX_UPLOAD_BYTES + 1)

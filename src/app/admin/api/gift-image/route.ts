@@ -21,6 +21,31 @@ function sameOrigin(request: Request): boolean {
   return allowed.includes(host)
 }
 
+/** The whole body, or 'too_large' as soon as it passes `max` bytes (the rest is never read). */
+async function readCapped(request: Request, max: number): Promise<Uint8Array<ArrayBuffer> | 'too_large'> {
+  if (!request.body) return new Uint8Array(0)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > max) {
+      await reader.cancel().catch(() => {})
+      return 'too_large'
+    }
+    chunks.push(value)
+  }
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const c of chunks) {
+    out.set(c, offset)
+    offset += c.byteLength
+  }
+  return out
+}
+
 export async function POST(request: Request) {
   await requireAdmin()
   // Server Actions check the origin themselves; a route handler has to (the session cookie is SameSite=Lax too)
@@ -29,9 +54,13 @@ export async function POST(request: Request) {
   const length = Number(request.headers.get('content-length') ?? 0)
   if (length > MAX_BODY_BYTES) return Response.json({ ok: false, error: UPLOAD_ERRORS.too_large }, { status: 413 })
 
+  // Content-Length can be missing (chunked) or wrong: count the bytes as they arrive and stop past the cap
+  const body = await readCapped(request, MAX_BODY_BYTES)
+  if (body === 'too_large') return Response.json({ ok: false, error: UPLOAD_ERRORS.too_large }, { status: 413 })
+
   let formData: FormData
   try {
-    formData = await request.formData()
+    formData = await new Response(body, { headers: { 'content-type': request.headers.get('content-type') ?? '' } }).formData()
   } catch {
     return Response.json({ ok: false, error: UPLOAD_ERRORS.failed }, { status: 400 })
   }

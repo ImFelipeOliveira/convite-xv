@@ -1,10 +1,12 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { logger } from '@/lib/logger'
 
 // Uploaded media (gift photos). Production: the Railway bucket (S3 API, private: the app proxies reads
-// through /media/...). Dev/test: files under .data/media (gitignored). Config is read when used, never
-// at import time, so `next build` doesn't need the S3_* variables.
+// through /media/...). Dev/test: files under .data/media (gitignored) or MEDIA_DIR. Production without
+// S3 config and without MEDIA_DIR throws on use (no silent writes to the ephemeral container disk).
+// Config is read when used, never at import time, so `next build` doesn't need the S3_* variables.
 
 export type StoredObject = { body: ReadableStream | Buffer; contentType: string; contentLength?: number }
 
@@ -98,10 +100,36 @@ export function createS3Storage(config: S3Config): ObjectStorage {
 }
 
 let s3: { signature: string; storage: ObjectStorage } | null = null
+let unconfiguredLogged = false
+
+/** Production without S3 (and without an explicit MEDIA_DIR): fail loudly instead of writing to the container disk. */
+const unconfigured: ObjectStorage = {
+  async put() {
+    throw new Error('media storage is not configured')
+  },
+  async get() {
+    throw new Error('media storage is not configured')
+  },
+  async delete() {
+    throw new Error('media storage is not configured')
+  },
+}
 
 export function getStorage(): ObjectStorage {
   const config = s3Config()
-  if (!config) return createFsStorage(process.env.MEDIA_DIR || path.join(process.cwd(), '.data', 'media'))
+  if (!config) {
+    const dir = process.env.MEDIA_DIR
+    if (dir) return createFsStorage(dir)
+    if (process.env.NODE_ENV === 'production') {
+      if (!unconfiguredLogged) {
+        unconfiguredLogged = true
+        logger.error({ event: 'media.storage_unconfigured' }, 'media storage is not configured (S3_* incomplete)')
+      }
+      return unconfigured
+    }
+    // dev and tests: local files (gitignored)
+    return createFsStorage(path.join(process.cwd(), '.data', 'media'))
+  }
   // one client per process (re-created only if the config changes)
   const signature = JSON.stringify(config)
   if (s3?.signature !== signature) s3 = { signature, storage: createS3Storage(config) }

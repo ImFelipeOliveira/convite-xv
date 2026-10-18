@@ -6,7 +6,13 @@ import { requireAdmin } from '@/features/admin-auth/guard'
 import { logger } from '@/lib/logger'
 import { isGiftImageKey } from '@/features/media/keys'
 import { getStorage } from '@/features/media/storage'
-import { adminReleaseGift, createGift, deleteGift, findGiftImageKey, updateGift } from './repo'
+import {
+  adminReleaseGift,
+  createGift,
+  deleteGift,
+  isImageKeyReferenced,
+  updateGiftReturningPreviousImageKey,
+} from './repo'
 import { giftFormSchema } from './schema'
 
 const GIFTS_PATH = '/admin/gifts'
@@ -34,9 +40,14 @@ function text(formData: FormData, name: string): string {
 
 const idSchema = z.uuid()
 
-/** Best effort: a leftover object only costs storage, so a failure is logged (key only) and ignored. */
+/**
+ * Best effort: a leftover object only costs storage, so a failure is logged (key only) and ignored. Only our
+ * own key shape is ever deleted, and never while another gift still points at it.
+ */
 async function deleteImage(key: string, adminId: string) {
+  if (!isGiftImageKey(key)) return
   try {
+    if (await isImageKeyReferenced(key)) return
     await getStorage().delete(key)
     logger.info({ event: 'admin.gift_image_deleted', adminId, key }, 'gift image deleted')
   } catch (err) {
@@ -69,10 +80,16 @@ export async function saveGiftAction(_prev: GiftFormState, formData: FormData): 
   const imageKey = values.imageKey.trim() || null
   if (imageKey && !isGiftImageKey(imageKey)) return { ok: false, error: IMAGE_ERROR, values }
 
-  const previousKey = id ? await findGiftImageKey(id) : null
   const data = { ...parsed.data, imageKey }
-  const gift = id ? await updateGift(id, data) : await createGift(data)
-  if (!gift) return { ok: false, error: NOT_FOUND, values }
+  let gift
+  let previousKey: string | null = null
+  if (id) {
+    const updated = await updateGiftReturningPreviousImageKey(id, data)
+    if (!updated) return { ok: false, error: NOT_FOUND, values }
+    ;({ gift, previousImageKey: previousKey } = updated)
+  } else {
+    gift = await createGift(data)
+  }
   logger.info({ event: 'admin.gift_saved', giftId: gift.id, adminId }, 'gift saved')
   if (previousKey && previousKey !== imageKey) await deleteImage(previousKey, adminId)
   revalidate()

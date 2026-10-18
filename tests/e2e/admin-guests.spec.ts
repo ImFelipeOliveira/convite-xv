@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { deleteGuestsByName, seedGuests } from './db'
+import { deleteGuestsByName, insertGuest, seedGuests } from './db'
 import { ADMIN_STORAGE_STATE, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
@@ -270,6 +270,31 @@ test.describe('admin guests', () => {
       .getByRole('button', { name: 'Fechar', exact: true })
       .click()
     await expect(page.getByRole('row').filter({ hasText: 'Repetido' })).toHaveCount(3)
+  })
+
+  test('the shared-number confirm goes away when the number stops being shared', async ({ page }) => {
+    const SHARED = ['Compartilha Um', 'Compartilha Dois']
+    await deleteGuestsByName(SHARED)
+    for (const name of SHARED) await insertGuest(name, '+5595944441111')
+    try {
+      await page.goto('/admin/guests')
+      await page.getByLabel('Buscar convidado').fill('Compartilha')
+      await page.getByRole('button', { name: 'Enviar convite para Compartilha Dois' }).click()
+      const confirm = page.getByRole('group', { name: 'Confirmar envio para Compartilha Dois' })
+      await expect(confirm).toContainText('Este número também é de Compartilha Um. Enviar mesmo assim?')
+
+      // the other guest gets their own number while the confirm is open: the list refreshes under it
+      await page.getByRole('button', { name: 'Editar Compartilha Um' }).click()
+      const form = page.getByRole('form', { name: 'Editar convidado' })
+      await form.getByLabel('Telefone').fill('(95) 94444-2222')
+      await form.getByRole('button', { name: 'Salvar', exact: true }).click()
+      await expect(toast(page)).toContainText('Convidado atualizado.')
+      await expect(form).toBeHidden()
+      await expect(confirm).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Enviar convite para Compartilha Dois' })).toBeVisible()
+    } finally {
+      await deleteGuestsByName(SHARED)
+    }
   })
 
   test.describe('data table', () => {

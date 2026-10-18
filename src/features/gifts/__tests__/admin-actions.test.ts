@@ -41,7 +41,7 @@ describe('saveGiftAction photo', () => {
     expect((await listGiftsAdmin())[0].imageKey).toBe(KEY_A)
   })
 
-  it('ignores an image key that is not one of ours', async () => {
+  it('rejects an image key that is not one of ours', async () => {
     const res = await saveGiftAction(null, form({ name: 'Perfume', imageKey: '../../etc/passwd' }))
     expect(res).toMatchObject({ ok: false, error: 'Não foi possível enviar a foto. Tente de novo.' })
     expect(await listGiftsAdmin()).toEqual([])
@@ -67,6 +67,31 @@ describe('saveGiftAction photo', () => {
     const g = await createGift({ ...base, name: 'Perfume', imageKey: KEY_A })
     await saveGiftAction(null, form({ id: g.id, name: 'Perfume floral', imageKey: KEY_A }))
     expect(await getStorage().get(KEY_A)).not.toBeNull()
+  })
+})
+
+describe('photo cleanup safety', () => {
+  it('keeps an object another gift still references when the photo is replaced', async () => {
+    const one = await createGift({ ...base, name: 'Perfume', imageKey: KEY_A })
+    await createGift({ ...base, name: 'Bolsa', imageKey: KEY_A })
+    await saveGiftAction(null, form({ id: one.id, name: 'Perfume', imageKey: KEY_B }))
+    expect(await getStorage().get(KEY_A)).not.toBeNull()
+  })
+
+  it('keeps an object another gift still references when a gift is deleted', async () => {
+    const one = await createGift({ ...base, name: 'Perfume', imageKey: KEY_A })
+    await createGift({ ...base, name: 'Bolsa', imageKey: KEY_A })
+    await deleteGiftAction(one.id)
+    expect(await getStorage().get(KEY_A)).not.toBeNull()
+  })
+
+  it('never deletes a stored key outside the gift photo pattern', async () => {
+    const legacy = 'gifts/legacy.webp'
+    await getStorage().put(legacy, Buffer.from('x'), 'image/webp')
+    const g = await createGift({ ...base, name: 'Perfume', imageKey: legacy })
+    await saveGiftAction(null, form({ id: g.id, name: 'Perfume', imageKey: KEY_B }))
+    await deleteGiftAction(g.id)
+    expect(await getStorage().get(legacy)).not.toBeNull()
   })
 })
 

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, isNull, ne, sql } from 'drizzle-orm'
 import { db } from '@/server/db/client'
 import { gifts, guests, type Gift, type RsvpStatus } from '@/server/db/schema'
 
@@ -41,10 +41,43 @@ export async function createGift(d: GiftData): Promise<Gift> {
   return row
 }
 
-/** The stored photo key of a gift (to clean up the old object after a change); null without one. */
-export async function findGiftImageKey(id: string): Promise<string | null> {
-  const [row] = await db.select({ imageKey: gifts.imageKey }).from(gifts).where(eq(gifts.id, id)).limit(1)
-  return row?.imageKey ?? null
+/**
+ * Updates a gift and returns it with the photo key it had BEFORE this update, in one statement: the CTE
+ * locks the row (FOR UPDATE), so two concurrent saves can't both see the same old key.
+ */
+export async function updateGiftReturningPreviousImageKey(
+  id: string,
+  d: GiftData,
+): Promise<{ gift: Gift; previousImageKey: string | null } | null> {
+  const old = db
+    .$with('old')
+    .as(
+      db
+        .select({ id: gifts.id, previousImageKey: sql<string | null>`${gifts.imageKey}`.as('previous_image_key') })
+        .from(gifts)
+        .where(eq(gifts.id, id))
+        .for('update'),
+    )
+  const [row] = await db
+    .with(old)
+    .update(gifts)
+    .set({ ...d, updatedAt: new Date() })
+    .from(old)
+    .where(eq(gifts.id, old.id))
+    .returning({ ...getTableColumns(gifts), previousImageKey: old.previousImageKey })
+  if (!row) return null
+  const { previousImageKey, ...gift } = row
+  return { gift, previousImageKey }
+}
+
+/** Whether any gift (other than `exceptId`) still uses this photo key. */
+export async function isImageKeyReferenced(key: string, exceptId?: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: gifts.id })
+    .from(gifts)
+    .where(exceptId ? and(eq(gifts.imageKey, key), ne(gifts.id, exceptId)) : eq(gifts.imageKey, key))
+    .limit(1)
+  return !!row
 }
 
 export async function updateGift(id: string, d: GiftData): Promise<Gift | null> {

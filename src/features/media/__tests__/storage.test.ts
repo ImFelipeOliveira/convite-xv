@@ -56,3 +56,22 @@ describe('getStorage', () => {
     expect(await readdir(path.join(root, 'gifts'))).toContain('a.webp')
   })
 })
+
+describe('getStorage in production without storage config', () => {
+  it('refuses to fall back to the filesystem silently: put/get throw', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('S3_BUCKET', '')
+    vi.stubEnv('MEDIA_DIR', '')
+    const storage = getStorage()
+    await expect(storage.put('gifts/a.webp', Buffer.from('x'), 'image/webp')).rejects.toThrow('media storage is not configured')
+    await expect(storage.get('gifts/a.webp')).rejects.toThrow('media storage is not configured')
+  })
+
+  it('still uses the filesystem when MEDIA_DIR is set explicitly', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('S3_BUCKET', '')
+    vi.stubEnv('MEDIA_DIR', root)
+    await getStorage().put('gifts/a.webp', Buffer.from('x'), 'image/webp')
+    expect(await readdir(path.join(root, 'gifts'))).toContain('a.webp')
+  })
+})
