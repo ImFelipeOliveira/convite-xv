@@ -7,6 +7,7 @@ import { isValidCpf } from './cpf'
 import { pixDueDate } from './due-date'
 import {
   findGuestPayment,
+  findGuestPixState,
   findReusablePending,
   getGenericCustomerId,
   getGuestCustomerId,
@@ -26,6 +27,10 @@ export const GENERIC_CUSTOMER_NAME = 'Convidados — 15 anos da Isabella'
 const PAYMENT_DESCRIPTION = 'Presente Pix — 15 anos da Isabella'
 const POLL_AFTER_MS = 2 * 60_000
 const POLL_EVERY_MS = 30_000
+/** Concurrent generations per app instance (each holds a pooled connection while Asaas answers). */
+const MAX_CONCURRENT = 4
+/** How long a generation over the limit waits for a free slot before answering `busy`. */
+const SLOT_WAIT_MS = 3_000
 const GENERIC_CUSTOMER_LOCK = 'pix:generic-customer'
 
 export type PixView = {
@@ -38,7 +43,14 @@ export type PixView = {
   paidAt: string | null
 }
 
-export type PixError = 'below_minimum' | 'not_configured' | 'unavailable' | 'cpf_required' | 'invalid_cpf'
+export type PixError =
+  | 'below_minimum'
+  | 'not_configured'
+  | 'unavailable'
+  | 'cpf_required'
+  | 'invalid_cpf'
+  /** too many generations at once: try again in a few seconds */
+  | 'busy'
 
 export type PixDeps = {
   /** undefined = read from env; null = not configured */
@@ -47,6 +59,44 @@ export type PixDeps = {
   now?: () => Date
   /** undefined = read from env (ASAAS_REQUIRE_PAYER_CPF) */
   requireCpf?: boolean
+  /** how long to wait for a free generation slot (default 3 s) */
+  slotWaitMs?: number
+}
+
+/** Non-negative integer ms from env, or the default (lets e2e poll Asaas right away). */
+function envMs(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim()
+  if (!raw || !/^\d+$/.test(raw)) return fallback
+  return Number(raw)
+}
+
+// In-process semaphore: at most MAX_CONCURRENT generatePix flows at once (single app instance).
+let activeSlots = 0
+const slotWaiters: (() => void)[] = []
+
+function acquireSlot(waitMs: number): Promise<boolean> {
+  if (activeSlots < MAX_CONCURRENT) {
+    activeSlots += 1
+    return Promise.resolve(true)
+  }
+  return new Promise((resolveSlot) => {
+    const take = () => {
+      clearTimeout(timer)
+      activeSlots += 1
+      resolveSlot(true)
+    }
+    const timer = setTimeout(() => {
+      const i = slotWaiters.indexOf(take)
+      if (i >= 0) slotWaiters.splice(i, 1)
+      resolveSlot(false)
+    }, waitMs)
+    slotWaiters.push(take)
+  })
+}
+
+function releaseSlot(): void {
+  activeSlots -= 1
+  slotWaiters.shift()?.()
 }
 
 function resolve(deps: PixDeps) {
@@ -125,7 +175,8 @@ async function customerFor(
  * Creates (or reuses) a Pix charge for a guest. Our row is written only after Asaas answered with a
  * payment id and its QR code, so a failure never leaves an orphan row; if anything fails after the
  * charge exists, the charge is deleted at Asaas (best effort). Runs under a per-guest advisory lock, so
- * a double submit gets the same charge. Never throws for Asaas errors or for a failed row insert. The CPF
+ * a double submit gets the same charge. Never throws: Asaas and infrastructure failures answer
+ * `unavailable`; at most 4 run at once per instance (the excess waits up to 3 s, then `busy`). The CPF
  * (payer-CPF mode) goes to Asaas only: never stored, never logged.
  */
 export async function generatePix(
@@ -140,10 +191,22 @@ export async function generatePix(
   const resolved = resolve(deps)
   const config = resolved.config
   if (!config) return { ok: false, error: 'not_configured' }
-  // one check-then-create per guest at a time: a double submit gets the same charge
-  return withAdvisoryLock(`pix:guest:${guest.id}`, (tx) =>
-    createOrReuse(guest, amountCents, payer, { ...resolved, config }, tx),
-  )
+  if (!(await acquireSlot(deps.slotWaitMs ?? SLOT_WAIT_MS))) {
+    log.warn({ guestId: guest.id, code: 'busy' }, 'pix generation over the concurrency limit')
+    return { ok: false, error: 'busy' }
+  }
+  try {
+    // one check-then-create per guest at a time: a double submit gets the same charge
+    return await withAdvisoryLock(`pix:guest:${guest.id}`, (tx) =>
+      createOrReuse(guest, amountCents, payer, { ...resolved, config }, tx),
+    )
+  } catch (err) {
+    // infrastructure failures (pool, lock timeout, commit): never a throw to the caller
+    log.error({ guestId: guest.id, err }, 'pix generation failed')
+    return { ok: false, error: 'unavailable' }
+  } finally {
+    releaseSlot()
+  }
 }
 
 type PixResult = { ok: true; payment: PixView } | { ok: false; error: PixError }
@@ -232,7 +295,8 @@ export function resetPollClock(): void {
 
 /**
  * The guest's payment as stored (the webhook is the source of truth). While still `pending` more than
- * 2 min after creation, asks Asaas directly at most once per 30 s per payment.
+ * 2 min after creation, asks Asaas directly at most once per 30 s per payment (both overridable with
+ * PIX_POLL_AFTER_MS / PIX_POLL_EVERY_MS, used by e2e where no webhook arrives).
  */
 export async function getPixStatus(
   guestId: string,
@@ -245,9 +309,9 @@ export async function getPixStatus(
 
   const { config, fetchImpl, now } = resolve(deps)
   const at = now().getTime()
-  if (!config || at - row.createdAt.getTime() < POLL_AFTER_MS) return toPixView(row)
+  if (!config || at - row.createdAt.getTime() < envMs('PIX_POLL_AFTER_MS', POLL_AFTER_MS)) return toPixView(row)
   const last = lastPolledAt.get(row.id)
-  if (last !== undefined && at - last < POLL_EVERY_MS) return toPixView(row)
+  if (last !== undefined && at - last < envMs('PIX_POLL_EVERY_MS', POLL_EVERY_MS)) return toPixView(row)
   lastPolledAt.set(row.id, at)
 
   const remote = await getPayment(config, row.asaasPaymentId, fetchImpl)
@@ -265,4 +329,16 @@ export async function getPixStatus(
   // a webhook settled it meanwhile
   const fresh = await findGuestPayment(guestId, paymentId)
   return fresh ? toPixView(fresh) : null
+}
+
+/**
+ * For the invite on load: the charge to show (newest paid, or still payable pending) and the amount of
+ * the guest's newest paid Pix (so the RSVP screen thanks for it).
+ */
+export async function getGuestPixState(
+  guestId: string,
+  now: Date = new Date(),
+): Promise<{ current: PixView | null; paidCents: number | null }> {
+  const { current, paid } = await findGuestPixState(guestId, now)
+  return { current: current ? toPixView(current) : null, paidCents: paid?.amountCents ?? null }
 }

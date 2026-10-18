@@ -2,35 +2,43 @@
 
 import { createContext, useContext, useState, type ReactNode } from 'react'
 
-// Shared between the Gifts section and the RSVP "confirmed" screen on the same page: which gifts this
-// guest reserved, so the RSVP screen swaps its "Ver lista de presentes" shortcut for a thank-you without
-// a reload. Only rendered when the gift list is shown (flag on + non-empty catalog).
+// Shared between the Gifts and Pix sections and the RSVP "confirmed" screen on the same page: what this
+// guest gave, so the RSVP screen swaps its "Ver lista de presentes" shortcut for a thank-you without a
+// reload. Only rendered when the gift list is shown (flag on + non-empty catalog).
 
 type GiftChoice = {
-  /** reserved a gift, or gave in another way (Pix, later) */
+  /** reserved a gift, or gave in another way (a paid Pix) */
   hasGiven: boolean
   chosenNames: string[]
   setChosenNames: (names: string[]) => void
+  /** amount of the guest's paid Pix (null: none) */
+  pixPaidCents: number | null
+  setPixPaid: (cents: number) => void
 }
 
 const GiftChoiceContext = createContext<GiftChoice | null>(null)
 
 export function GiftChoiceProvider({
-  hasGiven,
   chosenNames: initialNames,
+  givenElsewhere,
   children,
 }: {
-  /** computed server-side (today: guestHasGift; Pix will be OR-ed in) */
-  hasGiven: boolean
   chosenNames: string[]
+  /** computed server-side: a gift outside the list (today: the guest's paid Pix); counts after an undo */
+  givenElsewhere: { pixPaidCents: number } | null
   children: ReactNode
 }) {
   const [chosenNames, setChosenNames] = useState(initialNames)
-  // a gift given outside the list (no reservation behind it) keeps counting after an undo
-  const givenElsewhere = hasGiven && initialNames.length === 0
+  const [pixPaidCents, setPixPaid] = useState<number | null>(givenElsewhere?.pixPaidCents ?? null)
   return (
     <GiftChoiceContext.Provider
-      value={{ hasGiven: givenElsewhere || chosenNames.length > 0, chosenNames, setChosenNames }}
+      value={{
+        hasGiven: pixPaidCents !== null || chosenNames.length > 0,
+        chosenNames,
+        setChosenNames,
+        pixPaidCents,
+        setPixPaid,
+      }}
     >
       {children}
     </GiftChoiceContext.Provider>

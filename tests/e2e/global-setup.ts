@@ -1,6 +1,6 @@
 // Playwright global setup: migrate and reset the TEST database, then seed the e2e fixtures.
-// Also starts the fake Evolution API (stopped by the returned teardown); the Next server
-// reaches it through EVOLUTION_URL set in playwright.config.ts.
+// Also starts the fake Evolution and Asaas APIs (stopped by the returned teardown); the Next server
+// reaches them through EVOLUTION_URL / ASAAS_BASE_URL set in playwright.config.ts.
 // It truncates the same database vitest uses, so never run `pnpm test` and `pnpm test:e2e` at the same time.
 import bcrypt from 'bcryptjs'
 import { sql } from 'drizzle-orm'
@@ -8,6 +8,7 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 import { admins, guests, settings } from '../../src/server/db/schema'
+import { startFakeAsaas } from './fake-asaas'
 import { startFakeEvolution } from './fake-evolution'
 import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
@@ -31,5 +32,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   }
 
   const fake = await startFakeEvolution()
-  return () => fake.close()
+  const asaas = await startFakeAsaas()
+  return async () => {
+    await fake.close()
+    await asaas.close()
+  }
 }

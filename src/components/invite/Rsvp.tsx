@@ -7,6 +7,7 @@ import { formatDayMonth, formatRespondedAt } from '@/features/rsvp/format'
 import { rsvpErrorMessage } from '@/features/rsvp/messages'
 import type { RsvpGuestView } from '@/features/rsvp/view'
 import { chosenGiftsLabel } from '@/features/gifts/view'
+import { formatCents } from '@/features/pix/format'
 import { useGiftChoice } from './GiftChoice'
 import { Reveal, RevealItem } from './Reveal'
 import './rsvp.css'
@@ -613,8 +614,8 @@ function DoneYes({
 }
 
 /**
- * Under "Presença confirmada.": a shortcut to the gift list, or a thank-you once the guest chose a gift
- * (kept in sync with the Gifts section through GiftChoice). Nothing when the page shows no gift list.
+ * Under "Presença confirmada.": a shortcut to the gift list, or a thank-you once the guest chose a gift or
+ * paid a Pix (kept in sync with the Gifts and Pix sections through GiftChoice). Nothing when the page shows no gift list.
  */
 function GiftsShortcut() {
   const choice = useGiftChoice()
@@ -625,6 +626,11 @@ function GiftsShortcut() {
       <div className="rsvp-up mt-5 flex w-full flex-col items-center gap-1" style={delay(1.35)}>
         <span className="font-script text-[32px] leading-[1.1] text-rose">Obrigada pelo presente!</span>
         {label && <span className="font-sans text-[13px] text-deep-rose">Você escolheu: {label}</span>}
+        {choice.pixPaidCents !== null && (
+          <span className="font-sans text-[13px] text-deep-rose">
+            Você enviou um Pix de {formatCents(choice.pixPaidCents)}.
+          </span>
+        )}
       </div>
     )
   }

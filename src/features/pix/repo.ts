@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import { db } from '@/server/db/client'
 import { guests, pixPayments, settings, type PixPayment, type PixStatus } from '@/server/db/schema'
 
@@ -7,6 +7,9 @@ export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** Once the advisory lock is held, no other lock wait (rows, nested advisory locks) may hang longer. */
+const LOCK_TIMEOUT = '20s'
+
 /** A reused QR must stay payable for at least this long. */
 const REUSE_MARGIN_MS = 15 * 60_000
 
@@ -14,6 +17,7 @@ const REUSE_MARGIN_MS = 15 * 60_000
  * Runs `fn(tx)` holding a transaction-scoped Postgres advisory lock on `key`, serializing
  * check-then-create flows across requests. `fn` must run its queries on `tx` (one pooled connection
  * per flow, so concurrent flows can never starve the pool); the lock ends with the transaction.
+ * Inside it, other lock waits give up after 20 s (`lock_timeout`, scoped to the transaction).
  */
 export async function withAdvisoryLock<T>(
   key: string,
@@ -22,6 +26,7 @@ export async function withAdvisoryLock<T>(
 ): Promise<T> {
   return q.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`)
+    await tx.execute(sql.raw(`set local lock_timeout = '${LOCK_TIMEOUT}'`))
     return fn(tx)
   })
 }
@@ -135,4 +140,36 @@ export async function saveGuestCustomerId(
   q: Executor = db,
 ): Promise<void> {
   await q.update(guests).set({ asaasCustomerId: customerId }).where(eq(guests.id, guestId))
+}
+
+/**
+ * What the invite shows on load: the guest's newest charge that is either paid or still payable
+ * (pending, expiring after `now`), plus the amount of their newest paid charge.
+ */
+export async function findGuestPixState(
+  guestId: string,
+  now: Date,
+  q: Executor = db,
+): Promise<{ current: PixPayment | null; paid: PixPayment | null }> {
+  const [current] = await q
+    .select()
+    .from(pixPayments)
+    .where(
+      and(
+        eq(pixPayments.guestId, guestId),
+        or(
+          eq(pixPayments.status, 'paid'),
+          and(eq(pixPayments.status, 'pending'), gt(pixPayments.expiresAt, now)),
+        ),
+      ),
+    )
+    .orderBy(desc(pixPayments.createdAt))
+    .limit(1)
+  const [paid] = await q
+    .select()
+    .from(pixPayments)
+    .where(and(eq(pixPayments.guestId, guestId), eq(pixPayments.status, 'paid')))
+    .orderBy(desc(pixPayments.paidAt), desc(pixPayments.createdAt))
+    .limit(1)
+  return { current: current ?? null, paid: paid ?? null }
 }

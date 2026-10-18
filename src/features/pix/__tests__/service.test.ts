@@ -1,10 +1,11 @@
-import { eq } from 'drizzle-orm'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { eq, sql } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getSettings } from '@/features/settings/repo'
 import { db } from '@/server/db/client'
 import { guests, pixPayments } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
-import { GENERIC_CUSTOMER_NAME, generatePix, getPixStatus, resetPollClock } from '../service'
+import { withAdvisoryLock } from '../repo'
+import { GENERIC_CUSTOMER_NAME, generatePix, getGuestPixState, getPixStatus, resetPollClock } from '../service'
 
 const config = { apiKey: 'k', baseUrl: 'http://asaas.test/v3', webhookToken: null }
 const NOW = new Date('2026-10-18T15:00:00Z') // 11h in Boa Vista
@@ -59,6 +60,7 @@ async function rows() {
 }
 
 beforeEach(() => resetPollClock())
+afterEach(() => vi.unstubAllEnvs())
 
 describe('generatePix', () => {
   it('rejects below the R$ 70 minimum without calling Asaas', async () => {
@@ -371,5 +373,102 @@ describe('getPixStatus', () => {
     expect((await getPixStatus(guest.id, payment.id, deps(f, { now: () => later })))?.status).toBe(
       'pending',
     )
+  })
+})
+
+describe('generatePix boundary', () => {
+  it('answers unavailable (never throws) when something unexpected throws inside', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const boom = () => {
+      throw new Error('pool exhausted')
+    }
+    expect(await generatePix(guest, 7000, deps(f, { now: boom }))).toEqual({ ok: false, error: 'unavailable' })
+    // the slot was released: a normal call still works
+    expect((await generatePix(guest, 7000, deps(f))).ok).toBe(true)
+  })
+
+  it('lets at most 4 generations run at once; the excess waits briefly, then answers busy', async () => {
+    let open!: () => void
+    const gate = new Promise<void>((r) => (open = r))
+    const f = fakeAsaas({
+      'POST /payments': async () => {
+        await gate
+        return json({ id: `pay_${Math.random()}`, status: 'PENDING' })
+      },
+    })
+    const list = await Promise.all(Array.from({ length: 6 }, () => makeGuest()))
+    const pending = list.map((g) => generatePix(g, 7000, deps(f, { slotWaitMs: 100 })))
+    // the two over the limit give up after waiting 100 ms while the first four hang on Asaas
+    await new Promise((r) => setTimeout(r, 400))
+    open()
+    const results = await Promise.all(pending)
+    expect(results.filter((r) => r.ok)).toHaveLength(4)
+    expect(results.filter((r) => !r.ok && r.error === 'busy')).toHaveLength(2)
+  })
+
+  it('a waiting generation takes the slot freed by a finished one', async () => {
+    const f = fakeAsaas()
+    const list = await Promise.all(Array.from({ length: 6 }, () => makeGuest()))
+    const results = await Promise.all(list.map((g) => generatePix(g, 7000, deps(f, { slotWaitMs: 5_000 }))))
+    expect(results.every((r) => r.ok)).toBe(true)
+  })
+
+  it('sets a 20 s lock_timeout once the advisory lock is held', async () => {
+    const value = await withAdvisoryLock('test:lock-timeout', async (tx) => {
+      const res = await tx.execute(sql`show lock_timeout`)
+      return (res as unknown as { lock_timeout: string }[])[0].lock_timeout
+    })
+    expect(value).toBe('20s')
+  })
+})
+
+describe('getPixStatus poll threshold', () => {
+  it('polls right away when PIX_POLL_AFTER_MS / PIX_POLL_EVERY_MS are 0 (e2e)', async () => {
+    vi.stubEnv('PIX_POLL_AFTER_MS', '0')
+    vi.stubEnv('PIX_POLL_EVERY_MS', '0')
+    let status = 'PENDING'
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status }) })
+    const guest = await makeGuest()
+    const r = await generatePix(guest, 7000, deps(f))
+    if (!r.ok) throw new Error('expected ok')
+    expect((await getPixStatus(guest.id, r.payment.id, deps(f)))?.status).toBe('pending')
+    status = 'RECEIVED'
+    expect((await getPixStatus(guest.id, r.payment.id, deps(f)))?.status).toBe('paid')
+    expect(f.calls.filter((c) => c.key === 'GET /payments/:id')).toHaveLength(2)
+  })
+})
+
+describe('getGuestPixState', () => {
+  it('is empty for a guest without charges', async () => {
+    const guest = await makeGuest()
+    expect(await getGuestPixState(guest.id, NOW)).toEqual({ current: null, paidCents: null })
+  })
+
+  it('shows a still payable pending charge, ignoring expired and other guests’ ones', async () => {
+    const guest = await makeGuest()
+    const other = await makeGuest()
+    const f = fakeAsaas()
+    const mine = await generatePix(guest, 10000, deps(f))
+    await generatePix(other, 7000, deps(f))
+    if (!mine.ok) throw new Error('expected ok')
+    expect(await getGuestPixState(guest.id, NOW)).toEqual({ current: mine.payment, paidCents: null })
+    // past its expiry: nothing to show
+    expect(await getGuestPixState(guest.id, new Date('2026-10-21T00:00:00Z'))).toEqual({
+      current: null,
+      paidCents: null,
+    })
+  })
+
+  it('reports the newest paid charge (paid wins over an older pending one)', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const a = await generatePix(guest, 7000, deps(f))
+    const b = await generatePix(guest, 15000, deps(f, { now: () => new Date(NOW.getTime() + 1000) }))
+    if (!a.ok || !b.ok) throw new Error('expected ok')
+    await db.update(pixPayments).set({ status: 'paid', paidAt: NOW }).where(eq(pixPayments.id, b.payment.id))
+    const state = await getGuestPixState(guest.id, NOW)
+    expect(state.paidCents).toBe(15000)
+    expect(state.current).toMatchObject({ id: b.payment.id, status: 'paid' })
   })
 })

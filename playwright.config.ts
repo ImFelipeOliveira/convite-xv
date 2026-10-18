@@ -1,5 +1,6 @@
 import './tests/e2e/load-env'
 import { defineConfig, devices } from '@playwright/test'
+import { FAKE_ASAAS_API_KEY, FAKE_ASAAS_URL } from './tests/e2e/fake-asaas'
 import { FAKE_EVOLUTION_API_KEY, FAKE_EVOLUTION_URL } from './tests/e2e/fake-evolution'
 import { E2E_PORT } from './tests/e2e/fixtures'
 
@@ -41,6 +42,15 @@ export default defineConfig({
       EVOLUTION_URL: FAKE_EVOLUTION_URL,
       EVOLUTION_API_KEY: FAKE_EVOLUTION_API_KEY,
       EVOLUTION_INSTANCE: 'convite-xv',
+      // fake Asaas started by global-setup (tests/e2e/fake-asaas.ts); never the real API in tests
+      ASAAS_BASE_URL: `${FAKE_ASAAS_URL}/v3`,
+      ASAAS_API_KEY: FAKE_ASAAS_API_KEY,
+      ASAAS_ENV: 'sandbox',
+      ASAAS_WEBHOOK_TOKEN: 'test-webhook-token',
+      ASAAS_REQUIRE_PAYER_CPF: 'true',
+      // no webhook in e2e: the status poll asks the fake right away (src/features/pix/service.ts)
+      PIX_POLL_AFTER_MS: '0',
+      PIX_POLL_EVERY_MS: '0',
       // gift list, Pix section and their Closing shortcuts (tests/e2e/gifts.spec.ts, invite.spec.ts)
       FEATURES: 'gifts,pix',
       // no background reminder sends during e2e (src/instrumentation.ts)

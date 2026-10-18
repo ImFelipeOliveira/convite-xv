@@ -2,7 +2,7 @@
 import { and, eq, inArray, like, ne, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import { gifts, guests, messageDispatches, settings, type DispatchKind, type RsvpStatus } from '../../src/server/db/schema'
+import { gifts, guests, messageDispatches, pixPayments, settings, type DispatchKind, type RsvpStatus } from '../../src/server/db/schema'
 import { E2E_GUEST_TOKEN } from './fixtures'
 
 /**
@@ -278,6 +278,20 @@ export async function guestOpenedAt(id: string): Promise<Date | null> {
   try {
     const [row] = await drizzle(client).select({ openedAt: guests.openedAt }).from(guests).where(eq(guests.id, id))
     return row?.openedAt ?? null
+  } finally {
+    await client.end()
+  }
+}
+
+/** Drops every Pix charge of the guests with these tokens (each Pix spec starts without a reusable QR). */
+export async function deletePixPaymentsForTokens(tokens: string[]): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const d = drizzle(client)
+    const rows = await d.select({ id: guests.id }).from(guests).where(inArray(guests.token, tokens))
+    if (rows.length > 0) await d.delete(pixPayments).where(inArray(pixPayments.guestId, rows.map((r) => r.id)))
   } finally {
     await client.end()
   }
