@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto'
 import { sql } from 'drizzle-orm'
+import { generateToken } from '@/features/guests/token'
 import { db } from '@/server/db/client'
 import { guests, settings, type Guest, type NewGuest } from '@/server/db/schema'
 
@@ -15,7 +15,7 @@ export async function makeGuest(overrides: Partial<NewGuest> = {}): Promise<Gues
   const [row] = await db
     .insert(guests)
     .values({
-      token: randomBytes(16).toString('hex'),
+      token: generateToken(),
       name: 'Test Guest',
       plusOnesLimit: 2,
       ...overrides,

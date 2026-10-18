@@ -19,7 +19,7 @@ describe('submitRsvp', () => {
   })
 
   it('accepts yes with 2 plus-ones within limit 2', async () => {
-    const g = await makeGuest({ token: generateToken(), plusOnesLimit: 2 })
+    const g = await makeGuest({ plusOnesLimit: 2 })
     const r = await submitRsvp({ token: g.token, status: 'yes', plusOnes: 2 }, NOW)
     expect(r.ok).toBe(true)
     const row = await guestRow(g.id)
@@ -29,7 +29,7 @@ describe('submitRsvp', () => {
   })
 
   it('rejects over limit and leaves the database untouched', async () => {
-    const g = await makeGuest({ token: generateToken(), plusOnesLimit: 1 })
+    const g = await makeGuest({ plusOnesLimit: 1 })
     const r = await submitRsvp({ token: g.token, status: 'yes', plusOnes: 2 }, NOW)
     expect(r).toEqual({ ok: false, error: 'over_limit' })
     const row = await guestRow(g.id)
@@ -39,13 +39,13 @@ describe('submitRsvp', () => {
   })
 
   it('rejects negative plus-ones as invalid', async () => {
-    const g = await makeGuest({ token: generateToken() })
+    const g = await makeGuest()
     const r = await submitRsvp({ token: g.token, status: 'yes', plusOnes: -1 }, NOW)
     expect(r).toEqual({ ok: false, error: 'invalid' })
   })
 
   it('zeroes plus-ones when declining', async () => {
-    const g = await makeGuest({ token: generateToken(), plusOnesLimit: 3 })
+    const g = await makeGuest({ plusOnesLimit: 3 })
     const r = await submitRsvp({ token: g.token, status: 'no', plusOnes: 3 }, NOW)
     expect(r.ok).toBe(true)
     const row = await guestRow(g.id)
@@ -54,7 +54,7 @@ describe('submitRsvp', () => {
   })
 
   it('is idempotent for identical resubmission', async () => {
-    const g = await makeGuest({ token: generateToken(), plusOnesLimit: 2 })
+    const g = await makeGuest({ plusOnesLimit: 2 })
     const input = { token: g.token, status: 'yes', plusOnes: 1, message: 'See you' }
     expect((await submitRsvp(input, NOW)).ok).toBe(true)
     const first = await guestRow(g.id)
@@ -69,7 +69,7 @@ describe('submitRsvp', () => {
   })
 
   it('allows changing from yes to no', async () => {
-    const g = await makeGuest({ token: generateToken(), plusOnesLimit: 2 })
+    const g = await makeGuest({ plusOnesLimit: 2 })
     await submitRsvp({ token: g.token, status: 'yes', plusOnes: 2 }, NOW)
     const r = await submitRsvp({ token: g.token, status: 'no' }, NOW)
     expect(r.ok).toBe(true)
@@ -79,7 +79,7 @@ describe('submitRsvp', () => {
   })
 
   it('rejects after the deadline', async () => {
-    const g = await makeGuest({ token: generateToken() })
+    const g = await makeGuest()
     await db.update(settings).set({ rsvpDeadline: '2026-12-13' }).where(eq(settings.id, 1))
     const r = await submitRsvp(
       { token: g.token, status: 'yes', plusOnes: 0 },
@@ -89,7 +89,7 @@ describe('submitRsvp', () => {
   })
 
   it('saves the phone when the guest has none', async () => {
-    const g = await makeGuest({ token: generateToken(), phone: null })
+    const g = await makeGuest({ phone: null })
     const r = await submitRsvp(
       { token: g.token, status: 'yes', plusOnes: 0, phone: '(95) 99123-4567' },
       NOW,
@@ -99,7 +99,7 @@ describe('submitRsvp', () => {
   })
 
   it('keeps the registered phone', async () => {
-    const g = await makeGuest({ token: generateToken(), phone: '+5595900000000' })
+    const g = await makeGuest({ phone: '+5595900000000' })
     const r = await submitRsvp(
       { token: g.token, status: 'yes', plusOnes: 0, phone: '(95) 99123-4567' },
       NOW,
@@ -109,7 +109,7 @@ describe('submitRsvp', () => {
   })
 
   it('rejects an invalid phone', async () => {
-    const g = await makeGuest({ token: generateToken(), phone: null })
+    const g = await makeGuest({ phone: null })
     const r = await submitRsvp(
       { token: g.token, status: 'yes', plusOnes: 0, phone: '123' },
       NOW,
@@ -123,7 +123,7 @@ describe('submitRsvp', () => {
   })
 
   it('rejects a message with 501 chars', async () => {
-    const g = await makeGuest({ token: generateToken() })
+    const g = await makeGuest()
     const r = await submitRsvp(
       { token: g.token, status: 'yes', plusOnes: 0, message: 'x'.repeat(501) },
       NOW,
