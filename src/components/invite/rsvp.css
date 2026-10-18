@@ -1,0 +1,156 @@
+/* RSVP (prancha 07). Interaction states from prancha 02, confirmation motion from prancha 03 (primitive 12). */
+
+.rsvp-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.rsvp-option input:focus-visible + label {
+  outline: 2px solid var(--wine);
+  outline-offset: 3px;
+}
+.rsvp-option label {
+  transition:
+    border-color var(--dur-micro) ease,
+    background-color var(--dur-ui) var(--ease-letter),
+    transform var(--dur-micro) ease;
+}
+.rsvp-option label:active {
+  transform: scale(.99);
+}
+.rsvp-option input:disabled + label {
+  cursor: default;
+}
+.rsvp-dot {
+  transition: transform var(--dur-ui) var(--ease-seal);
+}
+
+.rsvp-step {
+  transition: background-color var(--dur-micro) ease;
+}
+.rsvp-step:hover:not(:disabled) {
+  background-color: var(--petal);
+}
+.rsvp-step:disabled {
+  cursor: default;
+}
+
+.rsvp-cta {
+  transition: background-color var(--dur-ui) var(--ease-letter), transform var(--dur-micro) ease;
+}
+.rsvp-cta:hover:not(:disabled) {
+  background-color: #7E2148;
+}
+.rsvp-cta:active:not(:disabled) {
+  transform: scale(.98);
+}
+
+/* Secondary button (prancha 02): fills with the seal colour on hover */
+.rsvp-secondary {
+  transition: background-color var(--dur-ui) var(--ease-letter), color var(--dur-ui) var(--ease-letter);
+}
+.rsvp-secondary:hover {
+  background-color: var(--seal);
+  color: var(--paper);
+}
+
+/* CAMPOS (prancha 02): focus is the seal ring at 18% */
+.rsvp-input:focus {
+  outline: none;
+  border-color: var(--seal);
+  box-shadow: 0 0 0 3px rgba(168, 50, 94, .18);
+}
+.rsvp-input[aria-invalid='true'] {
+  border-color: var(--error);
+}
+
+.rsvp-spin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 248, 246, .9);
+  border-right-color: transparent;
+  animation: rsvp-spin .8s linear infinite;
+}
+
+.rsvp-reveal {
+  animation: rsvp-up .5s var(--ease-letter) both;
+}
+.rsvp-shake {
+  animation: rsvp-shake .4s cubic-bezier(.36, .07, .19, .97) both;
+}
+
+/* Final screens are static on load; they only animate right after the server confirmed the answer. */
+.rsvp-closing {
+  transform-origin: 120px 130px;
+  transform: scale(.62, .82);
+}
+.rsvp-celebrate .rsvp-stamp {
+  animation: rsvp-stamp .7s both;
+}
+.rsvp-celebrate .rsvp-ring {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: rsvp-draw .8s var(--ease-doors) .45s forwards;
+}
+.rsvp-celebrate .rsvp-check {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: rsvp-draw .45s var(--ease-letter) 1s forwards;
+}
+.rsvp-celebrate .rsvp-burst {
+  animation: rsvp-burst 1.3s var(--ease-letter) .35s both;
+}
+.rsvp-celebrate .rsvp-up {
+  animation: rsvp-up .7s var(--ease-letter) both;
+}
+.rsvp-celebrate .rsvp-closing {
+  animation: rsvp-closing 1.6s var(--ease-doors) .2s both;
+}
+.rsvp-celebrate .rsvp-fall {
+  animation: rsvp-fall 3.2s cubic-bezier(.45, 0, .55, 1) .9s both;
+}
+
+@keyframes rsvp-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes rsvp-stamp {
+  0% { transform: scale(1.4); opacity: 0; animation-timing-function: cubic-bezier(.55, 0, .75, .2); }
+  45% { transform: scale(.94); opacity: 1; animation-timing-function: cubic-bezier(.34, 1.56, .64, 1); }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes rsvp-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes rsvp-burst {
+  0% { transform: translate(0, 0) rotate(0) scale(.4); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(1); opacity: 0; }
+}
+@keyframes rsvp-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rsvp-closing {
+  from { transform: none; }
+  to { transform: scale(.62, .82); }
+}
+@keyframes rsvp-fall {
+  0% { transform: translate(0, 0) rotate(0); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translate(40px, 180px) rotate(200deg); opacity: 0; }
+}
+@keyframes rsvp-shake {
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+/* Reduced motion: the global rule ends every animation at once (static final state); no flying petals. */
+@media (prefers-reduced-motion: reduce) {
+  .rsvp-burst,
+  .rsvp-fall {
+    display: none;
+  }
+}
