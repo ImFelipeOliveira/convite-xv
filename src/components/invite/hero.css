@@ -1,0 +1,56 @@
+/* Hero (prancha 05): ambient petals, scroll cue and the CTA's ink fill. */
+
+/* Ambient loops only start once the invite is open (the Opening stage classes). */
+.hero-drift,
+.hero-cue {
+  opacity: 0;
+}
+:is(.stage-reveal, .stage-quick, .stage-short, html[data-xv-opened] .stage) .hero-drift {
+  animation: hero-drift 9s linear infinite;
+}
+:is(.stage-reveal, .stage-quick, .stage-short, html[data-xv-opened] .stage) .hero-cue {
+  opacity: 1;
+  transform-origin: top;
+  animation: hero-cue 2.4s var(--ease-doors) 3s infinite both;
+}
+@keyframes hero-drift {
+  0% { transform: translate(0, -40px) rotate(0); opacity: 0; }
+  12% { opacity: .9; }
+  85% { opacity: .9; }
+  100% { transform: translate(50px, 880px) rotate(260deg); opacity: 0; }
+}
+@keyframes hero-cue {
+  0% { transform: scaleY(0); }
+  45% { transform: scaleY(1); transform-origin: top; }
+  55% { transform: scaleY(1); transform-origin: bottom; }
+  100% { transform: scaleY(0); transform-origin: bottom; }
+}
+
+/* Ink in the button (prancha 03, primitive 10): the colour rises from below, the arrow steps 5 px */
+.hero-cta {
+  transition: transform var(--dur-micro) var(--ease-letter);
+}
+.hero-cta:active {
+  transform: scale(.98);
+}
+.hero-cta-ink {
+  transform-origin: bottom;
+  transform: scaleY(0);
+  transition: transform var(--dur-ui) var(--ease-letter);
+}
+.hero-cta-arrow {
+  transition: transform var(--dur-ui) var(--ease-letter);
+}
+.hero-cta:hover .hero-cta-ink {
+  transform: none;
+}
+.hero-cta:hover .hero-cta-arrow {
+  transform: translateX(5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-drift,
+  .hero-cue {
+    display: none;
+  }
+}

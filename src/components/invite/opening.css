@@ -79,10 +79,17 @@ html[data-xv-opened] .opening-gate {
   to { transform: rotate(360deg); }
 }
 
-/* Stage: content behind the doors opts in with stage-item / stage-ink / stage-bloom */
+/* Stage: content behind the doors opts in with stage-item (rise) / stage-fade / stage-track
+   (tracking opens) / stage-ink / stage-bloom (lily) / stage-draw (pathLength=1 thread) */
 .stage .stage-item,
+.stage .stage-fade,
+.stage .stage-track,
 .stage .stage-bloom .petal {
   opacity: 0;
+}
+.stage .stage-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
 }
 .stage .stage-ink {
   -webkit-mask-image: linear-gradient(90deg, #000 40%, transparent 60%);
@@ -100,6 +107,17 @@ html[data-xv-opened] .opening-gate {
   opacity: 1;
   animation: reveal-up .8s var(--ease-letter) both;
 }
+.stage-reveal .stage-fade {
+  opacity: 1;
+  animation: fade .7s ease both;
+}
+.stage-reveal .stage-track {
+  opacity: 1;
+  animation: track .7s var(--ease-letter) both;
+}
+.stage-reveal .stage-draw {
+  animation: draw 1s var(--ease-doors) forwards;
+}
 .stage-reveal .stage-ink {
   -webkit-mask-position: 0 0;
   mask-position: 0 0;
@@ -110,16 +128,25 @@ html[data-xv-opened] .opening-gate {
   animation: bloom 1.4s var(--ease-letter) both;
 }
 
-/* "Entrar sem animação" and reduced motion: plain 300 ms fade */
+/* "Entrar sem animação" and reduced motion: everything fades in together in 300 ms */
 .stage-quick .stage-item,
+.stage-quick .stage-fade,
+.stage-quick .stage-track,
 .stage-quick .stage-bloom .petal {
   opacity: 1;
   animation: fade .3s ease both;
+  animation-delay: 0s !important;
+}
+.stage-quick .stage-draw {
+  stroke-dashoffset: 0;
+  animation: fade .3s ease both;
+  animation-delay: 0s !important;
 }
 .stage-quick .stage-ink {
   -webkit-mask-image: none;
   mask-image: none;
   animation: fade .3s ease both;
+  animation-delay: 0s !important;
 }
 
 /* returning visitor: short 900 ms version, everything together */
@@ -131,12 +158,31 @@ html[data-xv-opened] .stage .stage-bloom .petal,
   animation: reveal-up .9s var(--ease-letter) both;
   animation-delay: 0s !important;
 }
+html[data-xv-opened] .stage .stage-fade,
+html[data-xv-opened] .stage .stage-track,
+html[data-xv-opened] .stage .stage-draw,
+.stage-short .stage-fade,
+.stage-short .stage-track,
+.stage-short .stage-draw {
+  opacity: 1;
+  stroke-dashoffset: 0;
+  animation: fade .9s var(--ease-letter) both;
+  animation-delay: 0s !important;
+}
 html[data-xv-opened] .stage .stage-ink,
 .stage-short .stage-ink {
   -webkit-mask-position: 0 0;
   mask-position: 0 0;
   animation: ink .9s var(--ease-letter) both;
   animation-delay: 0s !important;
+}
+
+@keyframes track {
+  from { opacity: 0; transform: scaleX(.78); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes draw {
+  to { stroke-dashoffset: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

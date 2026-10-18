@@ -3,12 +3,12 @@ import './ornaments.css'
 
 // Pink lily ported from the Hero board (prancha 05): three narrow back tepals,
 // three wide front tepals with vein and spots, then the stamens.
-const NARROW_TEPAL =
+export const NARROW_TEPAL =
   'M120 130 C108 104 104 70 114 40 C116 34 118 30 120 28 C123 33 126 40 127 48 C133 76 130 106 120 130 Z'
-const WIDE_TEPAL =
+export const WIDE_TEPAL =
   'M120 130 C98 106 90 64 108 30 C112 22 117 18 120 16 C125 20 131 28 134 38 C146 70 138 106 120 130 Z'
 const VEIN = 'M120 126 C118 96 117 60 120 24'
-const FILAMENTS =
+export const FILAMENTS =
   'M120 130 Q132 108 146 85 M120 130 Q142 122 166 130 M120 130 Q136 150 145 173 M120 130 Q104 150 98 168 M120 130 Q94 124 68 130 M120 130 Q104 108 96 88'
 const ANTHERS: [number, number][] = [
   [146, 85],

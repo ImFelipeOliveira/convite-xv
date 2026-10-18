@@ -1,0 +1,36 @@
+/* The day (prancha 06): ambient loops in pure CSS/SVG. */
+.the-day-sun {
+  animation: the-day-sun 140s linear infinite;
+}
+.the-day-wave {
+  animation: the-day-wave 9s linear infinite;
+}
+.the-day-wave-slow {
+  animation-duration: 14s;
+  animation-direction: reverse;
+}
+@keyframes the-day-sun {
+  to { transform: rotate(360deg); }
+}
+@keyframes the-day-wave {
+  to { transform: translateX(-400px); }
+}
+
+.the-day-button {
+  transition: background-color var(--dur-ui) var(--ease-letter), color var(--dur-ui) var(--ease-letter);
+}
+.the-day-button:hover {
+  background-color: var(--seal);
+  color: var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .the-day-sun,
+  .the-day-wave {
+    animation: none !important;
+  }
+  /* odometer: dry swap, no seconds */
+  .countdown-seconds {
+    display: none;
+  }
+}

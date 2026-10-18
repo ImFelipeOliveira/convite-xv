@@ -1,0 +1,34 @@
+/* Closing (prancha 10): the marquee loops in CSS; hover or the button pauses it. */
+.closing-marquee {
+  display: flex;
+  width: max-content;
+  animation: closing-marquee 22s linear infinite;
+}
+.closing-marquee-reverse {
+  animation-direction: reverse;
+  animation-duration: 30s;
+}
+.closing-band:hover .closing-marquee,
+.closing-band.is-paused .closing-marquee {
+  animation-play-state: paused;
+}
+@keyframes closing-marquee {
+  to { transform: translateX(-50%); }
+}
+
+.closing-link {
+  transition: color var(--dur-micro) ease;
+}
+.closing-link:hover {
+  color: var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .closing-marquee {
+    animation: none !important;
+  }
+  /* nothing moves, so there is nothing to pause */
+  .closing-pause {
+    display: none;
+  }
+}
