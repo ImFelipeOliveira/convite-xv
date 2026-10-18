@@ -16,6 +16,8 @@ const FIELDS = [
   'rsvpPreferredDate',
   'rsvpNudgeText',
   'rsvpFinalText',
+  'giftListText',
+  'giftNudgeText',
 ] as const
 type Field = (typeof FIELDS)[number]
 

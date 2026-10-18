@@ -13,6 +13,8 @@ const valid = {
   rsvpPreferredDate: '2026-11-21',
   rsvpNudgeText: 'Ainda não respondeu? {link}',
   rsvpFinalText: 'Último dia! {link}',
+  giftListText: 'Presentes: {link}',
+  giftNudgeText: 'Lembrete de presente: {link}',
 }
 const parse = (over: Record<string, string>) =>
   settingsFormSchema(TODAY).safeParse({ ...valid, ...over })
@@ -100,6 +102,22 @@ describe('settings form schema', () => {
   it('requires {link} in the rsvp nudge texts', () => {
     expect(messages(parse({ rsvpNudgeText: 'Responda!' }))).toContain('A mensagem precisa conter {link}.')
     expect(messages(parse({ rsvpFinalText: 'Último dia!' }))).toContain('A mensagem precisa conter {link}.')
+  })
+
+  it('requires {link} in both gift texts', () => {
+    expect(messages(parse({ giftListText: 'Veja a lista!' }))).toContain('A mensagem precisa conter {link}.')
+    expect(messages(parse({ giftNudgeText: 'Lembra do presente?' }))).toContain('A mensagem precisa conter {link}.')
+    expect(messages(parse({ giftNudgeText: '{link}' + 'a'.repeat(600) }))).toContain('Use até 600 caracteres.')
+  })
+
+  it('defaults the gift texts', async () => {
+    const s = await getSettings()
+    expect(s.giftListText).toBe(
+      'Oba, {nome}! Sua presença nos 15 anos da Isabella está confirmada. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: {link}',
+    )
+    expect(s.giftNudgeText).toBe(
+      'Oi, {nome}! Que bom que você vem aos 15 anos da Isabella. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: {link} — Se você já escolheu um presente ou fez o Pix, pode ignorar esta mensagem.',
+    )
   })
 
   it('defaults the rsvp nudge settings', async () => {

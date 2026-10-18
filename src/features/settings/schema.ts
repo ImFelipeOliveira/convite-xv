@@ -63,6 +63,8 @@ export function settingsFormSchema(today: string, storedDeadline?: string, store
         .transform((v) => (v === '' ? null : v)),
       rsvpNudgeText: messageTemplate,
       rsvpFinalText: messageTemplate,
+      giftListText: messageTemplate,
+      giftNudgeText: messageTemplate,
     })
     .superRefine((d, ctx) => {
       if (d.rsvpPreferredDate && isRealDate(d.rsvpDeadline) && d.rsvpPreferredDate > d.rsvpDeadline) {

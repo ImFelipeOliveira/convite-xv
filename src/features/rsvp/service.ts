@@ -4,7 +4,7 @@ import { guests, type Guest } from '@/server/db/schema'
 import { findGuestByToken } from '@/features/guests/repo'
 import { normalizePhone } from '@/features/guests/phone'
 import { getSettings } from '@/features/settings/repo'
-import { syncRemindersForGuest } from '@/features/whatsapp/reminders'
+import { syncGiftMessages, syncRemindersForGuest } from '@/features/whatsapp/reminders'
 import { logger } from '@/lib/logger'
 import { isDeadlinePassed } from './deadline'
 import { rsvpSchema } from './schema'
@@ -56,6 +56,11 @@ export async function submitRsvp(input: unknown, now = new Date()): Promise<Rsvp
     await syncRemindersForGuest(updated, now)
   } catch (err) {
     logger.error({ event: 'whatsapp.reminder_sync_failed', guestId: updated.id, err }, 'reminder sync failed')
+  }
+  try {
+    await syncGiftMessages(updated, now, 'rsvp')
+  } catch (err) {
+    logger.error({ event: 'whatsapp.gift_sync_failed', guestId: updated.id, err }, 'gift message sync failed')
   }
   return { ok: true, guest: updated, phoneAdded: Boolean(phone) }
 }

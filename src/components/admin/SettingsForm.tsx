@@ -17,6 +17,8 @@ type Values = {
   rsvpPreferredDate: string
   rsvpNudgeText: string
   rsvpFinalText: string
+  giftListText: string
+  giftNudgeText: string
 }
 
 type Props = { initial: Values }
@@ -248,6 +250,55 @@ export function SettingsForm({ initial }: Props) {
               required
               defaultValue={values.rsvpFinalText}
               {...a11y('rsvpFinalText')}
+              className={`${inputClass} resize-y leading-relaxed`}
+            />
+          </Field>
+        </Section>
+        <Section
+          title="Presentes"
+          description="Enviadas pelo WhatsApp a quem confirmou presença e ainda não escolheu presente nem fez Pix, só com a lista de presentes ativa e até 20/12, às 10h. O link leva direto à lista de presentes do convite."
+        >
+          <Field
+            id="settings-giftListText"
+            label="Mensagem com a lista de presentes"
+            required
+            error={errors.giftListText}
+            helper={
+              <>
+                Sai logo depois da confirmação (entre 9h e 20h, horário de Boa Vista). Use <code>{'{nome}'}</code> e{' '}
+                <code>{'{link}'}</code>; até 600 caracteres.
+              </>
+            }
+          >
+            <textarea
+              name="giftListText"
+              rows={4}
+              maxLength={600}
+              required
+              defaultValue={values.giftListText}
+              {...a11y('giftListText')}
+              className={`${inputClass} resize-y leading-relaxed`}
+            />
+          </Field>
+          <Field
+            id="settings-giftNudgeText"
+            label="Lembrete de presente"
+            required
+            error={errors.giftNudgeText}
+            helper={
+              <>
+                Sai 5 dias depois da confirmação. Use <code>{'{nome}'}</code> e <code>{'{link}'}</code>; até 600
+                caracteres.
+              </>
+            }
+          >
+            <textarea
+              name="giftNudgeText"
+              rows={4}
+              maxLength={600}
+              required
+              defaultValue={values.giftNudgeText}
+              {...a11y('giftNudgeText')}
               className={`${inputClass} resize-y leading-relaxed`}
             />
           </Field>

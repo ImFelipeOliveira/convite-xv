@@ -1,6 +1,8 @@
-// Sends the automatic WhatsApp messages (reminders D-7/D-1 and rsvp nudges) when due.
+// Sends the automatic WhatsApp messages (reminders D-7/D-1, rsvp nudges, gift messages) when due.
 // Runs inside the Next.js server process (started from src/instrumentation.ts).
 import { EVENT } from '@/features/event/event'
+import { isFeatureEnabled } from '@/features/event/flags'
+import { guestHasGiven } from '@/features/gifts/given'
 import { findGuestById } from '@/features/guests/repo'
 import { isDeadlinePassed } from '@/features/rsvp/deadline'
 import { getSettings } from '@/features/settings/repo'
@@ -20,7 +22,13 @@ import {
 } from './dispatches'
 import { getConnectionState, sendText } from './evolution'
 import { renderTemplate, varyGreeting } from './message'
-import { REMINDER_TIMES, reminderTemplateValues } from './reminders'
+import {
+  GIFT_MESSAGES_CUTOFF,
+  REMINDER_TIMES,
+  giftInviteUrl,
+  isGiftKind,
+  reminderTemplateValues,
+} from './reminders'
 
 export type DispatcherDeps = {
   now: () => Date
@@ -49,12 +57,16 @@ const KIND_RULES: Record<ReminderKind, { rsvpStatus: Guest['rsvpStatus']; text: 
   reminder_d1: { rsvpStatus: 'yes', text: (s) => s.reminderD1Text },
   rsvp_nudge: { rsvpStatus: 'pending', text: (s) => s.rsvpNudgeText },
   rsvp_final: { rsvpStatus: 'pending', text: (s) => s.rsvpFinalText },
+  gift_list: { rsvpStatus: 'yes', text: (s) => s.giftListText },
+  gift_nudge: { rsvpStatus: 'yes', text: (s) => s.giftNudgeText },
 }
 
 const BOA_VISTA_OFFSET_MS = 4 * 60 * MIN // UTC−4, no DST
 const SEND_FROM_HOUR = 9
 const SEND_UNTIL_HOUR = 20
 const EVENT_STARTS_AT = new Date(EVENT.startsAt)
+/** 00:00 on the party day in Boa Vista: from then on the D-1 ("é amanhã") would be wrong. */
+const EVENT_DAY_STARTS_AT = new Date('2026-12-27T04:00:00Z')
 
 /** Automatic sends only happen between 09:00 and 20:00 (exclusive) in Boa Vista. */
 export function isWithinSendingHours(now: Date): boolean {
@@ -70,17 +82,20 @@ export function nextSendingWindowStart(now: Date): Date {
   return new Date(start > now.getTime() ? start : start + 24 * 60 * MIN)
 }
 
-export type StaleReason = 'deadline_passed' | 'stale' | 'after_event'
+export type StaleReason = 'deadline_passed' | 'stale' | 'after_event' | 'event_day' | 'gift_window_closed'
 
 /**
  * Why a due message no longer makes sense at `now` (null = send it): nothing after the party
- * starts; no D-7 once the D-1 time has come; no rsvp nudge/final notice after the deadline (the
+ * starts; no D-7 once the D-1 time has come; no D-1 ("é amanhã") from 00:00 Boa Vista on the party
+ * day; no gift message from the D-7 time on; no rsvp nudge/final notice after the deadline (the
  * final notice is never due before RSVP_FINAL_TIME, so this also keeps it from announcing a
  * deadline already gone when the deadline was moved earlier).
  */
 export function staleReason(kind: ReminderKind, settings: Pick<Settings, 'rsvpDeadline'>, now: Date): StaleReason | null {
   if (now.getTime() >= EVENT_STARTS_AT.getTime()) return 'after_event'
   if (kind === 'reminder_d7' && now.getTime() >= REMINDER_TIMES.reminder_d1.getTime()) return 'stale'
+  if (kind === 'reminder_d1' && now.getTime() >= EVENT_DAY_STARTS_AT.getTime()) return 'event_day'
+  if (isGiftKind(kind) && now.getTime() >= GIFT_MESSAGES_CUTOFF.getTime()) return 'gift_window_closed'
   if ((kind === 'rsvp_nudge' || kind === 'rsvp_final') && isDeadlinePassed(settings.rsvpDeadline, now)) {
     return 'deadline_passed'
   }
@@ -158,11 +173,24 @@ export async function runDispatcherTick(deps: DispatcherDeps): Promise<Dispatche
       continue
     }
 
+    // gift messages exist only with the gifts feature on
+    if (isGiftKind(kind) && !isFeatureEnabled('gifts')) {
+      await markDispatchCancelled(row.id, 'feature_off')
+      logger.info({ event: 'whatsapp.reminder_cancelled', ...ids, errorCode: 'feature_off' }, 'reminder cancelled')
+      continue
+    }
+
     // checked right before sending: the guest may have answered during the pause
     const guest = await findGuestById(row.guestId)
     if (!isEligible(guest, kind)) {
       await markDispatchCancelled(row.id)
       logger.info({ event: 'whatsapp.reminder_cancelled', ...ids }, 'reminder cancelled')
+      continue
+    }
+    // the guest may have reserved a gift (or paid a Pix) since it was scheduled
+    if (isGiftKind(kind) && (await guestHasGiven(guest.id))) {
+      await markDispatchCancelled(row.id, 'gift_given')
+      logger.info({ event: 'whatsapp.reminder_cancelled', ...ids, errorCode: 'gift_given' }, 'reminder cancelled')
       continue
     }
 
@@ -215,10 +243,10 @@ async function sendOne(
   const ids = { dispatchId: row.id, guestId: row.guestId, kind }
   let res: Awaited<ReturnType<DispatcherDeps['sendText']>>
   try {
-    const rendered = renderTemplate(
-      KIND_RULES[kind].text(settings),
-      reminderTemplateValues(settings, guest, deps.now()),
-    )
+    const values = reminderTemplateValues(settings, guest, deps.now())
+    // gift messages point straight at the gift section of the invite
+    if (isGiftKind(kind)) values.link = giftInviteUrl(guest.token)
+    const rendered = renderTemplate(KIND_RULES[kind].text(settings), values)
     const text = varyGreeting(rendered, greetingSeed(guest.id, row.attempts))
     res = await deps.sendText(cfg, { phoneE164: guest.phone, text })
   } catch (err) {

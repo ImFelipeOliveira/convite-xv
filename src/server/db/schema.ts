@@ -28,12 +28,19 @@ export const RSVP_NUDGE_TEXT_DEFAULT =
 export const RSVP_FINAL_TEXT_DEFAULT =
   'Oi, {nome}! O prazo para confirmar presença nos 15 anos da Isabella termina em {prazo}. Responda pelo seu convite: {link}'
 
+export const GIFT_LIST_TEXT_DEFAULT =
+  'Oba, {nome}! Sua presença nos 15 anos da Isabella está confirmada. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: {link}'
+export const GIFT_NUDGE_TEXT_DEFAULT =
+  'Oi, {nome}! Que bom que você vem aos 15 anos da Isabella. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: {link} — Se você já escolheu um presente ou fez o Pix, pode ignorar esta mensagem.'
+
 export const dispatchKind = pgEnum('dispatch_kind', [
   'invite',
   'reminder_d7',
   'reminder_d1',
   'rsvp_nudge',
   'rsvp_final',
+  'gift_list',
+  'gift_nudge',
 ])
 export const dispatchStatus = pgEnum('dispatch_status', [
   'scheduled',
@@ -87,6 +94,8 @@ export const settings = pgTable(
     rsvpPreferredDate: date('rsvp_preferred_date').default('2026-11-21'),
     rsvpNudgeText: text('rsvp_nudge_text').notNull().default(RSVP_NUDGE_TEXT_DEFAULT),
     rsvpFinalText: text('rsvp_final_text').notNull().default(RSVP_FINAL_TEXT_DEFAULT),
+    giftListText: text('gift_list_text').notNull().default(GIFT_LIST_TEXT_DEFAULT),
+    giftNudgeText: text('gift_nudge_text').notNull().default(GIFT_NUDGE_TEXT_DEFAULT),
   },
   (t) => [check('settings_single_row', sql`${t.id} = 1`)],
 )

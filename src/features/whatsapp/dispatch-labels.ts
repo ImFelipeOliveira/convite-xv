@@ -7,6 +7,8 @@ export const DISPATCH_KIND_LABEL: Record<DispatchKind, string> = {
   reminder_d1: 'Lembrete véspera',
   rsvp_nudge: 'Lembrete de confirmação',
   rsvp_final: 'Aviso final de confirmação',
+  gift_list: 'Lista de presentes',
+  gift_nudge: 'Lembrete de presente',
 }
 
 export const DISPATCH_STATUS_LABEL: Record<DispatchStatus, string> = {
@@ -30,6 +32,10 @@ const ERROR_LABEL: Record<string, string> = {
   deadline_passed: 'Prazo de confirmação encerrado',
   stale: 'Substituído pelo lembrete da véspera',
   after_event: 'A festa já começou',
+  event_day: 'Já é o dia da festa',
+  gift_given: 'Convidado já presenteou',
+  gift_window_closed: 'Perto da festa: não enviado',
+  feature_off: 'Presentes desativados',
 }
 
 /** pt-BR label of a stored `errorCode` (unknown codes get a generic label, never the raw code). */

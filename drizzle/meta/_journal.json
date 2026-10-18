@@ -43,6 +43,20 @@
       "when": 1792345315091,
       "tag": "0005_gift_image_key",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792347013832,
+      "tag": "0006_gift_message_kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792347021860,
+      "tag": "0007_gift_message_settings",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,8 @@ export default async function SettingsPage() {
           rsvpPreferredDate: s.rsvpPreferredDate ?? '',
           rsvpNudgeText: s.rsvpNudgeText,
           rsvpFinalText: s.rsvpFinalText,
+          giftListText: s.giftListText,
+          giftNudgeText: s.giftNudgeText,
         }}
       />
     </div>

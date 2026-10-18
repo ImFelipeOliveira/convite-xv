@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { logger } from '@/lib/logger'
 import { inviteUrl } from '@/features/guests/whatsapp'
 import { db } from '@/server/db/client'
-import { guests, messageDispatches, settings, type DispatchKind } from '@/server/db/schema'
+import { gifts, guests, messageDispatches, settings, type DispatchKind } from '@/server/db/schema'
+import { createGift } from '@/features/gifts/repo'
 import { makeGuest } from '../../../../tests/helpers/db'
 import type { EvolutionConfig } from '../config'
 import * as dispatches from '../dispatches'
@@ -12,6 +13,7 @@ import {
   greetingSeed,
   resetDispatcherForTests,
   runDispatcherTick,
+  staleReason,
   startDispatcher,
   type DispatcherDeps,
 } from '../dispatcher'
@@ -527,6 +529,105 @@ describe('runDispatcherTick — quiet hours (09:00–20:00 Boa Vista)', () => {
     await runDispatcherTick(makeDeps(DAY, { cfg: null }).deps)
     const s = await row(inv.id)
     expect([s.status, s.errorCode]).toEqual(['failed', 'interrupted'])
+  })
+})
+
+describe('runDispatcherTick — D-1 on the event day', () => {
+  it('staleReason: D-1 is stale from 00:00 Boa Vista on 27/12 (event_day)', () => {
+    const s = { rsvpDeadline: '2026-12-13' }
+    expect(staleReason('reminder_d1', s, new Date('2026-12-27T03:59:59Z'))).toBeNull()
+    expect(staleReason('reminder_d1', s, new Date('2026-12-27T04:00:00Z'))).toBe('event_day')
+  })
+
+  it('cancels a deferred D-1 on the party morning instead of saying "amanhã"', async () => {
+    const base = await dbNow()
+    const g = await makeGuest({ rsvpStatus: 'yes', phone: PHONE })
+    const r = await makeReminder(g.id, 'reminder_d1', new Date(base.getTime() - MIN))
+    const { deps } = makeDeps(new Date('2026-12-27T13:00:00Z')) // 09:00 on 27/12 in Boa Vista
+    expect(await runDispatcherTick(deps)).toEqual({ sent: 0, failed: 0, skipped: null })
+    expect(deps.sendText).not.toHaveBeenCalled()
+    const s = await row(r.id)
+    expect([s.status, s.errorCode]).toEqual(['cancelled', 'event_day'])
+  })
+
+  it('still sends D-1 on the evening of 26/12', async () => {
+    const base = await dbNow()
+    const g = await makeGuest({ rsvpStatus: 'yes', phone: PHONE })
+    const r = await makeReminder(g.id, 'reminder_d1', new Date(base.getTime() - MIN))
+    const { deps } = makeDeps(new Date('2026-12-26T23:30:00Z')) // 19:30 on 26/12
+    expect(await runDispatcherTick(deps)).toEqual({ sent: 1, failed: 0, skipped: null })
+    expect((await row(r.id)).status).toBe('sent')
+  })
+})
+
+describe('runDispatcherTick — gift messages', () => {
+  beforeEach(() => vi.stubEnv('FEATURES', 'gifts'))
+  afterEach(() => vi.unstubAllEnvs())
+
+  async function dueGift(kind: 'gift_list' | 'gift_nudge', over: Partial<typeof guests.$inferInsert> = {}) {
+    const base = await dbNow()
+    const g = await makeGuest({ name: 'Lia Prado', rsvpStatus: 'yes', phone: PHONE, ...over })
+    const r = await makeReminder(g.id, kind, new Date(base.getTime() - MIN))
+    return { g, r }
+  }
+
+  it('sends the gift list with the gifts-anchor link', async () => {
+    const { g, r } = await dueGift('gift_list')
+    const { deps } = makeDeps(DAY)
+    expect(await runDispatcherTick(deps)).toEqual({ sent: 1, failed: 0, skipped: null })
+    expect(deps.sendText.mock.calls[0][1].text).toBe(
+      `Oba, Lia! Sua presença nos 15 anos da Isabella está confirmada. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: ${inviteUrl(g.token)}#gifts`,
+    )
+    expect((await row(r.id)).status).toBe('sent')
+  })
+
+  it('sends the gift nudge with the gifts-anchor link', async () => {
+    const { g } = await dueGift('gift_nudge')
+    const { deps } = makeDeps(DAY)
+    await runDispatcherTick(deps)
+    expect(deps.sendText.mock.calls[0][1].text).toBe(
+      `Oi, Lia! Que bom que você vem aos 15 anos da Isabella. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: ${inviteUrl(g.token)}#gifts — Se você já escolheu um presente ou fez o Pix, pode ignorar esta mensagem.`,
+    )
+  })
+
+  it.each(['gift_list', 'gift_nudge'] as const)('cancels %s for a guest who reserved a gift meanwhile (gift_given)', async (kind) => {
+    const { g, r } = await dueGift(kind)
+    const gift = await createGift({ name: 'Perfume', category: 'Beleza', priceCents: null, imageUrl: null, purchaseUrl: null })
+    await db.update(gifts).set({ guestId: g.id }).where(eq(gifts.id, gift.id))
+    const { deps } = makeDeps(DAY)
+    expect(await runDispatcherTick(deps)).toEqual({ sent: 0, failed: 0, skipped: null })
+    expect(deps.sendText).not.toHaveBeenCalled()
+    const s = await row(r.id)
+    expect([s.status, s.errorCode]).toEqual(['cancelled', 'gift_given'])
+  })
+
+  it.each(['gift_list', 'gift_nudge'] as const)('cancels %s for a guest no longer yes', async (kind) => {
+    const { r } = await dueGift(kind, { rsvpStatus: 'no' })
+    const { deps } = makeDeps(DAY)
+    await runDispatcherTick(deps)
+    expect(deps.sendText).not.toHaveBeenCalled()
+    expect((await row(r.id)).status).toBe('cancelled')
+  })
+
+  it.each(['gift_list', 'gift_nudge'] as const)('cancels %s with the gifts flag off (feature_off) but still sends reminders', async (kind) => {
+    vi.stubEnv('FEATURES', 'pix')
+    const { r } = await dueGift(kind)
+    const other = await makeGuest({ rsvpStatus: 'yes', phone: PHONE })
+    const d7 = await makeReminder(other.id, 'reminder_d7', new Date((await dbNow()).getTime() - MIN))
+    const { deps } = makeDeps(DAY)
+    expect(await runDispatcherTick(deps)).toEqual({ sent: 1, failed: 0, skipped: null })
+    const s = await row(r.id)
+    expect([s.status, s.errorCode]).toEqual(['cancelled', 'feature_off'])
+    expect((await row(d7.id)).status).toBe('sent')
+  })
+
+  it.each(['gift_list', 'gift_nudge'] as const)('cancels %s from 20/12 10h on (gift_window_closed)', async (kind) => {
+    const { r } = await dueGift(kind)
+    const { deps } = makeDeps(new Date('2026-12-20T14:00:00Z'))
+    await runDispatcherTick(deps)
+    expect(deps.sendText).not.toHaveBeenCalled()
+    const s = await row(r.id)
+    expect([s.status, s.errorCode]).toEqual(['cancelled', 'gift_window_closed'])
   })
 })
 
