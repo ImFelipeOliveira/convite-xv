@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef, useState } from 'react'
 import { saveSettingsAction, type SettingsFormState } from '@/features/settings/actions'
 import { PIX_THANKS_MESSAGE_DEFAULT } from '@/features/pix/defaults'
+import { MusicField } from './MusicField'
 import { useSkewSafeForm } from './skew-recovery'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
@@ -23,6 +24,8 @@ type Values = {
   giftNudgeText: string
   pixThanksMessage: string
   pixReceiverName: string
+  musicKey: string
+  musicStartSeconds: string
 }
 
 type Props = { initial: Values }
@@ -51,6 +54,7 @@ export function SettingsForm({ initial }: Props) {
   const { action: safeAction, formRef } = useSkewSafeForm(saveSettingsAction, 'settings')
   const [state, action, pending] = useActionState<SettingsFormState, FormData>(safeAction, null)
   const toast = useToast()
+  const [musicUploading, setMusicUploading] = useState(false)
 
   useEffect(() => {
     if (!state) return
@@ -378,9 +382,22 @@ export function SettingsForm({ initial }: Props) {
             />
           </Field>
         </Section>
+        <Section
+          title="Música do convite"
+          description="Toca baixinho, em repetição, quando o convidado abre o envelope. O convidado pode pausar a qualquer momento pelo botão no canto da tela."
+        >
+          <MusicField
+            savedKey={initial.musicKey}
+            initialKey={values.musicKey}
+            startSeconds={values.musicStartSeconds}
+            keyError={errors.musicKey}
+            startError={errors.musicStartSeconds}
+            onUploadingChange={setMusicUploading}
+          />
+        </Section>
       </fieldset>
       <div className="sticky bottom-0 -mx-4 flex justify-start border-t border-hairline bg-paper/95 px-4 py-4 backdrop-blur-sm sm:mx-0 sm:px-0">
-        <Button type="submit" pending={pending} pendingLabel="Salvando…">
+        <Button type="submit" pending={pending} pendingLabel="Salvando…" disabled={musicUploading}>
           Salvar
         </Button>
       </div>

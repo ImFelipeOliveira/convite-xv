@@ -5,6 +5,7 @@ import { Closing } from '@/components/invite/Closing'
 import { GiftChoiceProvider } from '@/components/invite/GiftChoice'
 import { Gifts } from '@/components/invite/Gifts'
 import { Hero } from '@/components/invite/Hero'
+import { InviteMusic } from '@/components/invite/InviteMusic'
 import { MarkOpened } from '@/components/invite/MarkOpened'
 import { Opening } from '@/components/invite/Opening'
 import { Pix, PixUnavailable } from '@/components/invite/Pix'
@@ -15,6 +16,7 @@ import { isFeatureEnabled } from '@/features/event/flags'
 import { listGiftsForInvite } from '@/features/gifts/repo'
 import { chosenGiftNames, toGiftViews } from '@/features/gifts/view'
 import { findGuestByToken } from '@/features/guests/repo'
+import { isMusicKey, mediaUrl } from '@/features/media/keys'
 import { readAsaasConfig, requirePayerCpf } from '@/features/pix/config'
 import { getGuestPixState } from '@/features/pix/service'
 import { activePreferredDate, isDeadlinePassed } from '@/features/rsvp/deadline'
@@ -97,18 +99,30 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
     </main>
   )
 
+  const invite = (
+    <Opening name={EVENT.celebrant}>
+      {hasGifts ? (
+        <GiftChoiceProvider chosenNames={chosenGiftNames(gifts)} givenElsewhere={givenElsewhere}>
+          {body}
+        </GiftChoiceProvider>
+      ) : (
+        body
+      )}
+    </Opening>
+  )
+  // background music only when the admin uploaded one; without it nothing music-related renders
+  const musicKey = settings.musicKey && isMusicKey(settings.musicKey) ? settings.musicKey : null
+
   return (
     <>
       <MarkOpened token={token} />
-      <Opening name={EVENT.celebrant}>
-        {hasGifts ? (
-          <GiftChoiceProvider chosenNames={chosenGiftNames(gifts)} givenElsewhere={givenElsewhere}>
-            {body}
-          </GiftChoiceProvider>
-        ) : (
-          body
-        )}
-      </Opening>
+      {musicKey ? (
+        <InviteMusic src={mediaUrl(musicKey)} startAt={settings.musicStartSeconds}>
+          {invite}
+        </InviteMusic>
+      ) : (
+        invite
+      )}
     </>
   )
 }

@@ -51,3 +51,10 @@ next-env.d.ts
 scripts/migrate.js
 # local media storage (gift photos without S3_* vars)
 /.data/
+
+# audio never goes to git: the invite music is commercial and lives in the bucket (uploaded in the panel).
+# The only exception is the e2e fixture, a quarter second of generated silence (tests/e2e/assets/silence.mp3).
+*.mp3
+*.m4a
+*.aac
+!/tests/e2e/assets/silence.mp3

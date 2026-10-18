@@ -1,5 +1,10 @@
 import { z } from 'zod'
 import { EVENT } from '@/features/event/event'
+import { isMusicKey } from '@/features/media/keys'
+
+/** Latest start offset of the invite music, in seconds (10 minutes). */
+export const MAX_MUSIC_START_SECONDS = 600
+export const MUSIC_KEY_ERROR = 'Não foi possível salvar a música. Envie o arquivo de novo.'
 
 /** Last day the deadline may be set to: the day before the party (a calendar date, no timezone). */
 export const MAX_DEADLINE = '2026-12-26'
@@ -67,6 +72,20 @@ export function settingsFormSchema(today: string, storedDeadline?: string, store
       giftNudgeText: messageTemplate,
       pixThanksMessage: optionalText(400),
       pixReceiverName: z.string().trim().min(1, 'Informe o nome de quem recebe.').max(80, 'Use até 80 caracteres.'),
+      // an uploaded file (POST /admin/api/music) arrives as its key; only our own key shape is accepted
+      musicKey: z
+        .string()
+        .trim()
+        .default('')
+        .refine((v) => v === '' || isMusicKey(v), MUSIC_KEY_ERROR)
+        .transform((v) => (v === '' ? null : v)),
+      musicStartSeconds: z
+        .string()
+        .trim()
+        .default('')
+        .refine((v) => /^\d{0,4}$/.test(v), 'Use um número inteiro de segundos.')
+        .transform((v) => (v === '' ? 0 : Number(v)))
+        .refine((v) => v <= MAX_MUSIC_START_SECONDS, `Use de 0 a ${MAX_MUSIC_START_SECONDS} segundos.`),
     })
     .superRefine((d, ctx) => {
       if (d.rsvpPreferredDate && isRealDate(d.rsvpDeadline) && d.rsvpPreferredDate > d.rsvpDeadline) {

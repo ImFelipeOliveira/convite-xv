@@ -1,22 +1,33 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { logger } from '@/lib/logger'
+import { parseContentRange, rangeHeaderValue, RangeNotSatisfiableError, resolveRange, type ByteRange, type ResolvedRange } from './range'
 
-// Uploaded media (gift photos). Production: the Railway bucket (S3 API, private: the app proxies reads
+// Uploaded media (gift photos, the invite music). Production: the Railway bucket (S3 API, private: the app proxies reads
 // through /media/...). Dev/test: files under .data/media (gitignored) or MEDIA_DIR. Production without
 // S3 config and without MEDIA_DIR throws on use (no silent writes to the ephemeral container disk).
 // Config is read when used, never at import time, so `next build` doesn't need the S3_* variables.
 
-export type StoredObject = { body: ReadableStream | Buffer; contentType: string; contentLength?: number }
+export type StoredObject = {
+  body: ReadableStream | Buffer
+  contentType: string
+  /** bytes in `body` */
+  contentLength?: number
+  /** whole object size, when known (always with `range`) */
+  size?: number
+  /** set when only part of the object was asked for and returned */
+  range?: ResolvedRange
+}
 
 export interface ObjectStorage {
   put(key: string, body: Buffer, contentType: string): Promise<void>
-  get(key: string): Promise<StoredObject | null>
+  /** With `range`, only those bytes (throws RangeNotSatisfiableError when it starts past the end). */
+  get(key: string, range?: ByteRange): Promise<StoredObject | null>
   delete(key: string): Promise<void>
 }
 
-const CONTENT_TYPES: Record<string, string> = { '.webp': 'image/webp' }
+const CONTENT_TYPES: Record<string, string> = { '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4' }
 
 /** Filesystem adapter: one file per key under `root`; keys can't escape it. */
 export function createFsStorage(root: string): ObjectStorage {
@@ -32,13 +43,20 @@ export function createFsStorage(root: string): ObjectStorage {
       await mkdir(path.dirname(file), { recursive: true })
       await writeFile(file, body)
     },
-    async get(key) {
+    async get(key, range) {
       const file = resolve(key)
       if (!file) return null
       try {
+        // media files are small (8 MB cap): reading the whole file and slicing keeps this adapter simple
         const [body, info] = await Promise.all([readFile(file), stat(file)])
         const contentType = CONTENT_TYPES[path.extname(file)] ?? 'application/octet-stream'
-        return { body, contentType, contentLength: info.size }
+        if (range) {
+          const resolved = resolveRange(range, info.size)
+          if (!resolved) throw new RangeNotSatisfiableError(info.size)
+          const part = body.subarray(resolved.start, resolved.end + 1)
+          return { body: part, contentType, contentLength: part.length, size: info.size, range: resolved }
+        }
+        return { body, contentType, contentLength: info.size, size: info.size }
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
         throw err
@@ -78,18 +96,29 @@ export function createS3Storage(config: S3Config): ObjectStorage {
     async put(key, body, contentType) {
       await client.send(new PutObjectCommand({ Bucket, Key: key, Body: body, ContentType: contentType }))
     },
-    async get(key) {
+    async get(key, range) {
       try {
-        const res = await client.send(new GetObjectCommand({ Bucket, Key: key }))
+        const res = await client.send(
+          new GetObjectCommand({ Bucket, Key: key, Range: range ? rangeHeaderValue(range) : undefined }),
+        )
         if (!res.Body) return null
-        return {
-          body: res.Body.transformToWebStream() as ReadableStream,
-          contentType: res.ContentType ?? 'application/octet-stream',
-          contentLength: res.ContentLength,
+        const body = res.Body.transformToWebStream() as ReadableStream
+        const contentType = res.ContentType ?? 'application/octet-stream'
+        const partial = range ? parseContentRange(res.ContentRange) : null
+        if (partial) {
+          const { size, ...served } = partial
+          return { body, contentType, contentLength: res.ContentLength, size, range: served }
         }
+        // no Content-Range: the bucket sent the whole object
+        return { body, contentType, contentLength: res.ContentLength, size: res.ContentLength }
       } catch (err) {
         const name = (err as { name?: string }).name
         if (name === 'NoSuchKey' || name === 'NotFound') return null
+        if (name === 'InvalidRange') {
+          // the 416 answer should carry the size: one HEAD, only on this rare path
+          const head = await client.send(new HeadObjectCommand({ Bucket, Key: key })).catch(() => null)
+          throw new RangeNotSatisfiableError(head?.ContentLength)
+        }
         throw err
       }
     },

@@ -14,6 +14,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   returnFocusRef,
+  confirmVariant = 'danger',
 }: {
   title: string
   children: ReactNode
@@ -23,6 +24,8 @@ export function ConfirmDialog({
   onConfirm: () => void
   onCancel: () => void
   returnFocusRef?: RefObject<HTMLElement | null>
+  /** 'primary' for a confirmation that isn't destructive (e.g. replacing a file before saving). */
+  confirmVariant?: 'danger' | 'primary'
 }) {
   const close = () => {
     if (!pending) onCancel()
@@ -55,7 +58,7 @@ export function ConfirmDialog({
           <Button variant="ghost" onClick={close} disabled={pending} data-autofocus>
             Cancelar
           </Button>
-          <Button variant="danger" onClick={onConfirm} pending={pending} pendingLabel={pendingLabel}>
+          <Button variant={confirmVariant} onClick={onConfirm} pending={pending} pendingLabel={pendingLabel}>
             {confirmLabel}
           </Button>
         </div>

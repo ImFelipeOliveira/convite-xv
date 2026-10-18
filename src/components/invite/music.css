@@ -1,0 +1,51 @@
+/* Music toggle: a small seal-coloured note in the bottom corner of the 480 px invite column. */
+.invite-music-toggle {
+  position: fixed;
+  z-index: 40; /* under the opening gate (50) and the gift/Pix sheets (top layer) */
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  right: calc(max(0px, (100vw - 480px) / 2) + 16px + env(safe-area-inset-right, 0px));
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 9999px;
+  background: rgba(255, 248, 246, .88);
+  color: var(--deep-rose);
+  box-shadow: 0 6px 16px -10px rgba(90, 33, 54, .55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  cursor: pointer;
+  opacity: .82;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity var(--dur-micro) ease, color var(--dur-micro) ease, border-color var(--dur-micro) ease;
+  animation: invite-music-in .6s var(--ease-letter) both;
+}
+.invite-music-toggle:hover,
+.invite-music-toggle:focus-visible {
+  opacity: 1;
+  border-color: var(--hairline-strong);
+}
+.invite-music-toggle:focus-visible {
+  outline: 2px solid var(--wine);
+  outline-offset: 3px;
+}
+.invite-music-toggle.is-playing {
+  color: var(--seal);
+}
+.invite-music-slash {
+  stroke: var(--deep-rose);
+}
+
+@keyframes invite-music-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .invite-music-toggle {
+    animation: none;
+  }
+}

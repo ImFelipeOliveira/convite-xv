@@ -14,7 +14,7 @@ export default async function SettingsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Configurações"
-        description="Prazo de resposta, textos do convite e do WhatsApp, e o Pix."
+        description="Prazo de resposta, textos do convite e do WhatsApp, o Pix e a música do convite."
       />
       <SettingsForm
         initial={{
@@ -31,6 +31,8 @@ export default async function SettingsPage() {
           giftNudgeText: s.giftNudgeText,
           pixThanksMessage: s.pixThanksMessage ?? '',
           pixReceiverName: s.pixReceiverName ?? PIX_RECEIVER_NAME_DEFAULT,
+          musicKey: s.musicKey ?? '',
+          musicStartSeconds: String(s.musicStartSeconds),
         }}
       />
     </div>

@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { LilyGlyph, LilyGradients, Lily } from '@/components/ornaments/Lily'
 import { WaxSeal } from '@/components/ornaments/WaxSeal'
+import { useInviteMusic } from './InviteMusic'
 import './opening.css'
 
 const OPENED_KEY = 'xv:opened'
@@ -60,6 +61,7 @@ export function Opening({
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   const ringPathId = useId()
   const branchLilyId = useId()
+  const music = useInviteMusic()
 
   const { phase, mode } = remembered && state.phase === 'closed' ? { phase: 'open' as const, mode: 'short' as const } : state
   const opened = phase === 'opening' || phase === 'open'
@@ -71,7 +73,8 @@ export function Opening({
     if (phase !== 'open' || notified.current) return
     notified.current = true
     onOpened?.()
-  }, [phase, onOpened])
+    music?.revealed()
+  }, [phase, onOpened, music])
 
   const later = (fn: () => void, ms: number) => {
     timers.current.push(setTimeout(fn, ms))
@@ -80,6 +83,8 @@ export function Opening({
   const open = () => {
     if (phase !== 'closed') return
     rememberOpened()
+    // inside the tap on purpose: iOS only lets audio start from a synchronous play() in the gesture
+    music?.startFromGesture()
     if (prefersReducedMotion()) {
       setState({ phase: 'opening', mode: 'reduced' })
       later(() => setState({ phase: 'open', mode: 'reduced' }), CROSSFADE_MS)
@@ -93,6 +98,7 @@ export function Opening({
   const skip = () => {
     timers.current.forEach(clearTimeout)
     rememberOpened()
+    music?.startFromGesture()
     setState({ phase: 'open', mode: 'quick' })
   }
 
