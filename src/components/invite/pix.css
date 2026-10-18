@@ -1,0 +1,122 @@
+/* Pix gift (prancha 09): value chips, summary, QR card, copy-paste, waiting badge, paid stamp. */
+
+.pix-chip {
+  transition: background-color var(--dur-ui) var(--ease-letter), color var(--dur-ui) ease,
+    box-shadow var(--dur-ui) ease, border-color var(--dur-ui) ease, transform var(--dur-micro) ease;
+}
+.pix-chip:hover:not([aria-pressed='true']) {
+  border-color: var(--wine);
+}
+.pix-chip:active {
+  transform: scale(.97);
+}
+/* selected: wine with a double gold ring (blush gap, then a gold hairline) */
+.pix-chip[aria-pressed='true'] {
+  box-shadow: 0 0 0 3px var(--blush), 0 0 0 4px var(--gold);
+}
+
+.pix-cta {
+  transition: background-color var(--dur-ui) var(--ease-letter), transform var(--dur-micro) ease;
+}
+.pix-cta:hover:not(:disabled) {
+  background-color: #7E2148;
+}
+.pix-cta:active:not(:disabled) {
+  transform: scale(.98);
+}
+.pix-cta:disabled {
+  cursor: progress;
+}
+
+.pix-spin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 248, 246, .9);
+  border-right-color: transparent;
+  animation: spin .8s linear infinite;
+}
+
+.pix-swap {
+  animation: pix-up .5s var(--ease-letter) both;
+}
+.pix-amount {
+  animation: pix-pop .4s var(--ease-letter) both;
+}
+.pix-qr {
+  animation: pix-qr .7s var(--ease-letter) .1s both;
+}
+.pix-clock {
+  transform-origin: 6px 6px;
+  animation: spin 6s linear infinite;
+}
+.pix-copied {
+  animation: pix-up .3s var(--ease-letter) both;
+}
+.pix-tick {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: pix-draw .35s var(--ease-letter) .05s forwards;
+}
+.pix-shake {
+  animation: pix-shake .4s cubic-bezier(.36, .07, .19, .97) both;
+}
+
+/* Paid: the seal stamps down, its ring and check draw, then the lines rise one after another. Only right
+   after the confirmation arrived (a returning guest sees it settled). */
+.pix-paid[data-celebrate] .pix-stamp {
+  animation: pix-stamp .7s both;
+}
+.pix-paid[data-celebrate] .pix-ring {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: pix-draw .8s var(--ease-doors) .45s forwards;
+}
+.pix-paid[data-celebrate] .pix-check {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: pix-draw .45s var(--ease-letter) 1s forwards;
+}
+.pix-paid[data-celebrate] .pix-rise {
+  animation: pix-up .7s var(--ease-letter) both;
+}
+
+@keyframes pix-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pix-pop {
+  from { opacity: .2; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pix-qr {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pix-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes pix-stamp {
+  0% { transform: scale(1.4); opacity: 0; animation-timing-function: cubic-bezier(.55, 0, .75, .2); }
+  45% { transform: scale(.94); opacity: 1; animation-timing-function: var(--ease-seal); }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes pix-shake {
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+/* Reduced motion: no shake, stamp or drawing; the clock stands still (the global rule shortens the rest). */
+@media (prefers-reduced-motion: reduce) {
+  .pix-shake,
+  .pix-clock,
+  .pix-paid[data-celebrate] .pix-stamp {
+    animation: none;
+  }
+  .pix-paid[data-celebrate] .pix-ring,
+  .pix-paid[data-celebrate] .pix-check,
+  .pix-tick {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

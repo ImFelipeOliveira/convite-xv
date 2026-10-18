@@ -7,13 +7,16 @@ import { Gifts } from '@/components/invite/Gifts'
 import { Hero } from '@/components/invite/Hero'
 import { MarkOpened } from '@/components/invite/MarkOpened'
 import { Opening } from '@/components/invite/Opening'
+import { Pix, PixUnavailable } from '@/components/invite/Pix'
 import { Rsvp } from '@/components/invite/Rsvp'
 import { TheDay } from '@/components/invite/TheDay'
 import { EVENT } from '@/features/event/event'
 import { isFeatureEnabled } from '@/features/event/flags'
-import { guestHasGift, listGiftsForInvite } from '@/features/gifts/repo'
+import { listGiftsForInvite } from '@/features/gifts/repo'
 import { chosenGiftNames, toGiftViews } from '@/features/gifts/view'
 import { findGuestByToken } from '@/features/guests/repo'
+import { readAsaasConfig, requirePayerCpf } from '@/features/pix/config'
+import { getGuestPixState } from '@/features/pix/service'
 import { activePreferredDate, isDeadlinePassed } from '@/features/rsvp/deadline'
 import { toRsvpGuestView } from '@/features/rsvp/view'
 import { getSettings } from '@/features/settings/repo'
@@ -46,8 +49,12 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
   const now = await requestTime()
   // only free | mine | taken reaches the browser; an empty catalog hides the section
   const gifts = isFeatureEnabled('gifts') ? toGiftViews(await listGiftsForInvite(), guest.id) : []
-  // RSVP "confirmed" screen: shortcut to the list or thanks (Tasks 6/7 OR a paid Pix into hasGiven)
-  const hasGiven = gifts.length > 0 && (await guestHasGift(guest.id))
+  // Pix: the section needs the flag AND an Asaas config (flag on without config → "indisponível")
+  const pixEnabled = isFeatureEnabled('pix')
+  const pixConfigured = pixEnabled && readAsaasConfig() !== null
+  const pix = pixConfigured ? await getGuestPixState(guest.id, new Date(now)) : { current: null, paidCents: null }
+  // RSVP "confirmed" screen: thanks for a reserved gift (chosenNames) or a paid Pix (givenElsewhere)
+  const givenElsewhere = pix.paidCents !== null ? { pixPaidCents: pix.paidCents } : null
 
   const body = (
     <main className="mx-auto w-full max-w-[480px] overflow-x-clip">
@@ -67,10 +74,22 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
           token={token}
           guestFirstName={guest.name.trim().split(/\s+/)[0]}
           initialGifts={gifts}
-          pixEnabled={isFeatureEnabled('pix')}
+          pixEnabled={pixEnabled}
         />
       )}
-      {/* Task 6: the Pix section (#pix) goes here, between Gifts and Closing */}
+      {pixConfigured ? (
+        <Pix
+          id="pix"
+          token={token}
+          guestFirstName={guest.name.trim().split(/\s+/)[0]}
+          requireCpf={requirePayerCpf()}
+          thanksMessage={settings.pixThanksMessage}
+          receiverName={settings.pixReceiverName}
+          initialPayment={pix.current}
+        />
+      ) : (
+        pixEnabled && <PixUnavailable id="pix" />
+      )}
       <Closing message={settings.closingMessage} contactInfo={settings.contactInfo} />
     </main>
   )
@@ -80,7 +99,7 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
       <MarkOpened token={token} />
       <Opening name={EVENT.celebrant}>
         {gifts.length > 0 ? (
-          <GiftChoiceProvider hasGiven={hasGiven} chosenNames={chosenGiftNames(gifts)}>
+          <GiftChoiceProvider chosenNames={chosenGiftNames(gifts)} givenElsewhere={givenElsewhere}>
             {body}
           </GiftChoiceProvider>
         ) : (

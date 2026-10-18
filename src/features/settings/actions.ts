@@ -18,6 +18,8 @@ const FIELDS = [
   'rsvpFinalText',
   'giftListText',
   'giftNudgeText',
+  'pixThanksMessage',
+  'pixReceiverName',
 ] as const
 type Field = (typeof FIELDS)[number]
 

@@ -106,6 +106,7 @@ describe('buildGuestsCsv', () => {
     message: 'Parabéns; muitas felicidades\nbeijos',
     respondedAt: new Date('2026-12-13T03:05:00Z'),
     openedAt: null,
+    asaasCustomerId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   }

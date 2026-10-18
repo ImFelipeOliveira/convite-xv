@@ -1,7 +1,8 @@
 'use client'
 
-import { useActionState, useEffect } from 'react'
+import { useActionState, useEffect, useState } from 'react'
 import { saveSettingsAction, type SettingsFormState } from '@/features/settings/actions'
+import { PIX_THANKS_MESSAGE_DEFAULT } from '@/features/pix/defaults'
 import { useSkewSafeForm } from './skew-recovery'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
@@ -20,6 +21,8 @@ type Values = {
   rsvpFinalText: string
   giftListText: string
   giftNudgeText: string
+  pixThanksMessage: string
+  pixReceiverName: string
 }
 
 type Props = { initial: Values }
@@ -59,6 +62,8 @@ export function SettingsForm({ initial }: Props) {
   const failed = state && !state.ok ? state : null
   const values = failed?.values ?? initial
   const errors = failed?.fieldErrors ?? {}
+  // live "{nome} · Asaas" preview while the admin types (the input itself stays uncontrolled)
+  const [receiverPreview, setReceiverPreview] = useState(values.pixReceiverName)
   const a11y = (key: keyof Values) => ({
     id: `settings-${key}`,
     'aria-invalid': !!errors[key],
@@ -301,6 +306,43 @@ export function SettingsForm({ initial }: Props) {
               required
               defaultValue={values.giftNudgeText}
               {...a11y('giftNudgeText')}
+              className={`${inputClass} resize-y leading-relaxed`}
+            />
+          </Field>
+        </Section>
+        <Section
+          title="Pix"
+          description="Presente em Pix pelo convite (Asaas). O nome aparece embaixo do QR Code, para o convidado conferir com o que o banco mostra."
+        >
+          <Field
+            id="settings-pixReceiverName"
+            label="Nome de quem recebe"
+            required
+            error={errors.pixReceiverName}
+            helper={<>Aparece como “{receiverPreview.trim() || 'Nome'} · Asaas”. Use o nome do titular da conta Asaas; até 80 caracteres.</>}
+          >
+            <input
+              name="pixReceiverName"
+              maxLength={80}
+              required
+              defaultValue={values.pixReceiverName}
+              onChange={(e) => setReceiverPreview(e.target.value)}
+              {...a11y('pixReceiverName')}
+              className={inputClass}
+            />
+          </Field>
+          <Field
+            id="settings-pixThanksMessage"
+            label="Mensagem de agradecimento do Pix"
+            error={errors.pixThanksMessage}
+            helper={<>Aparece quando o Pix é confirmado. Em branco: “{PIX_THANKS_MESSAGE_DEFAULT}” Até 400 caracteres.</>}
+          >
+            <textarea
+              name="pixThanksMessage"
+              rows={3}
+              maxLength={400}
+              defaultValue={values.pixThanksMessage}
+              {...a11y('pixThanksMessage')}
               className={`${inputClass} resize-y leading-relaxed`}
             />
           </Field>

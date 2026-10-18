@@ -65,6 +65,8 @@ export function settingsFormSchema(today: string, storedDeadline?: string, store
       rsvpFinalText: messageTemplate,
       giftListText: messageTemplate,
       giftNudgeText: messageTemplate,
+      pixThanksMessage: optionalText(400),
+      pixReceiverName: z.string().trim().min(1, 'Informe o nome de quem recebe.').max(80, 'Use até 80 caracteres.'),
     })
     .superRefine((d, ctx) => {
       if (d.rsvpPreferredDate && isRealDate(d.rsvpDeadline) && d.rsvpPreferredDate > d.rsvpDeadline) {

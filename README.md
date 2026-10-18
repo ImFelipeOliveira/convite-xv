@@ -49,6 +49,9 @@ Não rode `pnpm test` e `pnpm test:e2e` ao mesmo tempo: ambos usam o banco `conv
 | `DISPATCHER_ENABLED` | não | Dispatcher dos lembretes automáticos; ligado por padrão, `false` desliga (usado nos testes e2e). |
 | `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_ENDPOINT` | só em produção | Bucket das fotos dos presentes (Railway bucket `fotos`, via referências). Com as cinco definidas, as fotos vão para o bucket; sem elas, ficam em `.data/media/` (dev/testes, fora do git). Segredos, nunca versionar nem logar. |
 | `MEDIA_DIR` | não | Pasta das fotos sem S3 (padrão `.data/media`). |
+| `ASAAS_API_KEY` | para Pix | Chave da API Asaas (começa com `$`; no `.env` use aspas simples). Sem ela, a seção Pix mostra "Pix indisponível no momento.". Segredo. |
+| `ASAAS_ENV` | para Pix | `sandbox` (padrão) ou `production`. |
+| `ASAAS_WEBHOOK_TOKEN` | para Pix | Token do webhook Asaas (veja abaixo). Sem ele, `/api/webhooks/asaas` responde 503. Segredo. |
 
 ## WhatsApp (Evolution API)
 
@@ -115,6 +118,19 @@ Sobe a Evolution em `http://localhost:8080`, usando o Postgres do compose (`?sch
 
 - **Desconectado**: reconecte em Painel › WhatsApp lendo o QR code de novo.
 - **Mensagem não chegou**: veja o histórico de envios do convidado e use **Tentar de novo** nas falhas.
+
+## Pix (Asaas)
+
+### Webhook
+
+Em Asaas › Integrações › Webhooks, crie um webhook:
+
+- **URL**: `https://isabella15.usefachada.com.br/api/webhooks/asaas`
+- **Token de autenticação**: um valor aleatório longo (ex.: `openssl rand -hex 32`); o mesmo valor vai em `ASAAS_WEBHOOK_TOKEN` no serviço `web`. O Asaas o envia no header `asaas-access-token`; requisições sem ele (ou com outro valor) recebem 401.
+- **Versão da API**: v3. **Tipo de envio**: sequencial. **Fila**: ativada.
+- **Eventos**: `PAYMENT_RECEIVED`, `PAYMENT_CONFIRMED`, `PAYMENT_OVERDUE`, `PAYMENT_DELETED`, `PAYMENT_REFUNDED` (e, se quiser, `PAYMENT_PARTIALLY_REFUNDED`). Outros eventos são aceitos e ignorados.
+
+Comportamento: cada evento é gravado pelo seu `id` (`webhook_events`), então reentregas não reprocessam nada. Pago nunca volta atrás: `OVERDUE`/`DELETED` depois de pago são ignorados, e um estorno de um Pix pago mantém `paid` e registra `pix.refund_after_paid` no log; no Painel › Pix ele aparece como “Estornado” e sai do total recebido. Defesa em profundidade: antes de marcar pago, o servidor confirma o pagamento no próprio Asaas (`GET /payments/:id`, até 8 s; precisa de `ASAAS_API_KEY`): só vale se o Asaas disser pago e o valor bater; senão o evento é ignorado (`pix.webhook_unconfirmed`), e se o Asaas não responder o webhook devolve 500 (o Asaas reenvia). Requisições recusadas (token errado, corpo inválido) são limitadas a 30/min por IP (depois, 429 sem log). Se o webhook falhar, a tela do convidado ainda consulta o Asaas depois de 2 min (fallback). Fila pausada no Asaas: veja Integrações › Logs de Webhook.
 
 ## Deploy (Railway)
 
