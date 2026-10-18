@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { logger } from '@/lib/logger'
 import { db } from '@/server/db/client'
-import { afterPixPaid } from './after-paid'
+import { afterPixPaid, afterPixRefunded } from './after-paid'
 import { getPayment } from './asaas'
 import { readAsaasConfig, type AsaasConfig } from './config'
 import {
@@ -88,6 +88,8 @@ export type WebhookResult =
 export type WebhookDeps = {
   now?: () => Date
   afterPaid?: (guestId: string) => Promise<void>
+  /** runs once when a paid Pix is newly refunded, after commit (default afterPixRefunded) */
+  afterRefund?: (guestId: string) => Promise<void>
   /** undefined = read from env; null = not configured (paid events cannot be confirmed) */
   config?: AsaasConfig | null
   fetch?: typeof fetch
@@ -104,13 +106,19 @@ export class WebhookConfirmError extends Error {
   }
 }
 
-type Applied = { result: WebhookResult; paymentId: string | null; guestId: string | null }
+type Applied = {
+  result: WebhookResult
+  paymentId: string | null
+  guestId: string | null
+  /** this event recorded the refund (a redundant refund event leaves it false) */
+  newlyRefunded?: boolean
+}
 
 /**
  * Applies one Asaas event. Paid is never downgraded: OVERDUE/DELETED after paid are ignored, and a refund
  * after paid (confirmed with Asaas: REFUNDED/REFUND_REQUESTED, our externalReference) keeps `paid`, records
  * `refunded_at` (the admin page shows "Estornado" and leaves it out of the received total) and logs
- * `pix.refund_after_paid`; a partial refund only logs `pix.partial_refund`. A payment received after we expired/cancelled it turns
+ * `pix.refund_after_paid` (a new refund re-syncs the guest's gift messages after commit, best effort); a partial refund only logs `pix.partial_refund`. A payment received after we expired/cancelled it turns
  * `paid` (the money arrived). A paid event is confirmed with Asaas first (status paid, value equal to our
  * amount, externalReference our id; otherwise `ignored`, logged `pix.webhook_unconfirmed`, not recorded so a redelivery is looked
  * at again). On a new `paid`, the after-paid hook runs once, after commit, best effort. An unknown
@@ -123,6 +131,7 @@ export async function processAsaasWebhook(
 ): Promise<{ duplicate: boolean; result: WebhookResult }> {
   const now = (deps.now ?? (() => new Date()))()
   const afterPaid = deps.afterPaid ?? afterPixPaid
+  const afterRefund = deps.afterRefund ?? afterPixRefunded
   const asaasPaymentId = evt.payment?.id ?? null
   const target = evt.payment ? TARGET[evt.event] : undefined
   const received = (result: WebhookResult, paymentId: string | null) =>
@@ -198,6 +207,7 @@ export async function processAsaasWebhook(
           if (row.id !== confirmedId) throw new WebhookConfirmError('changed_during_confirmation')
           // stays paid; the admin sees "Estornado" (refunded_at)
           await markPaymentRefunded(row.id, now, tx)
+          return { result: 'refund_after_paid', ...ids, newlyRefunded: true }
         }
         return { result: 'refund_after_paid', ...ids }
       }
@@ -212,7 +222,7 @@ export async function processAsaasWebhook(
     return applied
   })
 
-  const { result, paymentId, guestId } = outcome
+  const { result, paymentId, guestId, newlyRefunded } = outcome
   if (result === 'unknown_payment') {
     logger.warn(
       { event: 'pix.webhook_unknown_payment', eventId: evt.id, type: evt.event, asaasPaymentId },
@@ -238,6 +248,14 @@ export async function processAsaasWebhook(
       await afterPaid(guestId)
     } catch (err) {
       logger.error({ event: 'pix.after_paid_failed', paymentId, guestId, err }, 'pix after-paid hook failed')
+    }
+  }
+  // the guest no longer counts as given: re-sync their gift messages (best effort, like after-paid)
+  if (result === 'refund_after_paid' && newlyRefunded && guestId) {
+    try {
+      await afterRefund(guestId)
+    } catch (err) {
+      logger.error({ event: 'pix.after_refund_failed', paymentId, guestId, err }, 'pix after-refund hook failed')
     }
   }
   return { duplicate: result === 'duplicate', result }

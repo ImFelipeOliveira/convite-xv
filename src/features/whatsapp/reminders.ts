@@ -67,8 +67,8 @@ export function giftInviteUrl(token: string): string {
  *   re-sends the "presence confirmed" message;
  * - `gift_nudge` at `respondedAt` + 5 days when that is ahead of `now` and before the cutoff
  *   (else cancelled).
- * Only guest-driven events call this (RSVP, the guest reserving/releasing): an admin release
- * does not re-arm anything.
+ * Only guest-driven events call this (RSVP, the guest reserving/releasing, the guest's Pix turning
+ * paid or being refunded): an admin release does not re-arm anything.
  */
 export async function syncGiftMessages(
   g: Pick<Guest, 'id' | 'rsvpStatus' | 'phone' | 'respondedAt'>,

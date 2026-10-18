@@ -7,7 +7,7 @@ import { syncGiftMessages } from '@/features/whatsapp/reminders'
 import { db } from '@/server/db/client'
 import { messageDispatches, pixPayments, type PixStatus } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
-import { afterPixPaid } from '../after-paid'
+import { afterPixPaid, afterPixRefunded } from '../after-paid'
 
 const PHONE = '+5595991234567'
 const T = new Date('2026-11-01T15:00:00Z')
@@ -94,5 +94,25 @@ describe('afterPixPaid', () => {
     await pix(g.id, 'paid', { refundedAt: T })
     await syncGiftMessages(g, T, 'gift')
     expect(await giftRows(g.id)).toEqual([{ kind: 'gift_nudge', status: 'scheduled' }])
+  })
+
+  it('afterPixRefunded: the refunded guest is "not given" again and the nudge comes back (gift_list does not)', async () => {
+    const g = await makeGuest({ phone: PHONE })
+    expect((await submitRsvp({ token: g.token, status: 'yes', plusOnes: 0 }, T)).ok).toBe(true)
+    await pix(g.id, 'paid')
+    await afterPixPaid(g.id, new Date(T.getTime() + 60_000))
+    expect(await giftRows(g.id)).toEqual([
+      { kind: 'gift_list', status: 'cancelled' },
+      { kind: 'gift_nudge', status: 'cancelled' },
+    ])
+
+    await db.update(pixPayments).set({ refundedAt: T }).where(eq(pixPayments.guestId, g.id))
+    expect(await guestHasGiven(g.id)).toBe(false)
+    await afterPixRefunded(g.id, new Date(T.getTime() + 120_000))
+    expect(await giftRows(g.id)).toEqual([
+      { kind: 'gift_list', status: 'cancelled' },
+      { kind: 'gift_nudge', status: 'scheduled' },
+    ])
+    await expect(afterPixRefunded('00000000-0000-4000-8000-000000000000')).resolves.toBeUndefined()
   })
 })

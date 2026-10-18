@@ -75,7 +75,8 @@ function asaasPayment(status: string, value: number, externalReference: string |
 
 function deps(now = NOW, fetchImpl = asaasFetch()) {
   const afterPaid = vi.fn(async () => {})
-  return { afterPaid, now: () => now, config, fetch: fetchImpl }
+  const afterRefund = vi.fn(async () => {})
+  return { afterPaid, afterRefund, now: () => now, config, fetch: fetchImpl }
 }
 
 describe('parseAsaasWebhook', () => {
@@ -204,6 +205,43 @@ describe('processAsaasWebhook', () => {
     await processAsaasWebhook(event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! }), deps(muchLater, f))
     expect((await payment(row.id)).refundedAt).toEqual(LATER)
     expect(f).not.toHaveBeenCalled()
+  })
+
+  it('a new refund after paid re-syncs the guest gift messages once, after commit', async () => {
+    const { guest, row } = await makePayment('paid')
+    vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const refunded = asaasFetch(async (id) => asaasPayment('REFUNDED', 100, await refOf(id)))
+    const d = deps(LATER, refunded)
+    d.afterRefund.mockImplementation(async () => {
+      // runs after commit: the refund is already visible outside the transaction
+      expect((await payment(row.id)).refundedAt).toEqual(LATER)
+    })
+    await processAsaasWebhook(event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! }), d)
+    expect(d.afterRefund).toHaveBeenCalledTimes(1)
+    expect(d.afterRefund).toHaveBeenCalledWith(guest.id)
+    expect(d.afterPaid).not.toHaveBeenCalled()
+    // a redundant refund event (already refunded) does not re-sync again
+    const d2 = deps(new Date(LATER.getTime() + 60_000), asaasFetch())
+    await processAsaasWebhook(event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! }), d2)
+    expect(d2.afterRefund).not.toHaveBeenCalled()
+  })
+
+  it('a failing refund re-sync is logged by ids only and never fails the webhook', async () => {
+    const { guest, row } = await makePayment('paid')
+    vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => {})
+    const refunded = asaasFetch(async (id) => asaasPayment('REFUNDED', 100, await refOf(id)))
+    const d = deps(LATER, refunded)
+    const boom = new Error('insert into x values (+5595991234567)')
+    d.afterRefund.mockRejectedValue(boom)
+    expect(await processAsaasWebhook(event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! }), d)).toEqual({
+      duplicate: false,
+      result: 'refund_after_paid',
+    })
+    expect(error).toHaveBeenCalledWith(
+      { event: 'pix.after_refund_failed', paymentId: row.id, guestId: guest.id, err: boom },
+      expect.any(String),
+    )
   })
 
   it('REFUND_REQUESTED at Asaas also confirms a refund after paid', async () => {
