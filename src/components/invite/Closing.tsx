@@ -26,10 +26,11 @@ export function Closing({ message, contactInfo }: { message: string | null; cont
       className="relative flex min-h-dvh flex-col overflow-hidden bg-burgundy pt-10 pb-[70px] font-display text-paper"
     >
       <div
+        data-testid="giant-numeral"
         aria-hidden="true"
         className="pointer-events-none absolute right-[-30px] bottom-[-62px] left-[-30px] text-center text-[300px] leading-[.8] tracking-[-.05em] text-[#3A1824] italic"
       >
-
+        15
       </div>
 
       <ClosingBand name={EVENT.celebrant} dateLabel="27.12.2026" />

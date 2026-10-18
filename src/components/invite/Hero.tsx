@@ -27,11 +27,12 @@ export function Hero({ name, visual = 'lily' }: { name: string; visual?: 'lily' 
       className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-blush px-8 pb-[120px] font-display text-wine"
     >
       <div
+        data-testid="giant-numeral"
         aria-hidden="true"
         className="stage-fade pointer-events-none absolute top-16 right-[-58px] text-[330px] leading-[.8] tracking-[-.05em] text-petal italic"
         style={{ ...delay(0.1), animationDuration: '1.4s' }}
       >
-
+        15
       </div>
 
       <DrawnFrame />

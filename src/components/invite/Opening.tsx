@@ -134,10 +134,11 @@ export function Opening({
                 <span className="mt-[10px] ml-[30px] text-[12px] tracking-[.32em] text-gold-text">15 ANOS</span>
               </div>
               <div
+                data-testid="giant-numeral"
                 aria-hidden="true"
                 className="absolute bottom-[48px] left-[28px] text-[150px] leading-[.8] tracking-[-.04em] text-petal italic"
               >
-
+                15
               </div>
             </div>
 
