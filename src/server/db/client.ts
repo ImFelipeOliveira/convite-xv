@@ -1,6 +1,10 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
+import { installQueryErrorScrubbing } from './query-errors'
 import * as schema from './schema'
+
+// query errors never carry SQL parameter values (tokens, phones) into logs, not even Next's own
+installQueryErrorScrubbing()
 
 const url =
   process.env.NODE_ENV === 'test' ? process.env.DATABASE_URL_TEST : process.env.DATABASE_URL
