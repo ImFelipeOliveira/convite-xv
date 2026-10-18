@@ -164,14 +164,22 @@ describe('request shape', () => {
   })
 
   it('reads a payment status and value (in cents)', async () => {
-    const f = vi.fn<typeof fetch>().mockResolvedValue(json({ id: 'pay_1', status: 'RECEIVED', value: 100.5 }))
-    expect(await getPayment(cfg, 'pay_1', f)).toEqual({ ok: true, value: { status: 'paid', valueCents: 10050 } })
+    const f = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ id: 'pay_1', status: 'REFUND_REQUESTED', value: 100.5, externalReference: 'ref-1' }))
+    expect(await getPayment(cfg, 'pay_1', f)).toEqual({
+      ok: true,
+      value: { status: 'cancelled', asaasStatus: 'REFUND_REQUESTED', valueCents: 10050, externalReference: 'ref-1' },
+    })
     expect(f.mock.calls[0][0]).toBe('http://asaas.test/v3/payments/pay_1')
   })
 
   it('a missing or invalid value reads as null', async () => {
     const f = vi.fn<typeof fetch>().mockResolvedValue(json({ id: 'pay_1', status: 'RECEIVED', value: '100' }))
-    expect(await getPayment(cfg, 'pay_1', f)).toEqual({ ok: true, value: { status: 'paid', valueCents: null } })
+    expect(await getPayment(cfg, 'pay_1', f)).toEqual({
+      ok: true,
+      value: { status: 'paid', asaasStatus: 'RECEIVED', valueCents: null, externalReference: null },
+    })
   })
 
   it('honours a shorter timeout', async () => {

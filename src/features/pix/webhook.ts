@@ -66,7 +66,9 @@ const TARGET: Record<string, 'paid' | 'expired' | 'cancelled'> = {
   PAYMENT_REFUNDED: 'cancelled',
   PAYMENT_PARTIALLY_REFUNDED: 'cancelled',
 }
-const REFUNDS = new Set(['PAYMENT_REFUNDED', 'PAYMENT_PARTIALLY_REFUNDED'])
+const PARTIAL_REFUND = 'PAYMENT_PARTIALLY_REFUNDED'
+/** Asaas statuses that confirm a full refund of a paid charge. */
+const REFUND_STATUSES = new Set(['REFUNDED', 'REFUND_REQUESTED'])
 
 export type WebhookResult =
   | 'paid'
@@ -74,8 +76,10 @@ export type WebhookResult =
   | 'cancelled'
   /** already in a final state this event may not change (paid is never downgraded) */
   | 'unchanged'
-  /** a refund of a paid Pix: stays paid, logged for the admin */
+  /** a refund of a paid Pix: stays paid, refunded_at set, logged for the admin */
   | 'refund_after_paid'
+  /** a partial refund: nothing changes, logged only */
+  | 'partial_refund'
   | 'unknown_payment'
   /** an event we do not act on */
   | 'ignored'
@@ -104,10 +108,11 @@ type Applied = { result: WebhookResult; paymentId: string | null; guestId: strin
 
 /**
  * Applies one Asaas event. Paid is never downgraded: OVERDUE/DELETED after paid are ignored, and a refund
- * after paid keeps `paid`, records `refunded_at` (the admin page shows "Estornado" and leaves it out of the
- * received total) and logs `pix.refund_after_paid`. A payment received after we expired/cancelled it turns
- * `paid` (the money arrived). A paid event is confirmed with Asaas first (status paid and value equal to
- * our amount; otherwise `ignored`, logged `pix.webhook_unconfirmed`, not recorded so a redelivery is looked
+ * after paid (confirmed with Asaas: REFUNDED/REFUND_REQUESTED, our externalReference) keeps `paid`, records
+ * `refunded_at` (the admin page shows "Estornado" and leaves it out of the received total) and logs
+ * `pix.refund_after_paid`; a partial refund only logs `pix.partial_refund`. A payment received after we expired/cancelled it turns
+ * `paid` (the money arrived). A paid event is confirmed with Asaas first (status paid, value equal to our
+ * amount, externalReference our id; otherwise `ignored`, logged `pix.webhook_unconfirmed`, not recorded so a redelivery is looked
  * at again). On a new `paid`, the after-paid hook runs once, after commit, best effort. An unknown
  * payment's event stays unprocessed (`processed_at` null). Throws on infrastructure failures and when
  * Asaas cannot confirm (the caller answers 500 so Asaas retries).
@@ -126,20 +131,37 @@ export async function processAsaasWebhook(
       'pix webhook received',
     )
 
-  // Confirm a paid event with Asaas BEFORE the transaction (never hold a connection while Asaas answers).
+  // Confirm a paid event, or a full refund of a paid charge, with Asaas BEFORE the transaction (never hold
+  // a connection while Asaas answers). Asaas must report the status, our value (paid) and our id as
+  // externalReference.
   let confirmedId: string | null = null
-  if (target === 'paid' && evt.payment) {
+  const check = target === 'paid' ? 'paid' : evt.event === 'PAYMENT_REFUNDED' ? 'refund' : null
+  if (check && evt.payment) {
     if (await isWebhookEventProcessed(evt.id)) {
       received('duplicate', null)
       return { duplicate: true, result: 'duplicate' }
     }
     const row = await findPaymentForWebhook(evt.payment.id, evt.payment.externalReference)
-    if (row && row.status !== 'paid') {
+    const changes = row && (check === 'paid' ? row.status !== 'paid' : row.status === 'paid' && !row.refundedAt)
+    if (row && changes) {
       const config = deps.config === undefined ? readAsaasConfig() : deps.config
       const remote = await getPayment(config, evt.payment.id, deps.fetch ?? fetch, { timeoutMs: CONFIRM_TIMEOUT_MS })
       if (!remote.ok) throw new WebhookConfirmError(remote.error)
+      const r = remote.value
       const reason =
-        remote.value.status !== 'paid' ? 'status' : remote.value.valueCents !== row.amountCents ? 'value' : null
+        check === 'paid'
+          ? r.status !== 'paid'
+            ? 'status'
+            : r.valueCents !== row.amountCents
+              ? 'value'
+              : r.externalReference !== row.id
+                ? 'reference'
+                : null
+          : !REFUND_STATUSES.has(r.asaasStatus)
+            ? 'status'
+            : r.externalReference !== row.id
+              ? 'reference'
+              : null
       if (reason) {
         logger.warn(
           { event: 'pix.webhook_unconfirmed', eventId: evt.id, type: evt.event, asaasPaymentId, paymentId: row.id, reason },
@@ -169,9 +191,14 @@ export async function processAsaasWebhook(
         const paid = await markPaymentPaid(row.id, now, tx)
         return { result: paid ? 'paid' : 'unchanged', ...ids }
       }
-      if (row.status === 'paid' && REFUNDS.has(evt.event)) {
-        // stays paid; the admin sees "Estornado" (refunded_at)
-        await markPaymentRefunded(row.id, now, tx)
+      // a partial refund changes nothing (the guest still gave most of it): logged only
+      if (evt.event === PARTIAL_REFUND) return { result: 'partial_refund', ...ids }
+      if (row.status === 'paid' && evt.event === 'PAYMENT_REFUNDED') {
+        if (!row.refundedAt) {
+          if (row.id !== confirmedId) throw new WebhookConfirmError('changed_during_confirmation')
+          // stays paid; the admin sees "Estornado" (refunded_at)
+          await markPaymentRefunded(row.id, now, tx)
+        }
         return { result: 'refund_after_paid', ...ids }
       }
       // only a still-pending charge expires or is cancelled (never overwrites paid or another final status)
@@ -190,6 +217,12 @@ export async function processAsaasWebhook(
     logger.warn(
       { event: 'pix.webhook_unknown_payment', eventId: evt.id, type: evt.event, asaasPaymentId },
       'pix webhook for an unknown payment',
+    )
+  }
+  if (result === 'partial_refund') {
+    logger.warn(
+      { event: 'pix.partial_refund', eventId: evt.id, type: evt.event, asaasPaymentId, paymentId },
+      'pix partially refunded: nothing changed',
     )
   }
   if (result === 'refund_after_paid') {

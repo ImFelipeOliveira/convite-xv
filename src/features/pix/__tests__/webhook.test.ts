@@ -47,16 +47,27 @@ async function payment(id: string) {
 
 const config = { apiKey: 'k', baseUrl: 'http://asaas.test/v3', webhookToken: null }
 
-/** Fake Asaas GET /payments/:id: confirms every payment as RECEIVED for R$ 100,00 unless told otherwise. */
-function asaasFetch(answer: (id: string) => Response | Promise<Response> = () => asaasPayment('RECEIVED', 100)) {
+/** Our payment id for an Asaas id (what Asaas returns as externalReference), or null. */
+async function refOf(asaasId: string): Promise<string | null> {
+  const [row] = await db.select({ id: pixPayments.id }).from(pixPayments).where(eq(pixPayments.asaasPaymentId, asaasId))
+  return row?.id ?? null
+}
+
+/**
+ * Fake Asaas GET /payments/:id: confirms every payment as RECEIVED for R$ 100,00, with our id as
+ * externalReference, unless told otherwise.
+ */
+function asaasFetch(
+  answer: (id: string) => Response | Promise<Response> = async (id) => asaasPayment('RECEIVED', 100, await refOf(id)),
+) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const id = decodeURIComponent(String(input).replace(`${config.baseUrl}/payments/`, ''))
     return answer(id)
   }) as unknown as typeof fetch & ReturnType<typeof vi.fn>
 }
 
-function asaasPayment(status: string, value: number, httpStatus = 200) {
-  return new Response(JSON.stringify({ object: 'payment', status, value }), {
+function asaasPayment(status: string, value: number, externalReference: string | null = null, httpStatus = 200) {
+  return new Response(JSON.stringify({ object: 'payment', status, value, externalReference }), {
     status: httpStatus,
     headers: { 'content-type': 'application/json' },
   })
@@ -174,10 +185,11 @@ describe('processAsaasWebhook', () => {
     expect((await payment(row.id)).status).toBe('cancelled')
   })
 
-  it('REFUNDED after paid keeps paid and logs pix.refund_after_paid for the admin', async () => {
+  it('REFUNDED after paid (confirmed by Asaas) keeps paid, sets refunded_at and logs pix.refund_after_paid', async () => {
     const { row } = await makePayment('paid')
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-    expect(await processAsaasWebhook(event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! }), deps(LATER))).toEqual({
+    const refunded = asaasFetch(async (id) => asaasPayment('REFUNDED', 100, await refOf(id)))
+    expect(await processAsaasWebhook(event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! }), deps(LATER, refunded))).toEqual({
       duplicate: false,
       result: 'refund_after_paid',
     })
@@ -186,10 +198,54 @@ describe('processAsaasWebhook', () => {
       expect.objectContaining({ event: 'pix.refund_after_paid', paymentId: row.id }),
       expect.any(String),
     )
-    // a partial refund afterwards keeps the first refund time
+    // a later refund event keeps the first refund time (and needs no new confirmation)
     const muchLater = new Date(LATER.getTime() + 60_000)
-    await processAsaasWebhook(event('PAYMENT_PARTIALLY_REFUNDED', { id: row.asaasPaymentId! }), deps(muchLater))
+    const f = asaasFetch()
+    await processAsaasWebhook(event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! }), deps(muchLater, f))
     expect((await payment(row.id)).refundedAt).toEqual(LATER)
+    expect(f).not.toHaveBeenCalled()
+  })
+
+  it('REFUND_REQUESTED at Asaas also confirms a refund after paid', async () => {
+    const { row } = await makePayment('paid')
+    vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const d = deps(LATER, asaasFetch(async (id) => asaasPayment('REFUND_REQUESTED', 100, await refOf(id))))
+    await processAsaasWebhook(event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! }), d)
+    expect((await payment(row.id)).refundedAt).toEqual(LATER)
+  })
+
+  it.each([
+    ['not refunded at Asaas', 'RECEIVED', 'own'],
+    ['another externalReference', 'REFUNDED', 'other'],
+  ])('a refund after paid that Asaas does not confirm (%s) → ignored, refunded_at unchanged, not recorded', async (_, status, ref) => {
+    const { row } = await makePayment('paid')
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const other = '00000000-0000-4000-8000-000000000000'
+    const d = deps(LATER, asaasFetch(() => asaasPayment(status, 100, ref === 'own' ? row.id : other)))
+    const e = event('PAYMENT_REFUNDED', { id: row.asaasPaymentId! })
+    expect(await processAsaasWebhook(e, d)).toEqual({ duplicate: false, result: 'ignored' })
+    expect(await payment(row.id)).toMatchObject({ status: 'paid', refundedAt: null })
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'pix.webhook_unconfirmed', paymentId: row.id, reason: ref === 'own' ? 'status' : 'reference' }),
+      expect.any(String),
+    )
+    expect(await db.select().from(webhookEvents)).toHaveLength(0)
+  })
+
+  it('PARTIALLY_REFUNDED only logs pix.partial_refund (no refunded_at, no Asaas call) and is processed', async () => {
+    const { row } = await makePayment('paid')
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const f = asaasFetch()
+    const e = event('PAYMENT_PARTIALLY_REFUNDED', { id: row.asaasPaymentId! })
+    expect(await processAsaasWebhook(e, deps(LATER, f))).toEqual({ duplicate: false, result: 'partial_refund' })
+    expect(await payment(row.id)).toMatchObject({ status: 'paid', refundedAt: null })
+    expect(warn).toHaveBeenCalledWith(
+      { event: 'pix.partial_refund', eventId: e.id, type: 'PAYMENT_PARTIALLY_REFUNDED', asaasPaymentId: row.asaasPaymentId, paymentId: row.id },
+      expect.any(String),
+    )
+    expect(f).not.toHaveBeenCalled()
+    const [stored] = await db.select().from(webhookEvents).where(eq(webhookEvents.id, e.id))
+    expect(stored.processedAt).toEqual(LATER)
   })
 
   it('a payment received after we expired it turns paid (the money arrived)', async () => {
@@ -214,7 +270,7 @@ describe('processAsaasWebhook', () => {
 
   it('finds the payment by externalReference (our id) when the Asaas id is unknown', async () => {
     const { row } = await makePayment('pending', { asaasPaymentId: null })
-    const d = deps()
+    const d = deps(NOW, asaasFetch(() => asaasPayment('RECEIVED', 100, row.id)))
     expect(
       await processAsaasWebhook(event('PAYMENT_RECEIVED', { id: 'pay_other', externalReference: row.id }), d),
     ).toEqual({ duplicate: false, result: 'paid' })
@@ -330,6 +386,21 @@ describe('processAsaasWebhook: paid events are confirmed with Asaas', () => {
     expect(await processAsaasWebhook(e, deps(LATER))).toEqual({ duplicate: false, result: 'paid' })
   })
 
+  it('another externalReference at Asaas → ignored, stays pending', async () => {
+    const { row } = await makePayment()
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const d = deps(LATER, asaasFetch(() => asaasPayment('RECEIVED', 100, '00000000-0000-4000-8000-000000000000')))
+    expect(await processAsaasWebhook(event('PAYMENT_RECEIVED', { id: row.asaasPaymentId! }), d)).toEqual({
+      duplicate: false,
+      result: 'ignored',
+    })
+    expect((await payment(row.id)).status).toBe('pending')
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'pix.webhook_unconfirmed', reason: 'reference' }),
+      expect.any(String),
+    )
+  })
+
   it('a different value at Asaas → ignored, stays pending', async () => {
     const { row } = await makePayment()
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
@@ -347,7 +418,7 @@ describe('processAsaasWebhook: paid events are confirmed with Asaas', () => {
 
   it('Asaas unreachable → throws (the route answers 500 so Asaas retries); nothing changed or recorded', async () => {
     const { row } = await makePayment()
-    const d = deps(LATER, asaasFetch(() => asaasPayment('x', 0, 500)))
+    const d = deps(LATER, asaasFetch(() => asaasPayment('x', 0, null, 500)))
     await expect(processAsaasWebhook(event('PAYMENT_RECEIVED', { id: row.asaasPaymentId! }), d)).rejects.toThrow()
     expect((await payment(row.id)).status).toBe('pending')
     expect(await db.select().from(webhookEvents)).toHaveLength(0)

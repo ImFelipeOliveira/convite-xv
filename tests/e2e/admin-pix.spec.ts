@@ -113,7 +113,10 @@ test.describe('admin pix', () => {
     await page.goto('/admin/settings')
     const form = page.getByRole('form', { name: 'Configurações' })
     await expect(form.getByLabel('Nome de quem recebe')).toHaveValue('Felipe Oliveira Souza')
+    await expect(form.getByText('Aparece como “Felipe Oliveira Souza · Asaas”', { exact: false })).toBeVisible()
     await form.getByLabel('Nome de quem recebe').fill('Maria E2E Souza')
+    // the preview follows the typing
+    await expect(form.getByText('Aparece como “Maria E2E Souza · Asaas”', { exact: false })).toBeVisible()
     await form.getByLabel('Mensagem de agradecimento do Pix').fill('Obrigada, de coração! E2E')
     await form.getByRole('button', { name: 'Salvar' }).click()
     await expect(page.getByRole('status', { name: 'Notificações' })).toContainText('Configurações salvas.')

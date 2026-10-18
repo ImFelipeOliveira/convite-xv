@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect } from 'react'
+import { useActionState, useEffect, useState } from 'react'
 import { saveSettingsAction, type SettingsFormState } from '@/features/settings/actions'
 import { PIX_THANKS_MESSAGE_DEFAULT } from '@/features/pix/defaults'
 import { inputClass } from './styles'
@@ -58,6 +58,8 @@ export function SettingsForm({ initial }: Props) {
   const failed = state && !state.ok ? state : null
   const values = failed?.values ?? initial
   const errors = failed?.fieldErrors ?? {}
+  // live "{nome} · Asaas" preview while the admin types (the input itself stays uncontrolled)
+  const [receiverPreview, setReceiverPreview] = useState(values.pixReceiverName)
   const a11y = (key: keyof Values) => ({
     id: `settings-${key}`,
     'aria-invalid': !!errors[key],
@@ -264,13 +266,14 @@ export function SettingsForm({ initial }: Props) {
             label="Nome de quem recebe"
             required
             error={errors.pixReceiverName}
-            helper={<>Aparece como “{values.pixReceiverName || 'Nome'} · Asaas”. Use o nome do titular da conta Asaas; até 80 caracteres.</>}
+            helper={<>Aparece como “{receiverPreview.trim() || 'Nome'} · Asaas”. Use o nome do titular da conta Asaas; até 80 caracteres.</>}
           >
             <input
               name="pixReceiverName"
               maxLength={80}
               required
               defaultValue={values.pixReceiverName}
+              onChange={(e) => setReceiverPreview(e.target.value)}
               {...a11y('pixReceiverName')}
               className={inputClass}
             />

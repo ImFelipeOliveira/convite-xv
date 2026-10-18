@@ -141,20 +141,38 @@ function cents(body: unknown, key: string): number | null {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v * 100) : null
 }
 
-/** A payment's status (mapped to ours) and value in cents (null when Asaas sent none). */
+export type AsaasPayment = {
+  /** mapped to ours */
+  status: PixStatus
+  /** as Asaas sent it (e.g. REFUNDED vs REFUND_REQUESTED, both `cancelled` for us) */
+  asaasStatus: string
+  /** null when Asaas sent none */
+  valueCents: number | null
+  /** our payment id, set when the charge was created */
+  externalReference: string | null
+}
+
+/** A payment's status, value in cents and externalReference. */
 export async function getPayment(
   cfg: AsaasConfig | null,
   paymentId: string,
   fetchImpl: FetchImpl = fetch,
   opts: { timeoutMs?: number } = {},
-): Promise<AsaasResult<{ status: PixStatus; valueCents: number | null }>> {
+): Promise<AsaasResult<AsaasPayment>> {
   if (!cfg) return fail('not_configured')
   const r = await call(cfg, 'GET', paymentPath(paymentId), undefined, fetchImpl, opts.timeoutMs)
   if (!r.ok) return r
   const status = str(r.value, 'status')
-  return status
-    ? { ok: true, value: { status: mapAsaasStatus(status), valueCents: cents(r.value, 'value') } }
-    : fail('provider_error')
+  if (!status) return fail('provider_error')
+  return {
+    ok: true,
+    value: {
+      status: mapAsaasStatus(status),
+      asaasStatus: status,
+      valueCents: cents(r.value, 'value'),
+      externalReference: str(r.value, 'externalReference'),
+    },
+  }
 }
 
 /** Removes a charge (used when we could not complete it on our side, so no orphan stays payable). */

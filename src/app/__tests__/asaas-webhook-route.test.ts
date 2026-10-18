@@ -45,13 +45,15 @@ async function status(id: string) {
 }
 
 // the webhook confirms paid events with Asaas (GET /payments/:id): a stubbed Asaas answers RECEIVED, R$ 100
-const asaasGet = vi.fn(
-  async () =>
-    new Response(JSON.stringify({ object: 'payment', status: 'RECEIVED', value: 100 }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }),
-)
+// with our payment id as externalReference
+const asaasGet = vi.fn(async (input: RequestInfo | URL) => {
+  const asaasId = decodeURIComponent(String(input).split('/payments/')[1] ?? '')
+  const [row] = await db.select({ id: pixPayments.id }).from(pixPayments).where(eq(pixPayments.asaasPaymentId, asaasId))
+  return new Response(JSON.stringify({ object: 'payment', status: 'RECEIVED', value: 100, externalReference: row?.id ?? null }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+})
 
 beforeEach(() => {
   vi.stubEnv('ASAAS_WEBHOOK_TOKEN', TOKEN)

@@ -231,7 +231,9 @@ export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: (
       const id = decodeURIComponent(m[1])
       const charge = charges.find((c) => c.id === id)
       if (!charge) return json(res, 404, { errors: [{ code: 'not_found' }] })
-      if (method === 'GET') return json(res, 200, { id, status: charge.status, value: charge.value })
+      if (method === 'GET') {
+        return json(res, 200, { id, status: charge.status, value: charge.value, externalReference: charge.externalReference })
+      }
       if (method === 'DELETE') {
         charge.status = 'DELETED'
         return json(res, 200, { deleted: true, id })
