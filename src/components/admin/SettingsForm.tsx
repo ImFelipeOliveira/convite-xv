@@ -14,6 +14,9 @@ type Values = {
   whatsappInviteTemplate: string
   reminderD7Text: string
   reminderD1Text: string
+  rsvpPreferredDate: string
+  rsvpNudgeText: string
+  rsvpFinalText: string
 }
 
 type Props = { initial: Values }
@@ -79,6 +82,21 @@ export function SettingsForm({ initial }: Props) {
               max="2026-12-26"
               defaultValue={values.rsvpDeadline}
               {...a11y('rsvpDeadline')}
+              className={`${inputClass} max-w-56`}
+            />
+          </Field>
+          <Field
+            id="settings-rsvpPreferredDate"
+            label="Confirmar de preferência até"
+            error={errors.rsvpPreferredDate}
+            helper="Opcional. Data sugerida no convite e no lembrete de confirmação; até o prazo para confirmar."
+          >
+            <input
+              name="rsvpPreferredDate"
+              type="date"
+              max="2026-12-26"
+              defaultValue={values.rsvpPreferredDate}
+              {...a11y('rsvpPreferredDate')}
               className={`${inputClass} max-w-56`}
             />
           </Field>
@@ -181,6 +199,55 @@ export function SettingsForm({ initial }: Props) {
               required
               defaultValue={values.reminderD1Text}
               {...a11y('reminderD1Text')}
+              className={`${inputClass} resize-y leading-relaxed`}
+            />
+          </Field>
+        </Section>
+        <Section
+          title="Lembretes de confirmação"
+          description="Enviados pelo WhatsApp a quem recebeu o convite e ainda não respondeu: 5 dias depois do convite e em 10/12, às 10h (horário de Boa Vista)."
+        >
+          <Field
+            id="settings-rsvpNudgeText"
+            label="Lembrete de confirmação"
+            required
+            error={errors.rsvpNudgeText}
+            helper={
+              <>
+                Sai 5 dias depois do convite. Use <code>{'{nome}'}</code>, <code>{'{preferencia}'}</code> (data de
+                preferência) e <code>{'{link}'}</code>; até 600 caracteres.
+              </>
+            }
+          >
+            <textarea
+              name="rsvpNudgeText"
+              rows={4}
+              maxLength={600}
+              required
+              defaultValue={values.rsvpNudgeText}
+              {...a11y('rsvpNudgeText')}
+              className={`${inputClass} resize-y leading-relaxed`}
+            />
+          </Field>
+          <Field
+            id="settings-rsvpFinalText"
+            label="Aviso final de confirmação"
+            required
+            error={errors.rsvpFinalText}
+            helper={
+              <>
+                Sai na quinta, 10/12, às 10h. Use <code>{'{nome}'}</code>, <code>{'{prazo}'}</code> (prazo para
+                confirmar) e <code>{'{link}'}</code>; até 600 caracteres.
+              </>
+            }
+          >
+            <textarea
+              name="rsvpFinalText"
+              rows={4}
+              maxLength={600}
+              required
+              defaultValue={values.rsvpFinalText}
+              {...a11y('rsvpFinalText')}
               className={`${inputClass} resize-y leading-relaxed`}
             />
           </Field>

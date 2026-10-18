@@ -23,7 +23,18 @@ export const REMINDER_D7_TEXT_DEFAULT =
 export const REMINDER_D1_TEXT_DEFAULT =
   'Olá, {nome}! É amanhã: 15 anos da Isabella, domingo às 10h no Sítio Lua Azul. Como chegar e todos os detalhes: {link}'
 
-export const dispatchKind = pgEnum('dispatch_kind', ['invite', 'reminder_d7', 'reminder_d1'])
+export const RSVP_NUDGE_TEXT_DEFAULT =
+  'Oi, {nome}! Ainda não recebemos sua confirmação para os 15 anos da Isabella. Se puder, responda até {preferencia} pelo seu convite: {link}'
+export const RSVP_FINAL_TEXT_DEFAULT =
+  'Oi, {nome}! O prazo para confirmar presença nos 15 anos da Isabella termina em {prazo}. Responda pelo seu convite: {link}'
+
+export const dispatchKind = pgEnum('dispatch_kind', [
+  'invite',
+  'reminder_d7',
+  'reminder_d1',
+  'rsvp_nudge',
+  'rsvp_final',
+])
 export const dispatchStatus = pgEnum('dispatch_status', [
   'scheduled',
   'sending',
@@ -73,6 +84,9 @@ export const settings = pgTable(
       .default(WHATSAPP_INVITE_TEMPLATE_DEFAULT),
     reminderD7Text: text('reminder_d7_text').notNull().default(REMINDER_D7_TEXT_DEFAULT),
     reminderD1Text: text('reminder_d1_text').notNull().default(REMINDER_D1_TEXT_DEFAULT),
+    rsvpPreferredDate: date('rsvp_preferred_date').default('2026-11-21'),
+    rsvpNudgeText: text('rsvp_nudge_text').notNull().default(RSVP_NUDGE_TEXT_DEFAULT),
+    rsvpFinalText: text('rsvp_final_text').notNull().default(RSVP_FINAL_TEXT_DEFAULT),
   },
   (t) => [check('settings_single_row', sql`${t.id} = 1`)],
 )

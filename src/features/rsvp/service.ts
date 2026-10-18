@@ -4,6 +4,8 @@ import { guests, type Guest } from '@/server/db/schema'
 import { findGuestByToken } from '@/features/guests/repo'
 import { normalizePhone } from '@/features/guests/phone'
 import { getSettings } from '@/features/settings/repo'
+import { syncRemindersForGuest } from '@/features/whatsapp/reminders'
+import { logger } from '@/lib/logger'
 import { isDeadlinePassed } from './deadline'
 import { rsvpSchema } from './schema'
 
@@ -48,5 +50,12 @@ export async function submitRsvp(input: unknown, now = new Date()): Promise<Rsvp
     })
     .where(eq(guests.id, guest.id))
     .returning()
+
+  // the answer is saved: a scheduling problem must not turn it into an error
+  try {
+    await syncRemindersForGuest(updated, now)
+  } catch (err) {
+    logger.error({ event: 'whatsapp.reminder_sync_failed', guestId: updated.id, err }, 'reminder sync failed')
+  }
   return { ok: true, guest: updated, phoneAdded: Boolean(phone) }
 }

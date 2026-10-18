@@ -1,12 +1,14 @@
-import { eq } from 'drizzle-orm'
-import { describe, expect, it, vi } from 'vitest'
+import { and, eq, ne } from 'drizzle-orm'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { inviteUrl } from '@/features/guests/whatsapp'
 import { db } from '@/server/db/client'
 import { admins, messageDispatches } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
 import type { EvolutionConfig } from '../config'
 import type { EvolutionResult, sendText } from '../evolution'
+import * as dispatches from '../dispatches'
 import { inviteErrorMessage, sendInvite } from '../invite'
+import { logger } from '@/lib/logger'
 
 const CFG: EvolutionConfig = { url: 'http://evolution.test', apiKey: 'k', instance: 'convite-xv' }
 const PHONE = '+5595991234567'
@@ -28,8 +30,19 @@ async function makeAdmin() {
   return a.id
 }
 
+/** Invite rows of a guest (a successful send also schedules the rsvp nudges). */
 async function rows(guestId: string) {
-  return db.select().from(messageDispatches).where(eq(messageDispatches.guestId, guestId))
+  return db
+    .select()
+    .from(messageDispatches)
+    .where(and(eq(messageDispatches.guestId, guestId), eq(messageDispatches.kind, 'invite')))
+}
+
+async function nudgeRows(guestId: string) {
+  return db
+    .select()
+    .from(messageDispatches)
+    .where(and(eq(messageDispatches.guestId, guestId), ne(messageDispatches.kind, 'invite')))
 }
 
 describe('sendInvite', () => {
@@ -130,6 +143,62 @@ describe('sendInvite', () => {
     expect(results.filter((r) => r.ok)).toHaveLength(1)
     expect(results).toContainEqual({ ok: false, error: 'blocked' })
     expect(d.sendText).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('sendInvite rsvp nudges', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('schedules the nudge exactly 5 days after sent_at and the final notice for a pending guest', async () => {
+    const g = await makeGuest({ phone: PHONE })
+    const r = await sendInvite(g.id, await makeAdmin(), deps())
+    if (!r.ok) throw new Error('send failed')
+    const [invite] = await rows(g.id)
+    const nudges = await nudgeRows(g.id)
+    const byKind = Object.fromEntries(nudges.map((n) => [n.kind, n]))
+    expect(nudges).toHaveLength(2)
+    expect(byKind.rsvp_nudge.status).toBe('scheduled')
+    expect(byKind.rsvp_nudge.scheduledFor?.getTime()).toBe(invite.sentAt!.getTime() + 5 * 24 * 60 * 60 * 1000)
+    expect(byKind.rsvp_final.scheduledFor?.toISOString()).toBe('2026-12-10T14:00:00.000Z')
+  })
+
+  it('schedules no nudge for a guest who already answered', async () => {
+    const g = await makeGuest({ phone: PHONE, rsvpStatus: 'no' })
+    expect((await sendInvite(g.id, await makeAdmin(), deps())).ok).toBe(true)
+    expect(await nudgeRows(g.id)).toHaveLength(0)
+  })
+
+  it('schedules nothing when the send fails', async () => {
+    const g = await makeGuest({ phone: PHONE })
+    await sendInvite(g.id, await makeAdmin(), deps({ ok: false, error: 'not_connected' }))
+    expect(await nudgeRows(g.id)).toHaveLength(0)
+  })
+
+  it('a resend keeps a single nudge', async () => {
+    const g = await makeGuest({ phone: PHONE })
+    const adminId = await makeAdmin()
+    expect((await sendInvite(g.id, adminId, deps())).ok).toBe(true)
+    // step out of the 60 s resend window
+    await db
+      .update(messageDispatches)
+      .set({ sentAt: new Date(Date.now() - 120_000) })
+      .where(eq(messageDispatches.guestId, g.id))
+    expect((await sendInvite(g.id, adminId, deps())).ok).toBe(true)
+    expect(await rows(g.id)).toHaveLength(2)
+    expect((await nudgeRows(g.id)).filter((n) => n.kind === 'rsvp_nudge')).toHaveLength(1)
+  })
+
+  it('a scheduling failure never fails the send', async () => {
+    vi.spyOn(dispatches, 'upsertReminder').mockRejectedValue(new Error('db down'))
+    const log = vi.spyOn(logger, 'error').mockImplementation(() => {})
+    const g = await makeGuest({ phone: PHONE })
+    expect((await sendInvite(g.id, await makeAdmin(), deps())).ok).toBe(true)
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'whatsapp.reminder_sync_failed', guestId: g.id, err: expect.any(Error) }),
+      expect.any(String),
+    )
   })
 })
 

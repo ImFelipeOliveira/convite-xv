@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from '@/server/db/client'
-import { guests, settings } from '@/server/db/schema'
+import { guests, messageDispatches, settings } from '@/server/db/schema'
+import * as dispatches from '@/features/whatsapp/dispatches'
+import { scheduleRsvpNudges } from '@/features/whatsapp/reminders'
+import { logger } from '@/lib/logger'
 import { makeGuest } from '../../../../tests/helpers/db'
 import { submitRsvp } from '../service'
 
@@ -128,5 +131,72 @@ describe('submitRsvp', () => {
       NOW,
     )
     expect(r).toEqual({ ok: false, error: 'invalid' })
+  })
+
+  describe('reminders', () => {
+    const PHONE = '+5595991234567'
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    async function dispatchRows(guestId: string) {
+      return db.select().from(messageDispatches).where(eq(messageDispatches.guestId, guestId))
+    }
+
+    it('yes → no → yes ends with exactly two scheduled reminders', async () => {
+      const g = await makeGuest({ phone: PHONE })
+      await submitRsvp({ token: g.token, status: 'yes', plusOnes: 0 }, NOW)
+      await submitRsvp({ token: g.token, status: 'no' }, NOW)
+      await submitRsvp({ token: g.token, status: 'yes', plusOnes: 0 }, NOW)
+      const all = await dispatchRows(g.id)
+      expect(all).toHaveLength(2)
+      expect(all.every((r) => r.status === 'scheduled')).toBe(true)
+      expect(all.map((r) => r.scheduledFor?.toISOString()).sort()).toEqual([
+        '2026-12-20T14:00:00.000Z',
+        '2026-12-26T14:00:00.000Z',
+      ])
+    })
+
+    it('a no answer cancels the reminders', async () => {
+      const g = await makeGuest({ phone: PHONE })
+      await submitRsvp({ token: g.token, status: 'yes', plusOnes: 0 }, NOW)
+      await submitRsvp({ token: g.token, status: 'no' }, NOW)
+      const all = await dispatchRows(g.id)
+      expect(all).toHaveLength(2)
+      expect(all.every((r) => r.status === 'cancelled')).toBe(true)
+    })
+
+    it('schedules reminders for the phone given with the answer', async () => {
+      const g = await makeGuest({ phone: null })
+      await submitRsvp({ token: g.token, status: 'yes', plusOnes: 0, phone: '(95) 99123-4567' }, NOW)
+      expect((await dispatchRows(g.id)).filter((r) => r.status === 'scheduled')).toHaveLength(2)
+    })
+
+    it('any answer cancels the rsvp nudges', async () => {
+      for (const status of ['yes', 'no'] as const) {
+        const g = await makeGuest({ phone: PHONE })
+        await scheduleRsvpNudges(g, new Date('2026-10-20T12:00:00Z'), '2026-12-13')
+        await submitRsvp({ token: g.token, status, plusOnes: 0 }, NOW)
+        const nudges = (await dispatchRows(g.id)).filter(
+          (r) => r.kind === 'rsvp_nudge' || r.kind === 'rsvp_final',
+        )
+        expect(nudges).toHaveLength(2)
+        expect(nudges.every((r) => r.status === 'cancelled')).toBe(true)
+      }
+    })
+
+    it('still answers ok when scheduling throws, and logs it', async () => {
+      vi.spyOn(dispatches, 'upsertReminder').mockRejectedValue(new Error('db down'))
+      const log = vi.spyOn(logger, 'error').mockImplementation(() => {})
+      const g = await makeGuest({ phone: PHONE })
+      const r = await submitRsvp({ token: g.token, status: 'yes', plusOnes: 0 }, NOW)
+      expect(r.ok).toBe(true)
+      expect((await guestRow(g.id)).rsvpStatus).toBe('yes')
+      expect(log).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'whatsapp.reminder_sync_failed', guestId: g.id, err: expect.any(Error) }),
+        expect.any(String),
+      )
+    })
   })
 })

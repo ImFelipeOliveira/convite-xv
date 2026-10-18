@@ -23,6 +23,9 @@ export default async function SettingsPage() {
           whatsappInviteTemplate: s.whatsappInviteTemplate,
           reminderD7Text: s.reminderD7Text,
           reminderD1Text: s.reminderD1Text,
+          rsvpPreferredDate: s.rsvpPreferredDate ?? '',
+          rsvpNudgeText: s.rsvpNudgeText,
+          rsvpFinalText: s.rsvpFinalText,
         }}
       />
     </div>

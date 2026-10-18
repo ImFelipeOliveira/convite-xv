@@ -1,0 +1,3 @@
+ALTER TABLE "settings" ADD COLUMN "rsvp_preferred_date" date DEFAULT '2026-11-21';--> statement-breakpoint
+ALTER TABLE "settings" ADD COLUMN "rsvp_nudge_text" text DEFAULT 'Oi, {nome}! Ainda não recebemos sua confirmação para os 15 anos da Isabella. Se puder, responda até {preferencia} pelo seu convite: {link}' NOT NULL;--> statement-breakpoint
+ALTER TABLE "settings" ADD COLUMN "rsvp_final_text" text DEFAULT 'Oi, {nome}! O prazo para confirmar presença nos 15 anos da Isabella termina em {prazo}. Responda pelo seu convite: {link}' NOT NULL;

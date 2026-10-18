@@ -55,6 +55,7 @@ export function Rsvp({
   guest,
   token,
   deadline,
+  preferredDate,
   closed,
   contact,
 }: {
@@ -62,6 +63,8 @@ export function Rsvp({
   token: string
   /** 'YYYY-MM-DD' */
   deadline: string
+  /** 'YYYY-MM-DD' "answer preferably by" date, already filtered (set, not past, ≤ deadline) */
+  preferredDate: string | null
   closed: boolean
   contact: string | null
 }) {
@@ -96,6 +99,7 @@ export function Rsvp({
 
   const error: RsvpError | null = errorShown && state.result && !state.result.ok ? state.result.error : null
   const deadlineLabel = formatDayMonth(deadline)
+  const preferredLabel = preferredDate ? formatDayMonth(preferredDate) : null
 
   function edit() {
     setEditing(true)
@@ -150,6 +154,7 @@ export function Rsvp({
             <RsvpForm
               name={saved.name}
               deadlineLabel={deadlineLabel}
+              preferredLabel={preferredLabel}
               limit={saved.plusOnesLimit}
               askPhone={choice === 'yes' && !saved.hasPhone}
               choice={choice}
@@ -211,6 +216,7 @@ function ErrorIcon({ size }: { size: number }) {
 function RsvpForm({
   name,
   deadlineLabel,
+  preferredLabel,
   limit,
   askPhone,
   choice,
@@ -227,6 +233,7 @@ function RsvpForm({
 }: {
   name: string
   deadlineLabel: string
+  preferredLabel: string | null
   limit: number
   askPhone: boolean
   choice: Choice | null
@@ -249,7 +256,10 @@ function RsvpForm({
   return (
     <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
       <p className="mt-3 mb-0 text-[17px] leading-[1.5] text-deep-rose italic">
-        Olá, <span className="text-wine not-italic">{name}</span>. Este convite é só seu — responda até {deadlineLabel}.
+        Olá, <span className="text-wine not-italic">{name}</span>.{' '}
+        {preferredLabel
+          ? `Este convite é só seu — responda de preferência até ${preferredLabel}. O prazo final é ${deadlineLabel}.`
+          : `Este convite é só seu — responda até ${deadlineLabel}.`}
       </p>
 
       <fieldset className="m-0 mt-[22px] flex flex-col gap-[10px] border-0 p-0">

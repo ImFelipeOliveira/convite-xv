@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '@/server/db/client'
 import {
   guests,
@@ -8,7 +8,8 @@ import {
   type MessageDispatch,
 } from '@/server/db/schema'
 
-type ReminderKind = Exclude<DispatchKind, 'invite'>
+/** Every automatic (scheduled, one-per-guest) kind: confirmed-guest reminders and rsvp nudges. */
+export type ReminderKind = Exclude<DispatchKind, 'invite'>
 
 /**
  * Registers an invite send. The guest row lock serializes concurrent calls; blocked while a
@@ -117,6 +118,21 @@ export async function upsertReminder(
       set: { status: 'scheduled', scheduledFor, attempts: 0, errorCode: null, updatedAt: sql`now()` },
       setWhere: sql`${messageDispatches.status} in ('cancelled', 'scheduled')`,
     })
+}
+
+/** Cancels the guest's `scheduled` rows of the given kinds (sent/sending/failed rows are kept). */
+export async function cancelDispatches(guestId: string, kinds: readonly ReminderKind[]): Promise<void> {
+  if (kinds.length === 0) return
+  await db
+    .update(messageDispatches)
+    .set({ status: 'cancelled', updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(messageDispatches.guestId, guestId),
+        eq(messageDispatches.status, 'scheduled'),
+        inArray(messageDispatches.kind, [...kinds]),
+      ),
+    )
 }
 
 export async function cancelReminders(guestId: string): Promise<void> {

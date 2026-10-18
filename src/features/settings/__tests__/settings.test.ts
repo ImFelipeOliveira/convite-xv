@@ -10,6 +10,9 @@ const valid = {
   whatsappInviteTemplate: 'Oi! Seu convite: {link}',
   reminderD7Text: 'Falta uma semana! {link}',
   reminderD1Text: 'É amanhã! {link}',
+  rsvpPreferredDate: '2026-11-21',
+  rsvpNudgeText: 'Ainda não respondeu? {link}',
+  rsvpFinalText: 'Último dia! {link}',
 }
 const parse = (over: Record<string, string>) =>
   settingsFormSchema(TODAY).safeParse({ ...valid, ...over })
@@ -41,14 +44,14 @@ describe('settings form schema', () => {
 
   it('accepts the day before the party and today, rejects the past and bad dates', () => {
     expect(parse({ rsvpDeadline: '2026-12-26' }).success).toBe(true)
-    expect(parse({ rsvpDeadline: TODAY }).success).toBe(true)
+    expect(parse({ rsvpDeadline: TODAY, rsvpPreferredDate: '' }).success).toBe(true)
     expect(messages(parse({ rsvpDeadline: '2026-10-16' }))).toContain('O prazo não pode estar no passado.')
     expect(messages(parse({ rsvpDeadline: '2026-02-31' }))).toContain('Informe uma data válida.')
     expect(messages(parse({ rsvpDeadline: '' }))).toContain('Informe uma data válida.')
   })
 
   it('allows an unchanged deadline that is already in the past, but not a new past one', () => {
-    const past = { ...valid, rsvpDeadline: '2026-10-01', contactInfo: 'Novo contato' }
+    const past = { ...valid, rsvpDeadline: '2026-10-01', contactInfo: 'Novo contato', rsvpPreferredDate: '' }
     expect(settingsFormSchema(TODAY, '2026-10-01').safeParse(past).success).toBe(true)
     expect(settingsFormSchema(TODAY, '2026-10-02').safeParse(past).success).toBe(false)
   })
@@ -72,6 +75,42 @@ describe('settings form schema', () => {
     if (!r.success) throw new Error('expected valid')
     await saveSettings(r.data)
     expect(await getSettings()).toMatchObject(valid)
+  })
+
+  it('rejects a preferred date after the deadline, accepts the deadline itself', () => {
+    expect(messages(parse({ rsvpPreferredDate: '2026-12-11' }))).toContain(
+      'A data de preferência deve ser até o prazo para confirmar.',
+    )
+    expect(parse({ rsvpPreferredDate: '2026-12-10' }).success).toBe(true)
+  })
+
+  it('treats a blank preferred date as none and rejects bad or past ones', () => {
+    const r = parse({ rsvpPreferredDate: '' })
+    expect(r.success && r.data.rsvpPreferredDate).toBeNull()
+    expect(messages(parse({ rsvpPreferredDate: '2026-02-31' }))).toContain('Informe uma data válida.')
+    expect(messages(parse({ rsvpPreferredDate: '2026-10-16' }))).toContain('A data não pode estar no passado.')
+  })
+
+  it('allows an unchanged preferred date that is already in the past', () => {
+    const past = { ...valid, rsvpPreferredDate: '2026-10-01' }
+    expect(settingsFormSchema(TODAY, undefined, '2026-10-01').safeParse(past).success).toBe(true)
+    expect(settingsFormSchema(TODAY, undefined, '2026-10-02').safeParse(past).success).toBe(false)
+  })
+
+  it('requires {link} in the rsvp nudge texts', () => {
+    expect(messages(parse({ rsvpNudgeText: 'Responda!' }))).toContain('A mensagem precisa conter {link}.')
+    expect(messages(parse({ rsvpFinalText: 'Último dia!' }))).toContain('A mensagem precisa conter {link}.')
+  })
+
+  it('defaults the rsvp nudge settings', async () => {
+    const s = await getSettings()
+    expect(s.rsvpPreferredDate).toBe('2026-11-21')
+    expect(s.rsvpNudgeText).toBe(
+      'Oi, {nome}! Ainda não recebemos sua confirmação para os 15 anos da Isabella. Se puder, responda até {preferencia} pelo seu convite: {link}',
+    )
+    expect(s.rsvpFinalText).toBe(
+      'Oi, {nome}! O prazo para confirmar presença nos 15 anos da Isabella termina em {prazo}. Responda pelo seu convite: {link}',
+    )
   })
 
   it('computes today in America/Boa_Vista', () => {

@@ -38,22 +38,41 @@ const messageTemplate = z
 
 /**
  * Admin settings form. `today` is 'YYYY-MM-DD' in America/Boa_Vista (see todayInBoaVista).
- * `storedDeadline` is the saved deadline: keeping it unchanged is always allowed, even once it has passed.
+ * `storedDeadline` / `storedPreferredDate` are the saved dates: keeping one unchanged is always
+ * allowed, even once it has passed.
  */
-export function settingsFormSchema(today: string, storedDeadline?: string) {
-  return z.object({
-    rsvpDeadline: z
-      .string()
-      .trim()
-      .refine(isRealDate, 'Informe uma data válida.')
-      .refine((v) => !isRealDate(v) || v <= MAX_DEADLINE, 'O prazo deve ser antes da festa.')
-      .refine((v) => !isRealDate(v) || v > MAX_DEADLINE || v >= today || v === storedDeadline, 'O prazo não pode estar no passado.'),
-    contactInfo: optionalText(200),
-    closingMessage: optionalText(600),
-    whatsappInviteTemplate: messageTemplate,
-    reminderD7Text: messageTemplate,
-    reminderD1Text: messageTemplate,
-  })
+export function settingsFormSchema(today: string, storedDeadline?: string, storedPreferredDate?: string | null) {
+  return z
+    .object({
+      rsvpDeadline: z
+        .string()
+        .trim()
+        .refine(isRealDate, 'Informe uma data válida.')
+        .refine((v) => !isRealDate(v) || v <= MAX_DEADLINE, 'O prazo deve ser antes da festa.')
+        .refine((v) => !isRealDate(v) || v > MAX_DEADLINE || v >= today || v === storedDeadline, 'O prazo não pode estar no passado.'),
+      contactInfo: optionalText(200),
+      closingMessage: optionalText(600),
+      whatsappInviteTemplate: messageTemplate,
+      reminderD7Text: messageTemplate,
+      reminderD1Text: messageTemplate,
+      rsvpPreferredDate: z
+        .string()
+        .trim()
+        .refine((v) => v === '' || isRealDate(v), 'Informe uma data válida.')
+        .refine((v) => !isRealDate(v) || v >= today || v === storedPreferredDate, 'A data não pode estar no passado.')
+        .transform((v) => (v === '' ? null : v)),
+      rsvpNudgeText: messageTemplate,
+      rsvpFinalText: messageTemplate,
+    })
+    .superRefine((d, ctx) => {
+      if (d.rsvpPreferredDate && isRealDate(d.rsvpDeadline) && d.rsvpPreferredDate > d.rsvpDeadline) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['rsvpPreferredDate'],
+          message: 'A data de preferência deve ser até o prazo para confirmar.',
+        })
+      }
+    })
 }
 
 export type SettingsFormData = z.infer<ReturnType<typeof settingsFormSchema>>

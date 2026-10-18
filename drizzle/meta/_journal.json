@@ -15,6 +15,20 @@
       "when": 1792336271346,
       "tag": "0001_empty_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792340155569,
+      "tag": "0002_rsvp_nudge_kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792340155773,
+      "tag": "0003_rsvp_nudge_settings",
+      "breakpoints": true
     }
   ]
 }

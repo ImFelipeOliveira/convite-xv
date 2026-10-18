@@ -295,6 +295,7 @@ test.describe('admin whatsapp page: history', () => {
       errorCode: 'timeout',
       scheduledFor: new Date('2026-12-26T14:00:00Z'),
     })
+    await insertDispatch(b, { kind: 'rsvp_nudge', status: 'cancelled', scheduledFor: new Date('2026-11-06T14:00:00Z') })
   })
   test.afterAll(async () => {
     await deleteGuestsByName([HISTORY_A, HISTORY_B])
@@ -317,6 +318,13 @@ test.describe('admin whatsapp page: history', () => {
     await expect(table.getByRole('row').filter({ hasText: 'Lembrete 7 dias' }).getByText('20/12 às 10:00')).toBeVisible()
     await page.getByRole('heading', { name: 'Histórico de envios' }).evaluate((el) => el.scrollIntoView())
     await shot(page, 'history-1280', 'whatsapp-page')
+
+    await expect(
+      table.getByRole('row').filter({ hasText: 'Lembrete de confirmação' }).getByText('Cancelado', { exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('group', { name: 'Tipo' }).getByRole('button', { name: 'Aviso final de confirmação' }),
+    ).toBeVisible()
 
     await page.getByRole('group', { name: 'Tipo' }).getByRole('button', { name: 'Lembrete véspera' }).click()
     await expect(page).toHaveURL(/kind=reminder_d1/)

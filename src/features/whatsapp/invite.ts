@@ -7,6 +7,7 @@ import { createInviteDispatch, dbNow, markDispatchFailed, markDispatchSent } fro
 import { sendText, type EvolutionError } from './evolution'
 import type { SendInviteError, SendInviteResult } from './invite-result'
 import { renderTemplate } from './message'
+import { scheduleRsvpNudges } from './reminders'
 
 export { inviteErrorMessage, type SendInviteError, type SendInviteResult } from './invite-result'
 
@@ -42,8 +43,10 @@ export async function sendInvite(
   if ('blocked' in dispatch) return { ok: false, error: 'blocked' }
 
   let sent: Awaited<ReturnType<SendInviteDeps['sendText']>>
+  let rsvpDeadline: string
   try {
     const settings = await getSettings()
+    rsvpDeadline = settings.rsvpDeadline
     const text = renderTemplate(settings.whatsappInviteTemplate, {
       name: guest.name,
       link: inviteUrl(guest.token),
@@ -76,6 +79,11 @@ export async function sendInvite(
   // the provider accepted the message: from here on the result is a success
   const sentAt = await recordSent(dispatch.id, sent.value.messageId, { guestId, adminId })
   logger.info({ event: 'whatsapp.invite_sent', guestId, adminId, errorCode: null }, 'invite sent')
+  try {
+    await scheduleRsvpNudges(guest, sentAt, rsvpDeadline)
+  } catch (err) {
+    logger.error({ event: 'whatsapp.reminder_sync_failed', guestId, adminId, err }, 'rsvp nudge scheduling failed')
+  }
   return { ok: true, sentAt: sentAt.toISOString() }
 }
 

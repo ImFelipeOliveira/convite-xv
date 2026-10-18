@@ -13,6 +13,9 @@ const FIELDS = [
   'whatsappInviteTemplate',
   'reminderD7Text',
   'reminderD1Text',
+  'rsvpPreferredDate',
+  'rsvpNudgeText',
+  'rsvpFinalText',
 ] as const
 type Field = (typeof FIELDS)[number]
 
@@ -32,7 +35,8 @@ export async function saveSettingsAction(
 ): Promise<SettingsFormState> {
   const { adminId } = await requireAdmin()
   const values = Object.fromEntries(FIELDS.map((f) => [f, text(formData, f)])) as Record<Field, string>
-  const parsed = settingsFormSchema(todayInBoaVista(), (await getSettings()).rsvpDeadline).safeParse(values)
+  const stored = await getSettings()
+  const parsed = settingsFormSchema(todayInBoaVista(), stored.rsvpDeadline, stored.rsvpPreferredDate).safeParse(values)
   if (!parsed.success) {
     const fieldErrors: Partial<Record<Field, string>> = {}
     for (const issue of parsed.error.issues) {

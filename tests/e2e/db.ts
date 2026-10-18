@@ -2,19 +2,24 @@
 import { and, eq, inArray, like, ne, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import { guests, messageDispatches, settings } from '../../src/server/db/schema'
+import { guests, messageDispatches, settings, type DispatchKind } from '../../src/server/db/schema'
 import { E2E_GUEST_TOKEN } from './fixtures'
 
-/** Puts the e2e guest back to "no answer yet, no phone" so each RSVP test starts clean. */
+/**
+ * Puts the e2e guest back to "no answer yet, no phone" so each RSVP test starts clean
+ * (and drops the reminders an answer scheduled for it).
+ */
 export async function resetE2eGuestRsvp(): Promise<void> {
   const url = process.env.DATABASE_URL_TEST
   if (!url) throw new Error('DATABASE_URL_TEST is not set')
   const client = postgres(url, { max: 1, onnotice: () => {} })
   try {
-    await drizzle(client)
+    const [guest] = await drizzle(client)
       .update(guests)
       .set({ rsvpStatus: 'pending', plusOnes: 0, message: null, phone: null, respondedAt: null })
       .where(eq(guests.token, E2E_GUEST_TOKEN))
+      .returning({ id: guests.id })
+    if (guest) await drizzle(client).delete(messageDispatches).where(eq(messageDispatches.guestId, guest.id))
   } finally {
     await client.end()
   }
@@ -42,6 +47,19 @@ export async function resetE2eSettings(): Promise<void> {
   try {
     await drizzle(client).execute(sql`DELETE FROM settings WHERE id = 1`)
     await drizzle(client).insert(settings).values({ id: 1 })
+  } finally {
+    await client.end()
+  }
+}
+
+/** Overrides settings fields (the spec must call resetE2eSettings afterwards). */
+export async function setE2eSettings(values: Partial<Omit<typeof settings.$inferInsert, 'id'>>): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    await drizzle(client).insert(settings).values({ id: 1 }).onConflictDoNothing()
+    await drizzle(client).update(settings).set(values).where(eq(settings.id, 1))
   } finally {
     await client.end()
   }
@@ -102,7 +120,7 @@ export async function insertGuest(name: string, phone: string | null): Promise<s
 export async function insertDispatch(
   guestId: string,
   values: {
-    kind: 'invite' | 'reminder_d7' | 'reminder_d1'
+    kind: DispatchKind
     status: 'scheduled' | 'sending' | 'sent' | 'failed' | 'cancelled'
     errorCode?: string | null
     attempts?: number

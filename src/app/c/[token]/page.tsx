@@ -9,7 +9,7 @@ import { Rsvp } from '@/components/invite/Rsvp'
 import { TheDay } from '@/components/invite/TheDay'
 import { EVENT } from '@/features/event/event'
 import { findGuestByToken, markOpened } from '@/features/guests/repo'
-import { isDeadlinePassed } from '@/features/rsvp/deadline'
+import { activePreferredDate, isDeadlinePassed } from '@/features/rsvp/deadline'
 import { toRsvpGuestView } from '@/features/rsvp/view'
 import { getSettings } from '@/features/settings/repo'
 import { getAppUrl } from '@/lib/app-url'
@@ -57,6 +57,7 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
           guest={toRsvpGuestView(guest)}
           token={token}
           deadline={settings.rsvpDeadline}
+          preferredDate={activePreferredDate(settings.rsvpPreferredDate, settings.rsvpDeadline, new Date(now))}
           closed={isDeadlinePassed(settings.rsvpDeadline, new Date(now))}
           contact={settings.contactInfo}
         />

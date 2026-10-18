@@ -5,6 +5,8 @@ export const DISPATCH_KIND_LABEL: Record<DispatchKind, string> = {
   invite: 'Convite',
   reminder_d7: 'Lembrete 7 dias',
   reminder_d1: 'Lembrete véspera',
+  rsvp_nudge: 'Lembrete de confirmação',
+  rsvp_final: 'Aviso final de confirmação',
 }
 
 export const DISPATCH_STATUS_LABEL: Record<DispatchStatus, string> = {

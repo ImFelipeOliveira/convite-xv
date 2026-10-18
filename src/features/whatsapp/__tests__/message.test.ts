@@ -15,6 +15,31 @@ describe('renderTemplate', () => {
   })
 })
 
+describe('renderTemplate dates', () => {
+  it('fills {prazo} and {preferencia} as dd/mm when given', () => {
+    expect(
+      renderTemplate('{nome}: até {preferencia}, prazo {prazo}. {link}', {
+        name: 'Ana',
+        link: 'L',
+        deadline: '2026-12-13',
+        preferredDate: '2026-11-21',
+      }),
+    ).toBe('Ana: até 21/11, prazo 13/12. L')
+  })
+
+  it('uses the deadline for {preferencia} when there is no preferred date', () => {
+    expect(
+      renderTemplate('até {preferencia} {link}', { name: 'Ana', link: 'L', deadline: '2026-12-13', preferredDate: null }),
+    ).toBe('até 13/12 L')
+  })
+
+  it('leaves {prazo}/{preferencia} untouched without values', () => {
+    expect(renderTemplate('{prazo} {preferencia} {link}', { name: 'Ana', link: 'L' })).toBe(
+      '{prazo} {preferencia} L',
+    )
+  })
+})
+
 describe('varyGreeting', () => {
   it('yields three different prefixes with identical tails', () => {
     const text = 'Olá, Ana! Falta uma semana.'

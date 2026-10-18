@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { db } from '@/server/db/client'
 import { admins, messageDispatches } from '@/server/db/schema'
@@ -47,7 +47,10 @@ describe('sendInvite recording failures', () => {
     const g = await makeGuest({ phone: '+5595991234567' })
     const r = await sendInvite(g.id, await adminId(), deps({ ok: true, value: { messageId: 'M' } }))
     expect(r.ok).toBe(true)
-    const [row] = await db.select().from(messageDispatches).where(eq(messageDispatches.guestId, g.id))
+    const [row] = await db
+      .select()
+      .from(messageDispatches)
+      .where(and(eq(messageDispatches.guestId, g.id), eq(messageDispatches.kind, 'invite')))
     expect(row.status).toBe('sent')
     if (r.ok) expect(r.sentAt).toBe(row.sentAt!.toISOString())
   })

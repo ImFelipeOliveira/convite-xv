@@ -107,12 +107,18 @@ test.describe('admin summary, messages and settings', () => {
     await settingsForm.getByRole('button', { name: 'Salvar' }).click()
     await expect(page.getByRole('status', { name: 'Notificações' })).toContainText('Configurações salvas.')
 
+    // the preferred date can't be after the deadline
+    await settingsForm.getByLabel('Confirmar de preferência até').fill('2026-12-11')
+    await settingsForm.getByRole('button', { name: 'Salvar' }).click()
+    await expect(page.getByText('A data de preferência deve ser até o prazo para confirmar.')).toBeVisible()
+    await settingsForm.getByLabel('Confirmar de preferência até').fill('2026-12-01')
+
     await settingsForm.getByLabel('Mensagem do WhatsApp').fill('Sem o link')
     await settingsForm.getByRole('button', { name: 'Salvar' }).click()
     await expect(page.getByText('A mensagem precisa conter {link}.')).toBeVisible()
 
     await page.goto(`/c/${E2E_GUEST_TOKEN}`)
     await page.getByRole('button', { name: 'Entrar sem animação' }).click()
-    await expect(page.locator('#rsvp').getByText(/responda até 10\/12/)).toBeVisible()
+    await expect(page.locator('#rsvp').getByText(/(O prazo final é|responda até) 10\/12\./)).toBeVisible()
   })
 })

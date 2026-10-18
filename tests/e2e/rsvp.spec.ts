@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { resetE2eGuestRsvp } from './db'
+import { resetE2eGuestRsvp, resetE2eSettings, setE2eSettings } from './db'
 import { E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
 const invitePath = `/c/${E2E_GUEST_TOKEN}`
@@ -30,8 +30,30 @@ test('greets the guest and starts unanswered', async ({ page }) => {
   await expect(section.getByRole('heading', { name: 'Sua presença.' })).toBeVisible()
   await expect(section.getByText('AGUARDANDO RESPOSTA', { exact: true })).toBeVisible()
   await expect(section.getByText(E2E_GUEST_NAME)).toBeVisible()
-  await expect(section.getByText(/responda até \d{2}\/\d{2}\./)).toBeVisible()
+  await expect(section.getByText(/Este convite é só seu — responda (de preferência )?até \d{2}\/\d{2}\./)).toBeVisible()
   await expect(section.getByRole('button', { name: 'Confirmar presença' })).toBeDisabled()
+})
+
+test.describe('preferred answer date', () => {
+  test.afterEach(async () => {
+    await resetE2eSettings()
+  })
+
+  test('shows the preferred date and the final deadline', async ({ page }) => {
+    await setE2eSettings({ rsvpDeadline: '2026-12-13', rsvpPreferredDate: '2026-12-01' })
+    // already opened once (beforeEach): a returning visitor skips the opening
+    await page.reload()
+    await expect(
+      rsvp(page).getByText('Este convite é só seu — responda de preferência até 01/12. O prazo final é 13/12.'),
+    ).toBeVisible()
+  })
+
+  test('without a preferred date shows only the deadline', async ({ page }) => {
+    await setE2eSettings({ rsvpDeadline: '2026-12-13', rsvpPreferredDate: null })
+    await page.reload()
+    await expect(rsvp(page).getByText('Este convite é só seu — responda até 13/12.')).toBeVisible()
+    await expect(rsvp(page).getByText(/de preferência/)).toHaveCount(0)
+  })
 })
 
 test('confirms with plus-ones and phone', async ({ page }) => {

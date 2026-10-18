@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireAdmin } from '@/features/admin-auth/guard'
+import { syncRemindersForGuest } from '@/features/whatsapp/reminders'
 import { logger } from '@/lib/logger'
 import { parseGuestsCsv } from './csv'
 import type { CsvLineError } from './import-report'
@@ -72,6 +73,12 @@ export async function saveGuestAction(
   const guest = await updateGuest(id, parsed.data)
   if (!guest) return { ok: false, error: 'Convidado não encontrado.', values }
   logger.info({ event: 'admin.guest_updated', guestId: guest.id, adminId }, 'guest updated')
+  // a phone added/changed/removed on a confirmed guest (re)arms or cancels their reminders
+  try {
+    await syncRemindersForGuest(guest, new Date())
+  } catch (err) {
+    logger.error({ event: 'whatsapp.reminder_sync_failed', guestId: guest.id, adminId, err }, 'reminder sync failed')
+  }
   revalidatePath(GUESTS_PATH)
   return { ok: true, message: 'Convidado atualizado.' }
 }
