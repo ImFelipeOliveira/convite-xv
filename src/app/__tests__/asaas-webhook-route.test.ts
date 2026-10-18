@@ -7,7 +7,8 @@ import { pixPayments } from '@/server/db/schema'
 import { makeGuest } from '../../../tests/helpers/db'
 
 const afterPixPaid = vi.hoisted(() => vi.fn(async () => {}))
-vi.mock('@/features/pix/after-paid', () => ({ afterPixPaid }))
+const afterPixRefunded = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@/features/pix/after-paid', () => ({ afterPixPaid, afterPixRefunded }))
 
 const { POST } = await import('../api/webhooks/asaas/route')
 const { resetWebhookConfigWarning } = await import('@/features/pix/webhook')
