@@ -5,7 +5,9 @@ import { useActionState, useEffect, useId, useRef, useState, type DragEvent } fr
 import { saveGiftAction, type GiftFormState } from '@/features/gifts/admin-actions'
 import { fieldErrorClass, focusRing, helperClass, inputClass, labelClass } from './styles'
 import { mediaUrl } from '@/features/media/keys'
+import { readDraft } from '@/lib/form-draft'
 import { useImageFailed } from '@/lib/use-image-failed'
+import { useSkewSafeForm } from './skew-recovery'
 import { Button, Spinner } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
 import { useToast } from './ui/Toast'
@@ -298,7 +300,9 @@ function GiftPhotoField({
 }
 
 export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
-  const [state, action, pending] = useActionState<GiftFormState, FormData>(saveGiftAction, null)
+  const draftKey = gift ? `gift:${gift.id}` : 'gift:new'
+  const { action: safeAction, formRef } = useSkewSafeForm(saveGiftAction, draftKey)
+  const [state, action, pending] = useActionState<GiftFormState, FormData>(safeAction, null)
   const toast = useToast()
   const uid = useId()
 
@@ -328,13 +332,21 @@ export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
   }
   const errors = failed?.fieldErrors ?? {}
   const prefix = gift ? `gift-${gift.id}` : 'gift-new'
-  const [imageUrl, setImageUrl] = useState(values.imageUrl)
+  // reloaded after a deploy mid-edit: the skew draft holds the uploaded photo's key (never the file) and
+  // the image link. The hidden imageKey and the photo/link state can't be refilled from the DOM, so they
+  // start from the draft here (read only: useSkewSafeForm takes it and refills the plain fields after mount).
+  // GiftForm only mounts inside a client-opened sheet, so reading sessionStorage here can't mismatch SSR.
+  const [restored] = useState(() =>
+    typeof window === 'undefined' ? null : readDraft(window.location.pathname, draftKey),
+  )
+  const initialImageKey = restored?.imageKey ?? values.imageKey
+  const [imageUrl, setImageUrl] = useState(restored?.imageUrl ?? values.imageUrl)
   const [uploading, setUploading] = useState(false)
-  const [linkOpen, setLinkOpen] = useState(!!values.imageUrl)
+  const [linkOpen, setLinkOpen] = useState(!!(restored?.imageUrl ?? values.imageUrl))
   const listId = `${uid}-categories`
 
   return (
-    <form action={action} aria-label={gift ? 'Editar presente' : 'Novo presente'} className="flex flex-col gap-6">
+    <form ref={formRef} action={action} aria-label={gift ? 'Editar presente' : 'Novo presente'} className="flex flex-col gap-6">
       {gift && <input type="hidden" name="id" value={gift.id} />}
       <fieldset disabled={pending} className="flex min-w-0 flex-col gap-5">
         <Field id={`${prefix}-name`} label="Nome" required error={errors.name}>
@@ -423,7 +435,7 @@ export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
         </Field>
         <GiftPhotoField
           prefix={prefix}
-          initialKey={values.imageKey}
+          initialKey={initialImageKey}
           uploading={uploading}
           onUploadingChange={setUploading}
         />

@@ -16,6 +16,7 @@ import {
   whatsappStatusAction,
 } from '@/features/whatsapp/actions'
 import { connectErrorMessage, type WhatsappState } from '@/features/whatsapp/connection-result'
+import { useSkewGuard } from './skew-recovery'
 import { Badge, type BadgeTone } from './ui/Badge'
 import { Button, Spinner } from './ui/Button'
 import { useToast } from './ui/Toast'
@@ -76,6 +77,7 @@ const DEDICATED_CHIP = (
 /** Connection card of the admin WhatsApp page: connect with a QR code, check, disconnect. */
 export function WhatsappStatus({ initialState }: { initialState: WhatsappState }) {
   const toast = useToast()
+  const guard = useSkewGuard()
   const [state, setState] = useState<WhatsappState>(initialState)
   const [qr, setQr] = useState<Qr | null>(null)
   const [waitingHint, setWaitingHint] = useState<string | null>(null)
@@ -121,8 +123,11 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
       }
       tick += 1
       try {
-        const result = await whatsappStatusAction(Date.now() - qrFetchedAt.current >= QR_REFRESH_AFTER_MS)
-        if (cancelled) return
+        const result = await guard(() =>
+          whatsappStatusAction(Date.now() - qrFetchedAt.current >= QR_REFRESH_AFTER_MS),
+        )
+        // undefined: the panel is from an older deployment and is reloading
+        if (cancelled || !result) return
         if (result.state === 'open') return onConnected()
         // the first poll right after generating may still see the old `close`: ignore it
         closeStreak = result.state === 'close' && tick > 1 ? closeStreak + 1 : 0
@@ -150,7 +155,8 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
 
   function connect() {
     startConnecting(async () => {
-      const result = await connectWhatsappAction()
+      const result = await guard(() => connectWhatsappAction())
+      if (!result) return
       if (!result.ok) {
         if (result.error === 'not_configured') setState('not_configured')
         toast.error(connectErrorMessage(result.error))
@@ -168,7 +174,8 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
 
   function checkNow() {
     startChecking(async () => {
-      const result = await whatsappStatusAction(false)
+      const result = await guard(() => whatsappStatusAction(false))
+      if (!result) return
       if (result.state === 'open') return onConnected()
       if (result.state === 'not_configured') {
         setQr(null)
@@ -185,7 +192,8 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
 
   function retryStatus() {
     startChecking(async () => {
-      const result = await whatsappStatusAction(false)
+      const result = await guard(() => whatsappStatusAction(false))
+      if (!result) return
       setState(result.state)
       if (result.state === 'unavailable') toast.error('O servidor do WhatsApp ainda não respondeu.')
     })
@@ -198,7 +206,8 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
 
   function logout() {
     startLoggingOut(async () => {
-      const result = await logoutWhatsappAction()
+      const result = await guard(() => logoutWhatsappAction())
+      if (!result) return
       if (!result.ok) {
         toast.error('Não foi possível desconectar agora. Tente de novo.')
         return

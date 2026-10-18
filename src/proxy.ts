@@ -1,5 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { SESSION_COOKIE, verifySessionToken } from '@/features/admin-auth/session'
+import {
+  readSessionToken,
+  SESSION_COOKIE,
+  SESSION_COOKIE_OPTIONS,
+  shouldRenewSession,
+  signSessionToken,
+} from '@/features/admin-auth/session'
 import { findGuestByToken } from '@/features/guests/repo'
 import { logger } from '@/lib/logger'
 import { getClientIp, rateLimit } from '@/lib/rate-limit'
@@ -15,8 +21,16 @@ async function guardAdmin(request: NextRequest) {
   const { pathname } = request.nextUrl
   if (pathname === '/admin/login') return NextResponse.next()
   const token = request.cookies.get(SESSION_COOKIE)?.value
-  if (token && (await verifySessionToken(token))) return NextResponse.next()
-  return NextResponse.redirect(new URL('/admin/login', request.url))
+  const session = token ? await readSessionToken(token) : null
+  if (!session) return NextResponse.redirect(new URL('/admin/login', request.url))
+  const res = NextResponse.next()
+  // sliding session: an admin who keeps using the panel never hits the 30-day expiry mid-task
+  // (until 90 days after the password sign-in: authAt is carried over, then the cookie just expires)
+  if (shouldRenewSession(session.issuedAt, Math.floor(Date.now() / 1000), session.authAt)) {
+    const authAt = session.authAt ?? session.issuedAt
+    res.cookies.set(SESSION_COOKIE, await signSessionToken(session.adminId, authAt), SESSION_COOKIE_OPTIONS)
+  }
+  return res
 }
 
 export async function proxy(request: NextRequest) {

@@ -1,7 +1,7 @@
 import { SignJWT } from 'jose'
 import { describe, expect, it } from 'vitest'
 import { hashPassword, verifyPassword } from '../password'
-import { signSessionToken, verifySessionToken } from '../session'
+import { readSessionToken, shouldRenewSession, signSessionToken, verifySessionToken } from '../session'
 
 describe('password', () => {
   it('verifies the right password and rejects a wrong one', async () => {
@@ -43,5 +43,43 @@ describe('session token', () => {
     const expired = await new SignJWT({}).setProtectedHeader({ alg: 'HS256' }).setSubject('a')
       .setExpirationTime(Math.floor(Date.now() / 1000) - 10).sign(secret)
     expect(await verifySessionToken(expired)).toBeNull()
+  })
+})
+
+describe('sliding session renewal', () => {
+  const DAY = 24 * 60 * 60
+  it('renews only once the token is at least 24 h old', () => {
+    const now = 1_800_000_000
+    expect(shouldRenewSession(now, now)).toBe(false)
+    expect(shouldRenewSession(now - DAY + 1, now)).toBe(false)
+    expect(shouldRenewSession(now - DAY, now)).toBe(true)
+    expect(shouldRenewSession(now - 20 * DAY, now)).toBe(true)
+  })
+
+  it('stops renewing 90 days after the password sign-in (authAt)', () => {
+    const now = 1_800_000_000
+    expect(shouldRenewSession(now - 2 * DAY, now, now - 89 * DAY)).toBe(true)
+    expect(shouldRenewSession(now - 2 * DAY, now, now - 90 * DAY)).toBe(false)
+    // tokens without authAt count from their own iat
+    expect(shouldRenewSession(now - 2 * DAY, now)).toBe(true)
+    expect(shouldRenewSession(now - 91 * DAY, now)).toBe(false)
+  })
+
+  it('does not renew without a usable iat', () => {
+    expect(shouldRenewSession(undefined, 1_800_000_000)).toBe(false)
+    expect(shouldRenewSession(Number.NaN, 1_800_000_000)).toBe(false)
+  })
+
+  it('exposes the issued-at of a valid token', async () => {
+    const before = Math.floor(Date.now() / 1000)
+    const claims = await readSessionToken(await signSessionToken('admin-1'))
+    expect(claims?.adminId).toBe('admin-1')
+    expect(claims?.issuedAt).toBeGreaterThanOrEqual(before)
+    expect(claims?.authAt).toBe(claims?.issuedAt)
+  })
+
+  it('keeps the original authAt when a session is re-issued', async () => {
+    const claims = await readSessionToken(await signSessionToken('admin-1', 1_700_000_000))
+    expect(claims?.authAt).toBe(1_700_000_000)
   })
 })

@@ -5,6 +5,7 @@ import { TriangleAlert } from 'lucide-react'
 import { useActionState, useEffect, useRef, useState } from 'react'
 import { saveGuestAction, type GuestFormState } from '@/features/guests/actions'
 import { joinNames } from '@/features/guests/duplicates'
+import { useSkewSafeForm } from './skew-recovery'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
@@ -21,12 +22,13 @@ type Props = {
 }
 
 export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
-  const [state, action, pending] = useActionState<GuestFormState, FormData>(saveGuestAction, null)
+  const draftKey = guest ? `guest:${guest.id}` : 'guest:new'
+  const { action: safeAction, formRef } = useSkewSafeForm(saveGuestAction, draftKey)
+  const [state, action, pending] = useActionState<GuestFormState, FormData>(safeAction, null)
   const toast = useToast()
   const router = useRouter()
   const phoneRef = useRef<HTMLInputElement>(null)
   const warningRef = useRef<HTMLDivElement>(null)
-  const formRef = useRef<HTMLFormElement>(null)
   const confirmRef = useRef<HTMLButtonElement>(null)
   // the duplicate warning answers one submitted phone: editing the field dismisses it
   const [dismissed, setDismissed] = useState<GuestFormState>(null)

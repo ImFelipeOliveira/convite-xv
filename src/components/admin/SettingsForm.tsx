@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect } from 'react'
 import { saveSettingsAction, type SettingsFormState } from '@/features/settings/actions'
+import { useSkewSafeForm } from './skew-recovery'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
@@ -44,7 +45,8 @@ function Section({
 }
 
 export function SettingsForm({ initial }: Props) {
-  const [state, action, pending] = useActionState<SettingsFormState, FormData>(saveSettingsAction, null)
+  const { action: safeAction, formRef } = useSkewSafeForm(saveSettingsAction, 'settings')
+  const [state, action, pending] = useActionState<SettingsFormState, FormData>(safeAction, null)
   const toast = useToast()
 
   useEffect(() => {
@@ -64,7 +66,7 @@ export function SettingsForm({ initial }: Props) {
   })
 
   return (
-    <form action={action} aria-label="Configurações" className="flex flex-col">
+    <form ref={formRef} action={action} aria-label="Configurações" className="flex flex-col">
       <fieldset disabled={pending} className="min-w-0">
         <Section
           title="Confirmação de presença"

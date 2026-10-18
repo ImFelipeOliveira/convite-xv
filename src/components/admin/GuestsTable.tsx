@@ -25,6 +25,7 @@ import { Badge, RsvpBadge, type RsvpStatusValue } from './ui/Badge'
 import { Button } from './ui/Button'
 import { PageHeader } from './ui/PageHeader'
 import { ConfirmDialog } from './ui/ConfirmDialog'
+import { useReopenDraftSheet, useSkewGuard } from './skew-recovery'
 import { CloseButton, Modal, Sheet } from './ui/Modal'
 import { useToast } from './ui/Toast'
 
@@ -185,6 +186,14 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
   }
   const [pending, startTransition] = useTransition()
   const toast = useToast()
+  const guard = useSkewGuard()
+  // reloaded after a deploy mid-edit: reopen the sheet that had the draft
+  useReopenDraftSheet('guest:', (rest) => {
+    const guest = rest === 'new' ? null : guests.find((g) => g.id === rest)
+    if (guest === undefined) return false // deleted meanwhile
+    setSheet(guest ? { kind: 'edit', guest } : { kind: 'new' })
+    return true
+  })
   const [moreOpen, setMoreOpen] = useState(false)
   const moreButton = useRef<HTMLButtonElement>(null)
 
@@ -283,7 +292,8 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
     if (!deleting) return
     const target = deleting
     startTransition(async () => {
-      const result = await deleteGuestAction(target.id)
+      const result = await guard(() => deleteGuestAction(target.id))
+      if (!result) return
       if (result.ok) {
         toast.success('Convidado excluído.')
         // the row (and its trigger) is gone: continue from the search field
