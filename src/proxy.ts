@@ -14,7 +14,9 @@ import { getClientIp, rateLimit } from '@/lib/rate-limit'
 // so notFound() in the page can no longer change the status. Checking here keeps a real 404
 // for unknown tokens and rate-limited clients (Next's recommended pattern for 404 status).
 const NO_SUCH_ROUTE = '/invite-not-found'
-const PAGE_LIMIT = { max: 60, windowMs: 60_000 }
+// Roomy: many guests behind one IP (the party's Wi-Fi, mobile CGNAT) open their invites at once. Tokens
+// carry ~131 bits, so this never makes enumeration practical.
+const PAGE_LIMIT = { max: 300, windowMs: 60_000 }
 const ACTION_LIMIT = { max: 600, windowMs: 60_000 }
 
 // Admin gate: pages render in parallel with layouts and layouts don't re-run on client navigation,

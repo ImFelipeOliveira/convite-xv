@@ -25,16 +25,16 @@ describe('proxy (invite)', () => {
     expect(isNotFound(await proxy(invite('nope')))).toBe(true)
   })
 
-  it('rate limits page loads per IP (60/min) with the same 404', async () => {
+  it('rate limits page loads per IP (300/min, room for a party behind one Wi-Fi) with the same 404', async () => {
     const g = await makeGuest()
-    for (let i = 0; i < 60; i++) expect(isNotFound(await proxy(invite(g.token)))).toBe(false)
+    for (let i = 0; i < 300; i++) expect(isNotFound(await proxy(invite(g.token)))).toBe(false)
     expect(isNotFound(await proxy(invite(g.token)))).toBe(true)
   })
 
   it('Server Action POSTs (Pix status poll) never count toward the per-IP page limit', async () => {
     const g = await makeGuest()
-    // five guests behind one IP, each polling every 5 s for a minute
-    for (let i = 0; i < 60; i++) {
+    // more action POSTs from one IP than the page limit allows
+    for (let i = 0; i < 301; i++) {
       expect(isNotFound(await proxy(invite(g.token, { method: 'POST', action: true })))).toBe(false)
     }
     // page loads from that IP are still fine
@@ -43,7 +43,7 @@ describe('proxy (invite)', () => {
 
   it('a plain POST without Next-Action still counts as a page request', async () => {
     const g = await makeGuest()
-    for (let i = 0; i < 60; i++) await proxy(invite(g.token, { method: 'POST' }))
+    for (let i = 0; i < 300; i++) await proxy(invite(g.token, { method: 'POST' }))
     expect(isNotFound(await proxy(invite(g.token)))).toBe(true)
   })
 
