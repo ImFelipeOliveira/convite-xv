@@ -152,9 +152,10 @@ pix_payments
 webhook_events             -- idempotência e auditoria
   id text pk (id do evento Asaas), type, payload jsonb, received_at, processed_at
 
-reminder_dispatches
-  id, guest_id, type (d7, d1), status (scheduled, sent, failed, cancelled), attempts, error, sent_at
-  unique (guest_id, type)
+message_dispatches          -- registro de TODO envio pelo WhatsApp (convite e lembretes)
+  id, guest_id, kind (invite, reminder_d7, reminder_d1), status (scheduled, sending, sent, failed, cancelled),
+  attempts, error_code, provider_message_id, admin_id null (quem disparou um convite), scheduled_for, sent_at, created_at
+  -- lembretes: unique (guest_id, kind) where kind like 'reminder_%'; convites: várias linhas permitidas (reenvios)
 
 admins
   id, email unique, password_hash, created_at
@@ -209,14 +210,23 @@ Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam e
   - "Já fiz o Pix" cria uma linha em `pix_payments` com `mode = static`, `status = notice_sent`, valor e convidado;
   - o "aviso" é **só uma lista no painel** (`/admin/pix`, com filtro "a conferir"), onde a família marca como `paid` após conferir o extrato. Sem WhatsApp/e-mail — não depende da fase 4.
 
+### 8.5a Envio do convite pelo WhatsApp [decidido 17/10: Evolution API, um por um, com registro]
+- Substitui o `wa.me` como caminho principal; o botão `wa.me` continua como alternativa manual.
+- No painel `/admin/guests`, cada convidado com telefone tem o botão **"Enviar convite"** (desabilitado se a instância não estiver conectada ou o convidado não tiver telefone). Um clique = um envio, síncrono (timeout ~15 s), sem lote.
+- Texto: `whatsappInviteTemplate` das configurações com `{nome}` e `{link}`; a mensagem pede prévia do link (imagem da carta).
+- Cada tentativa grava uma linha em `message_dispatches` (`kind = invite`, `admin_id`, status `sent`/`failed`, `error_code`, `provider_message_id`, `sent_at`).
+- A lista mostra "Convite enviado em dd/mm HH:MM" (último envio) ou "Falhou — tentar de novo"; reenviar pede confirmação inline ("Já enviado em … — enviar de novo?").
+- Proteção contra clique duplo: não permitir novo envio para o mesmo convidado enquanto houver um `sending` ou um `sent` nos últimos 60 s.
+- Logs: `whatsapp.invite_sent|invite_failed` com `guestId`, `adminId`, `errorCode` — nunca telefone ou texto.
+
 ### 8.5 Lembretes WhatsApp [decidido: só confirmados]
 - Ao confirmar "sim" (com telefone), agenda jobs pg-boss com `singletonKey` por (guest, type):
   - **D-7** (20/12/2026, [call] 10h local): data, local, traje de banho, link do convite.
   - **D-1** (26/12/2026, [call] 10h local): horário, links Maps/Waze.
   - Se a confirmação acontecer depois do horário de um lembrete, aquele lembrete não é enviado [call].
-- Worker envia via Evolution API (`POST /message/sendText/{instance}`), com intervalo aleatório de 20–60 s entre mensagens [call] e texto com pequenas variações; retry até 3× com backoff; resultado em `reminder_dispatches`.
+- Worker envia via Evolution API (`POST /message/sendText/{instance}`), com intervalo aleatório de 20–60 s entre mensagens [call] e texto com pequenas variações; retry até 3× com backoff; resultado em `message_dispatches` (`kind = reminder_d7|reminder_d1`).
 - Mudou para "não" → cancela jobs pendentes.
-- Painel mostra status da instância (conectado/desconectado), histórico e falhas; botão "reenviar".
+- Painel `/admin/whatsapp`: status da instância (conectado/desconectado), **QR Code para conectar o número** (via Evolution `instance/connect`), botão desconectar, histórico de todos os envios (convites e lembretes) com filtro por tipo/status, e "reenviar" nas falhas.
 - Mitigação de banimento: **chip dedicado**, não o número pessoal; volume baixo. Fallback: botão `wa.me` manual no painel.
 
 ### 8.6 Painel
@@ -259,7 +269,7 @@ Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam e
 | Número do WhatsApp banido | Chip dedicado, volume baixo, intervalos; fallback `wa.me` |
 | Evolution API desconectar (sessão cai) | Status no painel + alerta; volume persistente |
 | Prévia do WhatsApp não mostrar a imagem | `og:image` absoluto, 1200×630, < 300 KB, testar com o depurador de prévias antes do envio |
-| Prazo (30/11 firme) | Entregar em fases: (1) convite + RSVP + painel convidados — **até 30/11**; (2) presentes; (3) Pix; (4) lembretes (até ~15/12, antes do D-7 em 20/12). Se a fase 1 apertar, a abertura pode sair com a coreografia completa só do lacre/portas e as demais primitivas entram depois |
+| Prazo (30/11 firme) | Entregar em fases: (1) convite + RSVP + painel convidados — **até 30/11**; (2) WhatsApp/Evolution — envio do convite + lembretes — **antes de 30/11** (convites saem por ele); (3) presentes; (4) Pix (até ~15/12). Se a fase 1 apertar, a abertura pode sair com a coreografia completa só do lacre/portas e as demais primitivas entram depois |
 
 ## 13. Deixado para quem for construir
 
