@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from '@/server/db/client'
 import { guests, settings } from '@/server/db/schema'
-import { generateToken } from '@/features/guests/token'
 import { makeGuest } from '../../../../tests/helpers/db'
 import { submitRsvp } from '../service'
 
