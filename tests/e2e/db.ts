@@ -100,6 +100,11 @@ export async function seedGuests(prefix: string, count: number, confirmed = 0): 
 
 /** Inserts one guest (phone in E.164 or null) with a random token; returns its id. */
 export async function insertGuest(name: string, phone: string | null): Promise<string> {
+  return (await insertGuestWithToken(name, phone)).id
+}
+
+/** Inserts one guest with a random token; returns its id and token. */
+export async function insertGuestWithToken(name: string, phone: string | null): Promise<{ id: string; token: string }> {
   const url = process.env.DATABASE_URL_TEST
   if (!url) throw new Error('DATABASE_URL_TEST is not set')
   const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
@@ -110,7 +115,7 @@ export async function insertGuest(name: string, phone: string | null): Promise<s
       .insert(guests)
       .values({ name, phone, token, plusOnesLimit: 0 })
       .returning({ id: guests.id })
-    return row.id
+    return { id: row.id, token }
   } finally {
     await client.end()
   }
@@ -137,6 +142,19 @@ export async function insertDispatch(
       .values({ guestId, ...values })
       .returning({ id: messageDispatches.id })
     return row.id
+  } finally {
+    await client.end()
+  }
+}
+
+/** The guest's `opened_at` (null while the invite was never opened in a browser). */
+export async function guestOpenedAt(id: string): Promise<Date | null> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const [row] = await drizzle(client).select({ openedAt: guests.openedAt }).from(guests).where(eq(guests.id, id))
+    return row?.openedAt ?? null
   } finally {
     await client.end()
   }
