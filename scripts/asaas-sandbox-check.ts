@@ -4,7 +4,7 @@
 // Never prints the API key; Asaas error descriptions are printed for diagnosis.
 import { createPixPayment, deletePayment, ensureCustomer, getPixQrCode } from '../src/features/pix/asaas'
 import { ASAAS_BASE_URLS, readAsaasConfig, type AsaasConfig } from '../src/features/pix/config'
-import { todayInBoaVista } from '../src/features/settings/schema'
+import { pixDueDate } from '../src/features/pix/due-date'
 
 try {
   process.loadEnvFile('.env.local')
@@ -13,6 +13,15 @@ try {
 }
 
 const TEST_CPF = '52998224725' // well-known valid test CPF used in docs/examples
+
+/**
+ * Asaas rejected the request (4xx): nothing was created, so repeating it is safe and shows why.
+ * Timeouts / 5xx / network errors are never repeated (the first call may have created something).
+ */
+const REJECTED = new Set(['invalid_request', 'unauthorized'])
+async function whyRejected(cfg: AsaasConfig, error: string, method: string, path: string, body?: unknown) {
+  return REJECTED.has(error) ? explain(cfg, method, path, body) : '(not repeated: transient or unknown outcome)'
+}
 
 /** Raw call for diagnostics only: status + Asaas `errors[].description`. */
 async function explain(cfg: AsaasConfig, method: string, path: string, body?: unknown): Promise<string> {
@@ -39,7 +48,7 @@ async function tryPath(
   console.log(`\n== ${label} ==`)
   const c = await ensureCustomer(cfg, customer)
   if (!c.ok) {
-    console.log(`customer: FAILED (${c.error}) ->`, await explain(cfg, 'POST', '/customers', customer))
+    console.log(`customer: FAILED (${c.error}) ->`, await whyRejected(cfg, c.error, 'POST', '/customers', customer))
     return 'customer'
   }
   console.log(`customer: ok ${c.value.id}`)
@@ -47,20 +56,20 @@ async function tryPath(
   const input = {
     customerId: c.value.id,
     valueCents: 7000,
-    dueDate: todayInBoaVista(),
+    dueDate: pixDueDate(new Date()),
     externalReference: `sandbox-check-${Date.now()}`,
     description: 'Teste sandbox — presente Pix',
   }
   const p = await createPixPayment(cfg, input)
   if (!p.ok) {
     const body = { customer: input.customerId, billingType: 'PIX', value: 70, dueDate: input.dueDate }
-    console.log(`payment: FAILED (${p.error}) ->`, await explain(cfg, 'POST', '/payments', body))
+    console.log(`payment: FAILED (${p.error}) ->`, await whyRejected(cfg, p.error, 'POST', '/payments', body))
   } else {
     console.log(`payment: ok ${p.value.id}`)
     stage = 'qr'
     const q = await getPixQrCode(cfg, p.value.id)
     if (!q.ok) {
-      console.log(`qr: FAILED (${q.error}) ->`, await explain(cfg, 'GET', `/payments/${p.value.id}/pixQrCode`))
+      console.log(`qr: FAILED (${q.error}) ->`, await whyRejected(cfg, q.error, 'GET', `/payments/${p.value.id}/pixQrCode`))
     } else {
       console.log(
         `qr: ok (image ${q.value.encodedImage.length} b64 chars, payload ${q.value.payload.length} chars, expirationDate ${q.value.expirationDate})`,

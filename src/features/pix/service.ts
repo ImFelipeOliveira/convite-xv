@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { todayInBoaVista } from '@/features/settings/schema'
 import { childLogger } from '@/lib/logger'
 import type { Guest, PixPayment, PixStatus } from '@/server/db/schema'
 import { createPixPayment, deletePayment, ensureCustomer, getPayment, getPixQrCode } from './asaas'
 import { readAsaasConfig, requirePayerCpf, type AsaasConfig } from './config'
 import { isValidCpf } from './cpf'
+import { pixDueDate } from './due-date'
 import {
   findGuestPayment,
   findReusablePending,
@@ -14,6 +14,8 @@ import {
   saveGenericCustomerId,
   saveGuestCustomerId,
   settlePendingPayment,
+  withAdvisoryLock,
+  type Executor,
 } from './repo'
 
 const log = childLogger({ module: 'pix' })
@@ -24,6 +26,7 @@ export const GENERIC_CUSTOMER_NAME = 'Convidados — 15 anos da Isabella'
 const PAYMENT_DESCRIPTION = 'Presente Pix — 15 anos da Isabella'
 const POLL_AFTER_MS = 2 * 60_000
 const POLL_EVERY_MS = 30_000
+const GENERIC_CUSTOMER_LOCK = 'pix:generic-customer'
 
 export type PixView = {
   id: string
@@ -84,45 +87,78 @@ async function customerFor(
   cpf: string | null,
   config: AsaasConfig,
   fetchImpl: typeof fetch,
+  tx: Executor,
 ): Promise<string | null> {
   if (cpf) {
-    const existing = await getGuestCustomerId(guest.id)
+    // already under this guest's lock
+    const existing = await getGuestCustomerId(guest.id, tx)
     if (existing) return existing
     const created = await ensureCustomer(config, { name: guest.name, cpfCnpj: cpf }, fetchImpl)
     if (!created.ok) {
       log.warn({ guestId: guest.id, code: created.error }, 'pix customer failed')
       return null
     }
-    await saveGuestCustomerId(guest.id, created.value.id)
+    await saveGuestCustomerId(guest.id, created.value.id, tx)
     return created.value.id
   }
-  const existing = await getGenericCustomerId()
-  if (existing) return existing
-  const created = await ensureCustomer(config, { name: GENERIC_CUSTOMER_NAME }, fetchImpl)
-  if (!created.ok) {
-    log.warn({ code: created.error }, 'pix generic customer failed')
-    return null
-  }
-  await saveGenericCustomerId(created.value.id)
-  return created.value.id
+  const cached = await getGenericCustomerId(tx)
+  if (cached) return cached
+  // first charge ever: one creator at a time (the lock lasts until the caller's transaction ends)
+  return withAdvisoryLock(
+    GENERIC_CUSTOMER_LOCK,
+    async (sp) => {
+      const existing = await getGenericCustomerId(sp)
+      if (existing) return existing
+      const created = await ensureCustomer(config, { name: GENERIC_CUSTOMER_NAME }, fetchImpl)
+      if (!created.ok) {
+        log.warn({ code: created.error }, 'pix generic customer failed')
+        return null
+      }
+      await saveGenericCustomerId(created.value.id, sp)
+      return created.value.id
+    },
+    tx,
+  )
 }
 
 /**
  * Creates (or reuses) a Pix charge for a guest. Our row is written only after Asaas answered with a
- * payment id and its QR code, so a failure never leaves an orphan row. The CPF (payer-CPF mode) goes
- * to Asaas only: never stored, never logged.
+ * payment id and its QR code, so a failure never leaves an orphan row; if anything fails after the
+ * charge exists, the charge is deleted at Asaas (best effort). Runs under a per-guest advisory lock, so
+ * a double submit gets the same charge. Never throws for Asaas errors or for a failed row insert. The CPF
+ * (payer-CPF mode) goes to Asaas only: never stored, never logged.
  */
 export async function generatePix(
   guest: Pick<Guest, 'id' | 'name'>,
   amountCents: number,
   deps: PixDeps = {},
   payer: { cpf?: string | null } = {},
-): Promise<{ ok: true; payment: PixView } | { ok: false; error: PixError }> {
+): Promise<PixResult> {
   if (!Number.isSafeInteger(amountCents) || amountCents < PIX_MIN_CENTS) {
     return { ok: false, error: 'below_minimum' }
   }
-  const { config, fetchImpl, now, requireCpf } = resolve(deps)
+  const resolved = resolve(deps)
+  const config = resolved.config
   if (!config) return { ok: false, error: 'not_configured' }
+  // one check-then-create per guest at a time: a double submit gets the same charge
+  return withAdvisoryLock(`pix:guest:${guest.id}`, (tx) =>
+    createOrReuse(guest, amountCents, payer, { ...resolved, config }, tx),
+  )
+}
+
+type PixResult = { ok: true; payment: PixView } | { ok: false; error: PixError }
+
+async function createOrReuse(
+  guest: Pick<Guest, 'id' | 'name'>,
+  amountCents: number,
+  payer: { cpf?: string | null },
+  { config, fetchImpl, now, requireCpf }: ReturnType<typeof resolve> & { config: AsaasConfig },
+  tx: Executor,
+): Promise<PixResult> {
+  const at = now()
+  // before the CPF check: a guest with a valid QR for this amount sees it without retyping the CPF
+  const reusable = await findReusablePending(guest.id, amountCents, at, tx)
+  if (reusable) return { ok: true, payment: toPixView(reusable) }
 
   let cpf: string | null = null
   if (requireCpf) {
@@ -132,11 +168,7 @@ export async function generatePix(
     cpf = raw.replace(/\D/g, '')
   }
 
-  const at = now()
-  const reusable = await findReusablePending(guest.id, amountCents, at)
-  if (reusable) return { ok: true, payment: toPixView(reusable) }
-
-  const customerId = await customerFor(guest, cpf, config, fetchImpl)
+  const customerId = await customerFor(guest, cpf, config, fetchImpl, tx)
   if (!customerId) return { ok: false, error: 'unavailable' }
 
   const id = randomUUID()
@@ -145,7 +177,7 @@ export async function generatePix(
     {
       customerId,
       valueCents: amountCents,
-      dueDate: todayInBoaVista(at),
+      dueDate: pixDueDate(at),
       externalReference: id,
       description: PAYMENT_DESCRIPTION,
     },
@@ -155,29 +187,38 @@ export async function generatePix(
     log.warn({ paymentId: id, code: charge.error }, 'pix charge failed')
     return { ok: false, error: 'unavailable' }
   }
+  const asaasPaymentId = charge.value.id
 
-  const qr = await getPixQrCode(config, charge.value.id, fetchImpl)
-  if (!qr.ok) {
-    log.warn({ paymentId: id, asaasPaymentId: charge.value.id, code: qr.error }, 'pix qr failed')
-    // best effort: do not leave a payable charge at Asaas that we have no row for
-    const removed = await deletePayment(config, charge.value.id, fetchImpl)
-    if (!removed.ok) {
-      log.warn({ asaasPaymentId: charge.value.id, code: removed.error }, 'pix charge cleanup failed')
-    }
-    return { ok: false, error: 'unavailable' }
+  // best effort: never leave a payable charge at Asaas that we have no row for
+  const discard = async (stage: string, code: string) => {
+    log.warn({ paymentId: id, asaasPaymentId, code }, `pix ${stage} failed`)
+    const removed = await deletePayment(config, asaasPaymentId, fetchImpl)
+    if (!removed.ok) log.warn({ asaasPaymentId, code: removed.error }, 'pix charge cleanup failed')
+    return { ok: false as const, error: 'unavailable' as const }
   }
 
-  const row = await insertPendingPayment({
-    id,
-    guestId: guest.id,
-    amountCents,
-    asaasPaymentId: charge.value.id,
-    qrImage: qr.value.encodedImage,
-    copyPaste: qr.value.payload,
-    expiresAt: parseAsaasDateTime(qr.value.expirationDate),
-    now: at,
-  })
-  log.info({ paymentId: row.id, asaasPaymentId: row.asaasPaymentId }, 'pix charge created')
+  const qr = await getPixQrCode(config, asaasPaymentId, fetchImpl)
+  if (!qr.ok) return discard('qr', qr.error)
+
+  let row: PixPayment
+  try {
+    row = await insertPendingPayment(
+      {
+        id,
+        guestId: guest.id,
+        amountCents,
+        asaasPaymentId,
+        qrImage: qr.value.encodedImage,
+        copyPaste: qr.value.payload,
+        expiresAt: parseAsaasDateTime(qr.value.expirationDate),
+        now: at,
+      },
+      tx,
+    )
+  } catch {
+    return discard('save', 'db_error')
+  }
+  log.info({ paymentId: row.id, asaasPaymentId }, 'pix charge created')
   return { ok: true, payment: toPixView(row) }
 }
 

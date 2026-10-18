@@ -41,6 +41,8 @@ function fakeAsaas(overrides: Record<string, Route> = {}) {
     const path = url.replace(config.baseUrl, '')
     const key = `${init?.method ?? 'GET'} ${path.replace(/^\/payments\/[^/]+/, '/payments/:id')}`
     calls.push({ key, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+    // network latency, so concurrent calls really interleave
+    await new Promise((r) => setTimeout(r, 5))
     const route = routes[key]
     if (!route) return json({}, 404)
     return route(init, url)
@@ -107,7 +109,8 @@ describe('generatePix', () => {
       customer: 'cus_1',
       billingType: 'PIX',
       value: 100,
-      dueDate: '2026-10-18',
+      // tomorrow in São Paulo (Asaas calendar): never a past date for late-night charges
+      dueDate: '2026-10-19',
       externalReference: r.payment.id,
     })
   })
@@ -187,7 +190,90 @@ describe('generatePix', () => {
     expect(b.ok && b.payment.id !== a.payment.id).toBe(true)
   })
 
+  it('uses tomorrow in São Paulo as the due date (23:30 Boa Vista = 00:30 São Paulo next day)', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const lateNight = new Date('2026-10-19T03:30:00Z') // 18/10 23:30 in Boa Vista, 19/10 00:30 in São Paulo
+    expect((await generatePix(guest, 7000, deps(f, { now: () => lateNight }))).ok).toBe(true)
+    expect(f.calls.find((c) => c.key === 'POST /payments')?.body).toMatchObject({ dueDate: '2026-10-20' })
+  })
+
+  it('crosses month and year ends for the due date', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    await generatePix(guest, 7000, deps(f, { now: () => new Date('2026-12-31T12:00:00Z') }))
+    expect(f.calls.find((c) => c.key === 'POST /payments')?.body).toMatchObject({ dueDate: '2027-01-01' })
+  })
+
+  it('does not reuse a payment expiring within 15 minutes', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const a = await generatePix(guest, 7000, deps(f))
+    // QR expires 2026-10-20T02:59:59Z
+    const close = new Date('2026-10-20T02:46:00Z')
+    const b = await generatePix(guest, 7000, deps(f, { now: () => close }))
+    expect(a.ok && b.ok && a.payment.id !== b.payment.id).toBe(true)
+    const safe = new Date('2026-10-20T02:44:00Z')
+    const c = await generatePix(guest, 7000, deps(f, { now: () => safe }))
+    expect(a.ok && c.ok && c.payment.id === a.payment.id).toBe(true)
+  })
+
+  it('does not reuse a payment without a known expiry', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas({
+      'GET /payments/:id/pixQrCode': () => json({ encodedImage: 'x', payload: 'y', expirationDate: 'soon' }),
+    })
+    const a = await generatePix(guest, 7000, deps(f))
+    const b = await generatePix(guest, 7000, deps(f))
+    expect(a.ok && b.ok && a.payment.id !== b.payment.id).toBe(true)
+  })
+
+  it('returns the same payment for a concurrent double submit', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas()
+    const [a, b] = await Promise.all([
+      generatePix(guest, 7000, deps(f)),
+      generatePix(guest, 7000, deps(f)),
+    ])
+    expect(a.ok && b.ok && a.payment.id === b.payment.id).toBe(true)
+    expect(f.calls.filter((c) => c.key === 'POST /payments')).toHaveLength(1)
+    expect(await rows()).toHaveLength(1)
+  })
+
+  it('creates the generic customer once under concurrent first charges', async () => {
+    const one = await makeGuest()
+    const two = await makeGuest()
+    const f = fakeAsaas()
+    const [a, b] = await Promise.all([generatePix(one, 7000, deps(f)), generatePix(two, 7000, deps(f))])
+    expect(a.ok && b.ok).toBe(true)
+    expect(f.calls.filter((c) => c.key === 'POST /customers')).toHaveLength(1)
+  })
+
+  it('deletes the charge and answers unavailable when saving our row fails', async () => {
+    const guest = await makeGuest()
+    const f = fakeAsaas({
+      'POST /payments': async () => {
+        // guest removed meanwhile: the insert violates the guest foreign key
+        await db.delete(guests).where(eq(guests.id, guest.id))
+        return json({ id: 'pay_x', status: 'PENDING' })
+      },
+    })
+    expect(await generatePix(guest, 7000, deps(f))).toEqual({ ok: false, error: 'unavailable' })
+    expect(await rows()).toEqual([])
+    expect(f.calls.map((c) => c.key)).toContain('DELETE /payments/:id')
+  })
+
   describe('payer CPF mode', () => {
+    it('shows an existing pending QR for the same amount without asking the CPF again', async () => {
+      const guest = await makeGuest()
+      const f = fakeAsaas()
+      const d = deps(f, { requireCpf: true })
+      const a = await generatePix(guest, 7000, d, { cpf: '529.982.247-25' })
+      const b = await generatePix(guest, 7000, d)
+      expect(a.ok && b.ok && a.payment.id === b.payment.id).toBe(true)
+      expect(await generatePix(guest, 10000, d)).toEqual({ ok: false, error: 'cpf_required' })
+    })
+
     it('requires a CPF', async () => {
       const guest = await makeGuest()
       const f = fakeAsaas()
