@@ -14,6 +14,8 @@ import { getClientIp, rateLimit } from '@/lib/rate-limit'
 // so notFound() in the page can no longer change the status. Checking here keeps a real 404
 // for unknown tokens and rate-limited clients (Next's recommended pattern for 404 status).
 const NO_SUCH_ROUTE = '/invite-not-found'
+const PAGE_LIMIT = { max: 60, windowMs: 60_000 }
+const ACTION_LIMIT = { max: 600, windowMs: 60_000 }
 
 // Admin gate: pages render in parallel with layouts and layouts don't re-run on client navigation,
 // so the session is checked here for every /admin path. requireAdmin in pages/actions stays the real check.
@@ -39,8 +41,13 @@ export async function proxy(request: NextRequest) {
 
   // a rate-limited client intentionally gets the same 404 as an unknown token (no enumeration signal)
   const ip = getClientIp(request.headers)
-  if (!rateLimit(`invite:${ip}`, { max: 60, windowMs: 60_000 }).ok) {
-    logger.warn({ event: 'rate_limit.exceeded', route: 'invite' }, 'rate limit exceeded')
+  // Server Action POSTs (the Pix status poll every 5 s, RSVP, gifts) post to /c/:token too. They never
+  // count toward the page-load limit, or a few open QRs behind one shared IP (mobile CGNAT) would 404
+  // other guests' invites; each action has its own limit. A roomy per-IP bucket still caps token lookups.
+  const isAction = request.method === 'POST' && request.headers.has('next-action')
+  const [bucket, limit] = isAction ? [`invite-action:${ip}`, ACTION_LIMIT] : [`invite:${ip}`, PAGE_LIMIT]
+  if (!rateLimit(bucket, limit).ok) {
+    logger.warn({ event: 'rate_limit.exceeded', route: isAction ? 'invite-action' : 'invite' }, 'rate limit exceeded')
     return notFound()
   }
   const token = request.nextUrl.pathname.split('/')[2] ?? ''

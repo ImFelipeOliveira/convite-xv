@@ -185,10 +185,28 @@ describe('pixStatusAction', () => {
     expect(await pixStatusAction(other.token, 'not-a-uuid')).toEqual({ ok: false, error: 'not_found' })
   })
 
-  it('has its own per-IP limit, roomy enough for a 5 s poll', async () => {
+  it('is limited per invite token, roomy enough for a 5 s poll in two tabs', async () => {
     stubAsaas()
     const { guest, payment } = await charge()
+    // 5 s poll = 12/min; two open tabs = 24/min
     for (let i = 0; i < 30; i++) expect((await pixStatusAction(guest.token, payment.id)).ok).toBe(true)
     expect(await pixStatusAction(guest.token, payment.id)).toEqual({ ok: false, error: 'busy' })
+  })
+
+  it('never locks out other guests polling from the same IP (mobile CGNAT)', async () => {
+    stubAsaas()
+    const polling = []
+    for (let g = 0; g < 4; g++) polling.push(await charge())
+    // same ip.current for all: four open QRs polling for a minute each
+    for (let i = 0; i < 12; i++) {
+      for (const { guest, payment } of polling) {
+        expect((await pixStatusAction(guest.token, payment.id)).ok).toBe(true)
+      }
+    }
+    // one guest over their own limit does not affect the others
+    const [first, second] = polling
+    for (let i = 0; i < 30; i++) await pixStatusAction(first.guest.token, first.payment.id)
+    expect(await pixStatusAction(first.guest.token, first.payment.id)).toEqual({ ok: false, error: 'busy' })
+    expect((await pixStatusAction(second.guest.token, second.payment.id)).ok).toBe(true)
   })
 })

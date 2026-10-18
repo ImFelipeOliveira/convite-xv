@@ -9,7 +9,7 @@ import type { PixStatus } from '@/server/db/schema'
 import { generatePix, getPixStatus, type PixError, type PixView } from './service'
 
 // Public Pix actions for the invite: keyed by the guest token (never guest ids from the client), rate
-// limited per IP, answering only the token's own charges. The payer CPF goes straight to the service
+// limited (generation per IP, the status poll per token), answering only the token's own charges. The payer CPF goes straight to the service
 // (and from there to Asaas only): never logged, never stored.
 
 export type PixActionError = PixError | 'not_found' | 'invalid'
@@ -21,8 +21,13 @@ export type PixStatusResult =
   | { ok: false; error: 'not_found' | 'busy' }
 
 const GENERATE_LIMIT = { max: 10, windowMs: 60_000 }
-// the open QR polls every 5 s (12/min): its own, roomier bucket so polling never blocks a new charge
+// The open QR polls every 5 s (12/min). Keyed by the invite token, not the IP: guests behind one shared
+// IP (mobile CGNAT, a party's Wi-Fi) never lock each other out. 30/min leaves room for two open tabs.
 const STATUS_LIMIT = { max: 30, windowMs: 60_000 }
+// Per-IP backstop against token spraying (each unknown token would get a fresh bucket): ~50 QRs polling
+// at once behind one IP still fit.
+const STATUS_IP_LIMIT = { max: 600, windowMs: 60_000 }
+const MAX_TOKEN_KEY = 64
 const AMOUNT = /^\d{1,9}$/
 
 function field(formData: FormData, name: string): string {
@@ -69,14 +74,16 @@ export async function generatePixAction(
 }
 
 export async function pixStatusAction(token: string, paymentId: string): Promise<PixStatusResult> {
+  if (typeof token !== 'string' || typeof paymentId !== 'string') return { ok: false, error: 'not_found' }
   const ip = getClientIp(await headers())
-  if (!rateLimit(`pix-status:${ip}`, STATUS_LIMIT).ok) {
+  if (
+    !rateLimit(`pix-status-ip:${ip}`, STATUS_IP_LIMIT).ok ||
+    !rateLimit(`pix-status:${token.slice(0, MAX_TOKEN_KEY)}`, STATUS_LIMIT).ok
+  ) {
     logger.warn({ event: 'rate_limit.exceeded', route: 'pix-status' }, 'rate limit exceeded')
     return { ok: false, error: 'busy' }
   }
-  if (!isFeatureEnabled('pix') || typeof token !== 'string' || typeof paymentId !== 'string') {
-    return { ok: false, error: 'not_found' }
-  }
+  if (!isFeatureEnabled('pix')) return { ok: false, error: 'not_found' }
   try {
     const guest = await findGuestByToken(token)
     if (!guest) return { ok: false, error: 'not_found' }
