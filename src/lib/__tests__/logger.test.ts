@@ -34,6 +34,20 @@ describe('logger', () => {
     expect(row.time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
   })
 
+  it('redacts CPF fields (top level and nested)', () => {
+    const { lines, stream } = capture()
+    createLogger(stream, 'info').info(
+      { cpf: '52998224725', cpfCnpj: '52998224725', payer: { cpf: '1', cpfCnpj: '2' }, guestId: 'g1' },
+      'cpf',
+    )
+    const row = JSON.parse(lines[0])
+    expect(row.cpf).toBe('[redacted]')
+    expect(row.cpfCnpj).toBe('[redacted]')
+    expect(row.payer).toEqual({ cpf: '[redacted]', cpfCnpj: '[redacted]' })
+    expect(row.guestId).toBe('g1')
+    expect(lines[0]).not.toContain('52998224725')
+  })
+
   it('keeps pino msg next to a redacted message field', () => {
     const { lines, stream } = capture()
     createLogger(stream, 'info').info({ message: 'secret' }, 'kept msg')

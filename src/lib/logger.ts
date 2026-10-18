@@ -1,6 +1,16 @@
 import pino, { type DestinationStream, type Logger } from 'pino'
 
-const REDACT_KEYS = ['phone', 'token', 'password', 'passwordHash', 'cookie', 'authorization', 'message']
+const REDACT_KEYS = [
+  'phone',
+  'token',
+  'password',
+  'passwordHash',
+  'cookie',
+  'authorization',
+  'message',
+  'cpf',
+  'cpfCnpj',
+]
 
 function defaultLevel(): string {
   return process.env.LOG_LEVEL || (process.env.NODE_ENV === 'test' ? 'silent' : 'info')
