@@ -6,7 +6,7 @@
 
 **Architecture:** A Evolution API roda como serviço separado no Railway (rede privada) e o monolito Next.js fala com ela por HTTP através de um cliente fino (`src/features/whatsapp/evolution.ts`). Todo envio vira uma linha em `message_dispatches`. Convites são enviados de forma síncrona por uma Server Action; lembretes são linhas agendadas (`scheduled_for`) que um despachante dentro do processo Next (iniciado em `instrumentation.ts`) consome uma por vez, com `FOR UPDATE SKIP LOCKED` e intervalo aleatório entre mensagens.
 
-**Tech Stack:** o da Fase 1 (Next.js 16, Drizzle/Postgres, Zod, pino, Vitest, Playwright) + Evolution API v2 (imagem Docker oficial) — sem novas dependências de runtime no app.
+**Tech Stack:** @tanstack/react-table (admin tables) + o da Fase 1 (Next.js 16, Drizzle/Postgres, Zod, pino, Vitest, Playwright) + Evolution API v2 (imagem Docker oficial) — sem novas dependências de runtime no app.
 
 **Spec:** `docs/superpowers/specs/2026-10-17-convite-xv-design.md` (§7 `message_dispatches`, §8.5a envio do convite, §8.5 lembretes). Nomes: `docs/superpowers/plans/naming-glossary.md`.
 
@@ -122,11 +122,32 @@ tests/e2e/admin-whatsapp.spec.ts
 
 ---
 
+### Task 2b: Admin shell refresh and DataTable (TanStack Table) — user request
+
+**Files:**
+- Create: `src/components/admin/data-table/DataTable.tsx` (+ small helpers in the same folder), `src/components/admin/ui/{Badge.tsx, PageHeader.tsx, StatCard.tsx, Button.tsx}` (only what the pages use)
+- Modify: `package.json` (`@tanstack/react-table`), `src/app/admin/(protected)/layout.tsx` (shell), `src/app/admin/(protected)/page.tsx` (summary cards), `src/app/admin/(protected)/guests/page.tsx` (list → DataTable), `src/components/admin/styles.ts` (tokens/classes), `src/app/admin/login/page.tsx` (same visual language)
+- Test: update affected e2e (`admin-guests`, `admin-summary`, `admin-login`, `a11y`) and add `src/components/admin/data-table/__tests__/` only for pure helpers (e.g. Boa Vista date formatting / filter fns)
+
+**Interfaces:**
+- Produces:
+  - `<DataTable<T> data columns getRowId? initialSorting? searchPlaceholder? filters? emptyMessage pageSize? />` — client component on `@tanstack/react-table`: sorting (click header; `aria-sort`), global text search (accent-insensitive, pt-BR), optional select filters per column (`filters: { columnId, label, options: {value,label}[] }[]`), pagination (20/page, "Anterior/Próxima", "Mostrando X–Y de Z"), empty state, row actions column. On narrow screens (< 640px) rows render as stacked cards (label: value) instead of a wide table; no horizontal page scroll.
+  - Data stays server-loaded (pages pass already-authorized, already-minimized rows to the client table — never full DB rows with fields the table doesn't show, never tokens beyond what "Copiar link" needs).
+  - Shell: left sidebar on ≥ 1024px (Resumo, Convidados, Recados, WhatsApp, Configurações, Sair), top bar + drawer on mobile; active item highlighted; monogram "15" seal + "Painel · 15 anos da Isabella". Palette from globals.css tokens (paper/blush grounds, wine text, seal accent, sage/error for status); Jost UI, Bodoni Moda only for page titles. Status badges: Pendente (gold-text), Sim (sage), Não (deep-rose); dispatch badges reused in Task 6.
+  - Accessibility: real `<table>` semantics on desktop, labels on filters/search, focus-visible rings, targets ≥ 44px, axe clean (the a11y spec covers `/admin/guests`).
+- Load the `frontend-design:frontend-design` skill guidance before styling.
+
+- [ ] **Step 1: Write the failing tests:** e2e — guests page: sorting by "Nome" toggles order and sets `aria-sort`; search "ana" (and "Ána") filters rows; status filter "Sim" shows only confirmed; pagination appears with > 20 guests (seed 25 via helper) and "Mostrando 1–20 de 25"; at 390px viewport rows render as cards and the page has no horizontal scroll (`document.documentElement.scrollWidth <= innerWidth`); sidebar nav links present on desktop, drawer button on mobile. Existing admin specs keep passing with updated locators.
+- [ ] **Step 2:** Run → FAIL. **Step 3:** Implement. **Step 4:** `pnpm test`, full `pnpm test:e2e` (incl. a11y) → PASS; screenshots at 1280 and 390 attached to the report.
+- [ ] **Step 5:** Commit `feat(admin): refreshed panel shell and data table` and push.
+
+---
+
 ### Task 3: Send invite (service, action, button)
 
 **Files:**
 - Create: `src/features/whatsapp/invite.ts`, `src/features/whatsapp/actions.ts`, `src/components/admin/SendInviteButton.tsx`
-- Modify: `src/app/admin/(protected)/guests/page.tsx` (column "WhatsApp" with button + last status), `src/components/admin/GuestRowActions.tsx` if the button lives there
+- Modify: `src/app/admin/(protected)/guests/page.tsx` (new DataTable column "WhatsApp" with button + last status; filter "Convite": Não enviado / Enviado / Falhou), `src/components/admin/GuestRowActions.tsx` if the button lives there
 - Test: `src/features/whatsapp/__tests__/invite.test.ts`, `tests/e2e/fake-evolution.ts`, `tests/e2e/admin-whatsapp.spec.ts`, `playwright.config.ts` (start fake server, set `EVOLUTION_URL=http://127.0.0.1:4010`, `EVOLUTION_API_KEY=test-key`)
 
 **Interfaces:**
@@ -209,7 +230,7 @@ tests/e2e/admin-whatsapp.spec.ts
 - Consumes: Tasks 1–2, `requireAdmin`.
 - Produces:
   - Page (all loaders call `requireAdmin()`): status card — "Conectado" (sage) / "Desconectado" / "Conectando…" / "WhatsApp não configurado" (when env missing, with a one-line hint for the family to contact Felipe); when disconnected a button "Conectar número" → `connectWhatsappAction` returns the QR data URL, shown as `<img alt="QR Code para conectar o WhatsApp">` with "Abra o WhatsApp no celular › Aparelhos conectados › Conectar aparelho" and a "Já escaneei" button that refreshes status; when connected "Desconectar" (inline confirmation). A short warning: "Use um chip dedicado, não o número pessoal da família."
-  - Dispatch table: columns Convidado, Tipo (Convite / Lembrete 7 dias / Lembrete véspera), Situação (Agendado / Enviando / Enviado / Falhou / Cancelado), Quando (scheduled or sent time, Boa Vista), Erro (pt-BR label of `errorCode`); filters by tipo and situação (query params); on failed reminders a "Tentar de novo" button (`retryDispatchAction(id)` → `scheduled` now, attempts reset) — failed invites link to the guest list instead.
+  - Dispatch table (uses Task 2b `DataTable` + badges): columns Convidado, Tipo (Convite / Lembrete 7 dias / Lembrete véspera), Situação (Agendado / Enviando / Enviado / Falhou / Cancelado), Quando (scheduled or sent time, Boa Vista), Erro (pt-BR label of `errorCode`); filters by tipo and situação (query params); on failed reminders a "Tentar de novo" button (`retryDispatchAction(id)` → `scheduled` now, attempts reset) — failed invites link to the guest list instead.
   - Settings: two textareas "Lembrete 7 dias antes" and "Lembrete na véspera"; validation "A mensagem precisa conter {link}."
   - Log `admin.whatsapp_connect_requested`, `admin.whatsapp_logout`, `admin.dispatch_retry` `{ adminId, dispatchId? }`.
 
@@ -236,4 +257,4 @@ tests/e2e/admin-whatsapp.spec.ts
 
 ## Order and deadline
 
-Tasks 1 → 2 → 3 (invite sending usable) → 7 (deploy Evolution, connect the chip) → 4 → 5 → 6. Goal: invite sending live and tested with a real phone by **~25/11/2026**; reminders live before **20/12/2026** (first D-7 send).
+Tasks 1 → 2 → 2b → 3 (invite sending usable) → 7 (deploy Evolution, connect the chip) → 4 → 5 → 6. Goal: invite sending live and tested with a real phone by **~25/11/2026**; reminders live before **20/12/2026** (first D-7 send).
