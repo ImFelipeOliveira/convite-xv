@@ -8,9 +8,13 @@ import { MAX_UPLOAD_BYTES } from '@/features/media/images'
 // room for the multipart envelope around the file
 const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024
 
+/**
+ * Same-origin proof: a matching Origin header, or (no Origin) `Sec-Fetch-Site: same-origin`. A request
+ * with neither (no browser sends a cross-site POST like that, but a non-browser client could) is refused.
+ */
 function sameOrigin(request: Request): boolean {
   const origin = request.headers.get('origin')
-  if (!origin) return true
+  if (!origin) return request.headers.get('sec-fetch-site') === 'same-origin'
   let host: string
   try {
     host = new URL(origin).host

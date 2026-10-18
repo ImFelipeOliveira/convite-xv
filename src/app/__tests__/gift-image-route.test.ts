@@ -25,7 +25,10 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-async function request(body: BodyInit, headers: Record<string, string> = {}) {
+// what a browser sends for the admin's same-origin fetch
+const SAME_ORIGIN = { origin: 'http://localhost', host: 'localhost' }
+
+async function request(body: BodyInit, headers: Record<string, string> = SAME_ORIGIN) {
   return new Request('http://localhost/admin/api/gift-image', { method: 'POST', body, headers })
 }
 
@@ -49,7 +52,7 @@ describe('POST /admin/api/gift-image', () => {
   })
 
   it('rejects an oversized body by Content-Length before reading it', async () => {
-    const res = await POST(await request('x', { 'content-length': String(20 * 1024 * 1024) }))
+    const res = await POST(await request('x', { ...SAME_ORIGIN, 'content-length': String(20 * 1024 * 1024) }))
     expect(res.status).toBe(413)
     expect(await res.json()).toEqual({ ok: false, error: 'A foto é grande demais (máx. 8 MB).' })
   })
@@ -58,6 +61,29 @@ describe('POST /admin/api/gift-image', () => {
     const fd = new FormData()
     fd.set('file', new File(['x'], 'a.png'))
     const res = await POST(await request(fd, { origin: 'https://evil.example', host: 'localhost' }))
+    expect(res.status).toBe(403)
+  })
+
+  it('rejects a request with neither an Origin nor Sec-Fetch-Site: same-origin', async () => {
+    const fd = new FormData()
+    fd.set('file', new File(['x'], 'a.png'))
+    expect((await POST(await request(fd, {}))).status).toBe(403)
+    expect((await POST(await request(fd, { 'sec-fetch-site': 'cross-site' }))).status).toBe(403)
+    expect((await POST(await request(fd, { 'sec-fetch-site': 'same-site' }))).status).toBe(403)
+  })
+
+  it('accepts Sec-Fetch-Site: same-origin without an Origin header', async () => {
+    const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#fff' } }).png().toBuffer()
+    const fd = new FormData()
+    fd.set('file', new File([new Uint8Array(png)], 'a.png'))
+    const res = await POST(await request(fd, { 'sec-fetch-site': 'same-origin' }))
+    expect(res.status).toBe(200)
+  })
+
+  it('a cross-site Origin loses even with Sec-Fetch-Site: same-origin', async () => {
+    const fd = new FormData()
+    fd.set('file', new File(['x'], 'a.png'))
+    const res = await POST(await request(fd, { origin: 'https://evil.example', 'sec-fetch-site': 'same-origin' }))
     expect(res.status).toBe(403)
   })
 
@@ -73,7 +99,7 @@ describe('POST /admin/api/gift-image', () => {
     const req = new Request('http://localhost/admin/api/gift-image', {
       method: 'POST',
       body,
-      headers: { 'content-type': 'multipart/form-data; boundary=x' },
+      headers: { ...SAME_ORIGIN, 'content-type': 'multipart/form-data; boundary=x' },
       duplex: 'half',
     } as RequestInit)
     expect(req.headers.get('content-length')).toBeNull()
@@ -92,7 +118,7 @@ describe('POST /admin/api/gift-image', () => {
     const req = new Request('http://localhost/admin/api/gift-image', {
       method: 'POST',
       body: encoded.body,
-      headers: { 'content-type': encoded.headers.get('content-type')! },
+      headers: { ...SAME_ORIGIN, 'content-type': encoded.headers.get('content-type')! },
       duplex: 'half',
     } as RequestInit)
     const res = await POST(req)
