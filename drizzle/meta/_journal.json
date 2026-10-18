@@ -8,6 +8,13 @@
       "when": 1792281413805,
       "tag": "0000_parched_karma",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792336271346,
+      "tag": "0001_empty_katie_power",
+      "breakpoints": true
     }
   ]
 }

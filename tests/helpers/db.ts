@@ -4,7 +4,7 @@ import { db } from '@/server/db/client'
 import { guests, settings, type Guest, type NewGuest } from '@/server/db/schema'
 
 export async function resetDatabase(): Promise<void> {
-  await db.execute(sql`TRUNCATE guests, admins, settings RESTART IDENTITY CASCADE`)
+  await db.execute(sql`TRUNCATE guests, admins, settings, message_dispatches RESTART IDENTITY CASCADE`)
 }
 
 export async function reseedSettings(): Promise<void> {

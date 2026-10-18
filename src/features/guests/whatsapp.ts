@@ -1,4 +1,5 @@
 import { getAppUrl } from '@/lib/app-url'
+import { renderTemplate } from '@/features/whatsapp/message'
 
 /** Public invite link for a guest token. */
 export function inviteUrl(token: string): string {
@@ -13,8 +14,7 @@ export function whatsappUrl(
   g: { name: string; phone: string | null; token: string },
   template: string,
 ): string {
-  const firstName = g.name.trim().split(/\s+/)[0] ?? ''
-  const text = template.replaceAll('{nome}', firstName).replaceAll('{link}', inviteUrl(g.token))
+  const text = renderTemplate(template, { name: g.name, link: inviteUrl(g.token) })
   const digits = g.phone ? g.phone.replace(/\D/g, '') : ''
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`
 }
