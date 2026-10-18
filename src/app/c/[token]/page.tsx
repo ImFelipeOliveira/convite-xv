@@ -3,11 +3,15 @@ import { notFound } from 'next/navigation'
 import { headers } from 'next/headers'
 import { connection } from 'next/server'
 import { Closing } from '@/components/invite/Closing'
+import { Gifts } from '@/components/invite/Gifts'
 import { Hero } from '@/components/invite/Hero'
 import { Opening } from '@/components/invite/Opening'
 import { Rsvp } from '@/components/invite/Rsvp'
 import { TheDay } from '@/components/invite/TheDay'
 import { EVENT } from '@/features/event/event'
+import { isFeatureEnabled } from '@/features/event/flags'
+import { listGiftsForInvite } from '@/features/gifts/repo'
+import { toGiftViews } from '@/features/gifts/view'
 import { findGuestByToken, markOpened } from '@/features/guests/repo'
 import { activePreferredDate, isDeadlinePassed } from '@/features/rsvp/deadline'
 import { toRsvpGuestView } from '@/features/rsvp/view'
@@ -47,6 +51,8 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
   }
   const settings = await getSettings()
   const now = await requestTime()
+  // only free | mine | taken reaches the browser; an empty catalog hides the section
+  const gifts = isFeatureEnabled('gifts') ? toGiftViews(await listGiftsForInvite(), guest.id) : []
 
   return (
     <Opening name={EVENT.celebrant}>
@@ -61,6 +67,16 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
           closed={isDeadlinePassed(settings.rsvpDeadline, new Date(now))}
           contact={settings.contactInfo}
         />
+        {gifts.length > 0 && (
+          <Gifts
+            id="gifts"
+            token={token}
+            guestFirstName={guest.name.trim().split(/\s+/)[0]}
+            initialGifts={gifts}
+            pixEnabled={isFeatureEnabled('pix')}
+          />
+        )}
+        {/* Task 6: the Pix section (#pix) goes here, between Gifts and Closing */}
         <Closing message={settings.closingMessage} contactInfo={settings.contactInfo} />
       </main>
     </Opening>

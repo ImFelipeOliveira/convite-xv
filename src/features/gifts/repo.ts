@@ -30,6 +30,11 @@ export async function listGiftsAdmin(): Promise<
   }))
 }
 
+/** The catalog as the invite shows it (same order as the admin table); reduce with toGiftViews before sending. */
+export async function listGiftsForInvite(): Promise<Gift[]> {
+  return db.select().from(gifts).orderBy(asc(gifts.category), asc(gifts.sortOrder), asc(gifts.name))
+}
+
 export async function createGift(d: GiftData): Promise<Gift> {
   const [row] = await db.insert(gifts).values(d).returning()
   return row

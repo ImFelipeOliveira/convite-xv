@@ -1,0 +1,128 @@
+/* Gift list (prancha 08): tag-shaped items, ribbon + bow once a reservation is confirmed, bottom sheet. */
+
+.gift-chips {
+  scrollbar-width: none;
+}
+.gift-chips::-webkit-scrollbar {
+  display: none;
+}
+.gift-chip {
+  transition: background-color var(--dur-ui) var(--ease-letter), color var(--dur-ui) var(--ease-letter),
+    border-color var(--dur-ui) var(--ease-letter);
+}
+
+/* The tag: chamfered left corners, an eyelet punched near the left edge. */
+.gift-tag {
+  clip-path: polygon(22px 0, 100% 0, 100% 100%, 22px 100%, 0 calc(100% - 22px), 0 22px);
+  box-shadow: 0 18px 40px -26px rgba(90, 33, 54, .35);
+  transition: background-color .5s var(--ease-letter), color .5s var(--ease-letter), transform var(--dur-micro) ease;
+}
+
+.gift-reserve {
+  transition: background-color var(--dur-ui) var(--ease-letter), color var(--dur-ui) ease;
+}
+.gift-reserve:hover:not(:disabled) {
+  background-color: var(--seal);
+  color: var(--paper);
+}
+
+.gift-store {
+  transition: color var(--dur-micro) ease;
+}
+
+/* Static on load; the ribbon unrolls and the bow pops only right after the server confirmed. */
+.gift-tag[data-celebrate] .gift-ribbon {
+  transform-origin: top;
+  animation: gift-ribbon .7s var(--ease-doors) both;
+}
+.gift-tag[data-celebrate] .gift-bow {
+  transform-origin: center;
+  animation: gift-bow .5s var(--ease-seal) .55s both;
+}
+
+.gift-cta {
+  transition: background-color var(--dur-ui) var(--ease-letter), transform var(--dur-micro) ease;
+}
+.gift-cta:hover:not(:disabled) {
+  background-color: #7E2148;
+}
+.gift-cta:active:not(:disabled) {
+  transform: scale(.98);
+}
+.gift-cta:disabled {
+  cursor: progress;
+}
+
+.gift-spin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 248, 246, .9);
+  border-right-color: transparent;
+  animation: spin .8s linear infinite;
+}
+
+/* Bottom sheet: a native modal <dialog> pinned to the bottom of the (480 px) invite column. */
+.gift-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90dvh;
+  padding: 0;
+  border: 0;
+  background: var(--paper);
+  color: var(--wine);
+  box-shadow: 0 -20px 40px -20px rgba(90, 33, 54, .4);
+  animation: gift-sheet-in .45s var(--ease-letter) both;
+}
+.gift-sheet::backdrop {
+  background: rgba(42, 17, 25, .42);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: fade .3s ease both;
+}
+.gift-sheet[data-closing] {
+  animation: gift-sheet-out .25s var(--ease-doors) both;
+}
+.gift-sheet[data-closing]::backdrop {
+  animation: gift-fade-out .25s ease both;
+}
+.gift-swap {
+  animation: gift-up .4s var(--ease-letter) both;
+}
+
+@keyframes gift-ribbon {
+  from { transform: scaleY(0); }
+  to { transform: none; }
+}
+@keyframes gift-bow {
+  from { transform: scale(0) rotate(-20deg); }
+  to { transform: none; }
+}
+@keyframes gift-sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes gift-sheet-out {
+  from { transform: none; }
+  to { transform: translateY(100%); }
+}
+@keyframes gift-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes gift-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Reduced motion: no unrolling ribbon or popping bow, the tag just swaps colour (the global rule
+   already shortens transitions and the sheet slide). */
+@media (prefers-reduced-motion: reduce) {
+  .gift-tag[data-celebrate] .gift-ribbon,
+  .gift-tag[data-celebrate] .gift-bow {
+    animation: none;
+  }
+}

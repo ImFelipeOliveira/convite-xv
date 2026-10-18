@@ -30,12 +30,13 @@ test('adds the event to the calendar as an .ics file', async ({ page }) => {
   expect(body).toContain('BEGIN:VCALENDAR')
 })
 
-test('closing shows the RSVP and venue shortcuts but no gifts while the flags are off', async ({ page }) => {
+test('closing shows the RSVP, venue, gifts and Pix shortcuts (flags on in e2e)', async ({ page }) => {
+  // playwright.config.ts runs the server with FEATURES=gifts,pix; flags off is covered by the Closing unit test
   const shortcuts = page.getByRole('navigation', { name: 'Atalhos do convite' })
   await expect(shortcuts.getByRole('link', { name: 'Presença' })).toBeVisible()
   await expect(shortcuts.getByRole('link', { name: 'Local' })).toBeVisible()
-  await expect(page.getByText('Presentes')).toHaveCount(0)
-  await expect(page.getByText('Pix', { exact: true })).toHaveCount(0)
+  await expect(shortcuts.getByRole('link', { name: 'Presentes' })).toHaveAttribute('href', '#gifts')
+  await expect(shortcuts.getByRole('link', { name: 'Pix' })).toHaveAttribute('href', '#pix')
 })
 
 test('hero CTA anchors to the RSVP section', async ({ page }) => {

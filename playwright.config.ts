@@ -41,6 +41,8 @@ export default defineConfig({
       EVOLUTION_URL: FAKE_EVOLUTION_URL,
       EVOLUTION_API_KEY: FAKE_EVOLUTION_API_KEY,
       EVOLUTION_INSTANCE: 'convite-xv',
+      // gift list, Pix section and their Closing shortcuts (tests/e2e/gifts.spec.ts, invite.spec.ts)
+      FEATURES: 'gifts,pix',
     },
   },
 })

@@ -201,3 +201,54 @@ export async function countGifts(): Promise<{ reserved: number; total: number }>
     await client.end()
   }
 }
+
+type SeedGift = {
+  name: string
+  category: string
+  priceCents?: number | null
+  purchaseUrl?: string | null
+  imageUrl?: string | null
+  sortOrder?: number
+}
+
+/** Inserts gifts (replacing leftovers with the same names); the spec must delete them afterwards. */
+export async function seedGifts(list: SeedGift[]): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const d = drizzle(client)
+    await d.delete(gifts).where(
+      inArray(
+        gifts.name,
+        list.map((g) => g.name),
+      ),
+    )
+    await d.insert(gifts).values(
+      list.map((g) => ({
+        name: g.name,
+        category: g.category,
+        priceCents: g.priceCents ?? null,
+        purchaseUrl: g.purchaseUrl ?? null,
+        imageUrl: g.imageUrl ?? null,
+        sortOrder: g.sortOrder ?? 0,
+      })),
+    )
+  } finally {
+    await client.end()
+  }
+}
+
+/** Inserts (or recreates) a guest with a fixed token; remove it with deleteGuestsByName. */
+export async function insertGuestWithToken(name: string, token: string): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const d = drizzle(client)
+    await d.delete(guests).where(and(eq(guests.token, token), ne(guests.token, E2E_GUEST_TOKEN)))
+    await d.insert(guests).values({ name, token, plusOnesLimit: 0 })
+  } finally {
+    await client.end()
+  }
+}
