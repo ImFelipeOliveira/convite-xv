@@ -8,7 +8,7 @@ describe('generateIcs', () => {
     expect(ics).toContain('UID:xv-isabella-2026@convite')
     expect(ics).toContain('DTSTART:20261227T140000Z')
     expect(ics).toContain('DTEND:20261227T220000Z')
-    expect(ics).toContain('SUMMARY:XV anos da Isabella')
+    expect(ics).toContain('SUMMARY:15 anos da Isabella')
   })
 
   it('escapes commas in the location', () => {

@@ -25,8 +25,8 @@ const pinyon = Pinyon_Script({
 });
 
 export const metadata: Metadata = {
-  title: "Convite XV anos da Isabella",
-  description: "Convite pessoal para os XV anos da Isabella.",
+  title: "Convite 15 anos da Isabella",
+  description: "Convite pessoal para os 15 anos da Isabella.",
   robots: { index: false, follow: false },
 };
 

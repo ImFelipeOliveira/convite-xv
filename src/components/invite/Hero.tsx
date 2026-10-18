@@ -4,7 +4,7 @@ import { Monogram } from '@/components/ornaments/Monogram'
 import './hero.css'
 
 // Hero (prancha 05) with the 0–3 s entrance from prancha 03: frame thread 0–0.9 s, corner lily
-// 0.2–1.6 s, monogram 0.5 s, name ink 0.8–2 s, "XV ANOS" tracking 1.5 s, phrase 1.7 s, date and
+// 0.2–1.6 s, monogram 0.5 s, name ink 0.8–2 s, "15 ANOS" tracking 1.5 s, phrase 1.7 s, date and
 // CTA 2.1–2.25 s, ambient petals from 2.4 s. The Opening stage starts it (stage-* classes), and
 // everything is clickable from the first frame.
 const delay = (seconds: number) => ({ animationDelay: `${seconds}s` })
@@ -31,7 +31,7 @@ export function Hero({ name, visual = 'lily' }: { name: string; visual?: 'lily' 
         className="stage-fade pointer-events-none absolute top-16 right-[-58px] text-[330px] leading-[.8] tracking-[-.05em] text-petal italic"
         style={{ ...delay(0.1), animationDuration: '1.4s' }}
       >
-        XV
+
       </div>
 
       <DrawnFrame />
@@ -92,7 +92,7 @@ export function Hero({ name, visual = 'lily' }: { name: string; visual?: 'lily' 
           </span>
         </h1>
         <p className="stage-track mt-2 text-[20px] tracking-[.36em] text-gold-text" style={delay(1.5)}>
-          XV ANOS
+          15 ANOS
         </p>
         <p
           className="stage-item mt-[18px] max-w-[300px] text-[17px] leading-[1.5] text-deep-rose italic"

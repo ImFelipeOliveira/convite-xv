@@ -17,7 +17,7 @@ export function ClosingBand({ name, dateLabel }: { name: string; dateLabel: stri
         <div className="closing-marquee text-[46px] leading-[1.05] whitespace-nowrap text-gold-light italic">
           {COPIES.map((i) => (
             <span key={i} className="pr-[26px]">
-              {name} <span className="font-script text-lily not-italic">XV</span> {dateLabel} ·
+              {name} <span className="font-script text-lily not-italic">15</span> {dateLabel} ·
             </span>
           ))}
         </div>

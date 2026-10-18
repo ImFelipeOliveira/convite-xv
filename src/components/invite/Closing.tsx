@@ -29,7 +29,7 @@ export function Closing({ message, contactInfo }: { message: string | null; cont
         aria-hidden="true"
         className="pointer-events-none absolute right-[-30px] bottom-[-62px] left-[-30px] text-center text-[300px] leading-[.8] tracking-[-.05em] text-[#3A1824] italic"
       >
-        XV
+
       </div>
 
       <ClosingBand name={EVENT.celebrant} dateLabel="27.12.2026" />

@@ -131,13 +131,13 @@ export function Opening({
               />
               <div className="absolute top-[44px] left-[28px] flex flex-col">
                 <span className="font-script text-[46px] leading-[1.1] text-rose">{name}</span>
-                <span className="mt-[10px] ml-[30px] text-[12px] tracking-[.32em] text-gold-text">XV ANOS</span>
+                <span className="mt-[10px] ml-[30px] text-[12px] tracking-[.32em] text-gold-text">15 ANOS</span>
               </div>
               <div
                 aria-hidden="true"
                 className="absolute bottom-[48px] left-[28px] text-[150px] leading-[.8] tracking-[-.04em] text-petal italic"
               >
-                XV
+
               </div>
             </div>
 
