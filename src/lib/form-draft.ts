@@ -26,17 +26,28 @@ export function draftStorageKey(path: string, formKey: string): string {
   return `${PREFIX}${path}#${formKey}`
 }
 
-/** Text fields of a submitted form; files and React's internal `$ACTION_*` entries are skipped. */
+/**
+ * Submitter values that are a one-off decision, never part of a draft: `confirmDuplicatePhone`
+ * ("Salvar mesmo assim") must be asked again after a reload, not replayed.
+ */
+const NEVER_DRAFTED = new Set(['confirmDuplicatePhone'])
+
+function isDraftable(name: string): boolean {
+  return !name.startsWith('$') && !NEVER_DRAFTED.has(name)
+}
+
+/** Text fields of a submitted form; files, React's internal `$ACTION_*` entries and one-off confirmations are skipped. */
 export function formDataToValues(formData: FormData): DraftValues {
   const values: DraftValues = {}
   formData.forEach((value, name) => {
-    if (typeof value !== 'string' || name.startsWith('$')) return
+    if (typeof value !== 'string' || !isDraftable(name)) return
     values[name] = value
   })
   return values
 }
 
-export function saveDraft(path: string, formKey: string, values: DraftValues, store = sessionStore(), now = Date.now()) {
+export function saveDraft(path: string, formKey: string, draft: DraftValues, store = sessionStore(), now = Date.now()) {
+  const values = Object.fromEntries(Object.entries(draft).filter(([name]) => isDraftable(name)))
   if (!store || Object.keys(values).length === 0) return false
   try {
     store.setItem(draftStorageKey(path, formKey), JSON.stringify({ values, savedAt: now } satisfies StoredDraft))

@@ -61,6 +61,18 @@ describe('form drafts', () => {
     })
   })
 
+  it('never keeps the one-off duplicate phone confirmation', () => {
+    const fd = new FormData()
+    fd.set('name', 'Ana')
+    fd.set('phone', '95991234567')
+    fd.set('confirmDuplicatePhone', '1')
+    expect(formDataToValues(fd)).toEqual({ name: 'Ana', phone: '95991234567' })
+    const store = memoryStorage()
+    saveDraft('/admin/guests', 'guest:new', { name: 'Ana', confirmDuplicatePhone: '1' }, store, 1000)
+    expect(readDraft('/admin/guests', 'guest:new', store, 2000)).toEqual({ name: 'Ana' })
+    expect(saveDraft('/admin/guests', 'guest:new', { confirmDuplicatePhone: '1' }, store, 1000)).toBe(false)
+  })
+
   it('saves, reads once with take, and clears', () => {
     const store = memoryStorage()
     expect(saveDraft('/admin/guests', 'guest:new', { name: 'Ana' }, store, 1000)).toBe(true)

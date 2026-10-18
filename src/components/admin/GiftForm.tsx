@@ -4,7 +4,7 @@ import { ChevronRight, ImageOff, ImagePlus, ImageUp, Trash2 } from 'lucide-react
 import { useActionState, useEffect, useId, useRef, useState, type DragEvent } from 'react'
 import { saveGiftAction, type GiftFormState } from '@/features/gifts/admin-actions'
 import { fieldErrorClass, focusRing, helperClass, inputClass, labelClass } from './styles'
-import { mediaUrl } from '@/features/media/keys'
+import { mediaUrl, restoredGiftImageKey } from '@/features/media/keys'
 import { readDraft } from '@/lib/form-draft'
 import { useImageFailed } from '@/lib/use-image-failed'
 import { useSkewSafeForm } from './skew-recovery'
@@ -339,7 +339,7 @@ export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
   const [restored] = useState(() =>
     typeof window === 'undefined' ? null : readDraft(window.location.pathname, draftKey),
   )
-  const initialImageKey = restored?.imageKey ?? values.imageKey
+  const initialImageKey = restoredGiftImageKey(restored?.imageKey, values.imageKey)
   const [imageUrl, setImageUrl] = useState(restored?.imageUrl ?? values.imageUrl)
   const [uploading, setUploading] = useState(false)
   const [linkOpen, setLinkOpen] = useState(!!(restored?.imageUrl ?? values.imageUrl))
