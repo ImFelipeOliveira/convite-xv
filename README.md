@@ -42,7 +42,7 @@ Não rode `pnpm test` e `pnpm test:e2e` ao mesmo tempo: ambos usam o banco `conv
 | `AUTH_SECRET` | sim | Segredo da sessão do admin, mínimo 32 caracteres. |
 | `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | recomendada em produção | Chave fixa das Server Actions: base64 de 32 bytes (`openssl rand -base64 32`). Lida no **build**; sem ela o build funciona, mas cada deploy gera uma chave nova. Veja Deploy. |
 | `LOG_LEVEL` | não | Nível do pino (`info` por padrão). |
-| `FEATURES` | não | Flags de funcionalidades separadas por vírgula; vazio por padrão. |
+| `FEATURES` | não | Flags de funcionalidades separadas por vírgula (`gifts`, `pix`); vazio por padrão = convite sem lista de presentes e sem Pix. |
 | `EVOLUTION_URL` | para WhatsApp | URL da Evolution API (produção: `http://evolution.railway.internal:8080`; local: `http://localhost:8080`). Sem ela, o painel mostra o WhatsApp como não configurado. |
 | `EVOLUTION_API_KEY` | para WhatsApp | Mesma chave definida em `AUTHENTICATION_API_KEY` na Evolution. Segredo, nunca versionar. |
 | `EVOLUTION_INSTANCE` | para WhatsApp | Nome da instância (`convite-xv`). |
@@ -52,6 +52,8 @@ Não rode `pnpm test` e `pnpm test:e2e` ao mesmo tempo: ambos usam o banco `conv
 | `ASAAS_API_KEY` | para Pix | Chave da API Asaas (começa com `$`; no `.env` use aspas simples). Sem ela, a seção Pix mostra "Pix indisponível no momento.". Segredo. |
 | `ASAAS_ENV` | para Pix | `sandbox` (padrão) ou `production`. |
 | `ASAAS_WEBHOOK_TOKEN` | para Pix | Token do webhook Asaas (veja abaixo). Sem ele, `/api/webhooks/asaas` responde 503. Segredo. |
+| `ASAAS_REQUIRE_PAYER_CPF` | não | Padrão: pede o CPF do pagador (o Asaas recusa Pix sem CPF). `false` usa um cliente genérico sem CPF. |
+| `ASAAS_BASE_URL` | só em testes | Sobrescreve a URL do `ASAAS_ENV` (fake Asaas do e2e). Nunca em produção. |
 
 ## WhatsApp (Evolution API)
 
@@ -121,6 +123,23 @@ Sobe a Evolution em `http://localhost:8080`, usando o Postgres do compose (`?sch
 
 ## Pix (Asaas)
 
+O convidado gera um QR Code Pix no convite (seção Pix, mínimo R$ 70,00, máximo R$ 10.000,00) e a tela vira “Pix recebido.” quando o Asaas confirma. O Asaas exige CPF do pagador para cobranças Pix: o convidado informa o CPF, que vai só para o Asaas (nunca é gravado nem logado). Um Pix pago conta como presente: os lembretes de presente pelo WhatsApp desse convidado são cancelados.
+
+### Chaves e ambientes
+
+| | Sandbox (testes) | Produção |
+| --- | --- | --- |
+| Conta | [sandbox.asaas.com](https://sandbox.asaas.com) (conta separada, dinheiro fictício) | [www.asaas.com](https://www.asaas.com) (conta aprovada, com chave Pix cadastrada) |
+| URL da API | `https://api-sandbox.asaas.com/v3` | `https://api.asaas.com/v3` |
+| `ASAAS_ENV` | `sandbox` (padrão) | `production` |
+
+1. Em cada conta, cadastre uma chave Pix (Pix › Minhas chaves): sem ela o Asaas não devolve o QR Code.
+2. Gere a chave da API em Integrações › Chaves de API. Ela começa com `$aact_` e só aparece uma vez: guarde-a num cofre. As chaves de sandbox e de produção são diferentes e não se misturam com o ambiente errado.
+3. No Railway, defina no serviço `web` sem imprimir o valor: `railway variable set ASAAS_API_KEY --stdin --service <serviço>` (cole a chave e Ctrl-D), `ASAAS_ENV=production` e `ASAAS_WEBHOOK_TOKEN` (abaixo).
+4. Teste local contra o sandbox: `pnpm exec tsx scripts/asaas-sandbox-check.ts` (só sandbox; usa `ASAAS_API_KEY` do `.env.local`, cria cobranças de teste de R$ 70, apaga em seguida e nunca imprime a chave).
+
+Variáveis (veja a tabela em Variáveis de ambiente): `ASAAS_API_KEY`, `ASAAS_ENV`, `ASAAS_WEBHOOK_TOKEN` e `FEATURES`. A seção Pix do convite só aparece com `pix` em `FEATURES` (ex.: `FEATURES=gifts,pix`); sem a flag, o convite não mostra Pix nem a lista de presentes (`gifts`), e as ações públicas de Pix recusam. Sem `ASAAS_API_KEY`, com a flag ligada, o convite mostra “Pix indisponível no momento.”. Nunca versione nem logue a chave ou o token.
+
 ### Webhook
 
 Em Asaas › Integrações › Webhooks, crie um webhook:
@@ -131,6 +150,10 @@ Em Asaas › Integrações › Webhooks, crie um webhook:
 - **Eventos**: `PAYMENT_RECEIVED`, `PAYMENT_CONFIRMED`, `PAYMENT_OVERDUE`, `PAYMENT_DELETED`, `PAYMENT_REFUNDED` (e, se quiser, `PAYMENT_PARTIALLY_REFUNDED`). Outros eventos são aceitos e ignorados.
 
 Comportamento: cada evento é gravado pelo seu `id` (`webhook_events`), então reentregas não reprocessam nada. Pago nunca volta atrás: `OVERDUE`/`DELETED` depois de pago são ignorados, e um estorno de um Pix pago mantém `paid` e registra `pix.refund_after_paid` no log; no Painel › Pix ele aparece como “Estornado” e sai do total recebido. Defesa em profundidade: antes de marcar pago, o servidor confirma o pagamento no próprio Asaas (`GET /payments/:id`, até 8 s; precisa de `ASAAS_API_KEY`): só vale se o Asaas disser pago e o valor bater; senão o evento é ignorado (`pix.webhook_unconfirmed`), e se o Asaas não responder o webhook devolve 500 (o Asaas reenvia). Requisições recusadas (token errado, corpo inválido) são limitadas a 30/min por IP (depois, 429 sem log). Se o webhook falhar, a tela do convidado ainda consulta o Asaas depois de 2 min (fallback). Fila pausada no Asaas: veja Integrações › Logs de Webhook.
+
+### Tarifas
+
+O Asaas cobra uma tarifa por Pix recebido (e pode cobrar pela transferência do saldo para a conta bancária); confira os valores atuais em Minha conta › Taxas antes de ligar o Pix. A tarifa sai do valor recebido: o convidado paga exatamente o valor que digitou, e o painel (Painel › Pix) mostra o valor bruto de cada Pix, não o líquido. No sandbox nada é cobrado.
 
 ## Deploy (Railway)
 
