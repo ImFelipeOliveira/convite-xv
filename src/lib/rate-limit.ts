@@ -20,8 +20,9 @@ export function rateLimit(
 }
 
 export function getClientIp(headers: Headers): string {
-  const first = headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  return first || 'local'
+  // the right-most entry is the one appended by our trusted proxy; earlier ones are client-controlled
+  const parts = headers.get('x-forwarded-for')?.split(',') ?? []
+  return parts[parts.length - 1]?.trim() || 'local'
 }
 
 export function resetRateLimits(): void {

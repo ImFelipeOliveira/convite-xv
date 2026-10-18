@@ -26,3 +26,20 @@ test('signs in and out', async ({ page }) => {
   await page.goto('/admin')
   await expect(page).toHaveURL(/\/admin\/login$/)
 })
+
+test('GET /admin is gated at the proxy', async ({ page, request }) => {
+  const anon = await request.get('/admin', { maxRedirects: 0 })
+  expect(anon.status()).toBe(307)
+  expect(anon.headers()['location']).toMatch(/\/admin\/login$/)
+  expect(await anon.text()).not.toContain('Painel')
+
+  await page.goto('/admin/login')
+  await page.getByLabel('E-mail').fill(E2E_ADMIN_EMAIL)
+  await page.getByLabel('Senha').fill(E2E_ADMIN_PASSWORD)
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  const authed = await page.request.get('/admin', { maxRedirects: 0 })
+  expect(authed.status()).toBe(200)
+  await page.goto('/admin/login')
+  await expect(page).toHaveURL(/\/admin$/)
+})

@@ -26,6 +26,15 @@ describe('session token', () => {
     expect(await verifySessionToken('garbage')).toBeNull()
   })
 
+  it('rejects alg none and HS512 tokens', async () => {
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    const none = `${b64({ alg: 'none', typ: 'JWT' })}.${b64({ sub: 'a', exp: 9999999999 })}.`
+    expect(await verifySessionToken(none)).toBeNull()
+    const hs512 = await new SignJWT({}).setProtectedHeader({ alg: 'HS512' }).setSubject('a')
+      .setExpirationTime('30d').sign(new TextEncoder().encode(process.env.AUTH_SECRET))
+    expect(await verifySessionToken(hs512)).toBeNull()
+  })
+
   it('rejects a token signed with another secret and an expired token', async () => {
     const other = await new SignJWT({}).setProtectedHeader({ alg: 'HS256' }).setSubject('a')
       .setExpirationTime('30d').sign(new TextEncoder().encode('x'.repeat(40)))

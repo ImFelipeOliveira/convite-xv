@@ -13,8 +13,8 @@ import { createSession, destroySession } from './session'
 export type SignInState = { error: string } | null
 
 const BAD_CREDENTIALS = 'E-mail ou senha incorretos.'
-// valid bcrypt hash (cost 12) so unknown e-mails cost the same as wrong passwords
-const DUMMY_HASH = '$2b$12$Te/HkgrwdXsYPPA5aprRCOAI9XFJFZRE08NPbEdV1f6OtnKdgiMgS'
+// bcrypt (cost 12) of a long random throwaway string, so unknown e-mails cost the same as wrong passwords
+const DUMMY_HASH = '$2b$12$sM1rS4CUQD9GI7newRIg.ORnRkFx/9oJZzX7NzjOIuRz1VmncgSJe'
 
 export async function signIn(_prev: SignInState, formData: FormData): Promise<SignInState> {
   const ip = getClientIp(await headers())
@@ -27,6 +27,10 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
   const email = typeof emailRaw === 'string' ? emailRaw.trim().toLowerCase() : ''
   if (!email || typeof password !== 'string' || !password) {
     logger.warn({ event: 'admin.sign_in_failed', reason: 'bad_credentials' }, 'admin sign-in failed')
+    return { error: BAD_CREDENTIALS }
+  }
+  if (!rateLimit(`admin-login-email:${email}`, { max: 10, windowMs: 15 * 60_000 }).ok) {
+    logger.warn({ event: 'admin.sign_in_failed', reason: 'rate_limited' }, 'admin sign-in failed')
     return { error: BAD_CREDENTIALS }
   }
   const [admin] = await db.select().from(admins).where(eq(admins.email, email)).limit(1)

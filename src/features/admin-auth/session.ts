@@ -27,8 +27,9 @@ export function signSessionToken(adminId: string): Promise<string> {
 
 /** Pure check of a session JWT: the admin id, or null for anything invalid, forged or expired. */
 export async function verifySessionToken(token: string): Promise<{ adminId: string } | null> {
+  const secret = getSecret() // outside the try: a misconfigured deploy must fail loudly
   try {
-    const { payload } = await jwtVerify(token, getSecret(), { algorithms: ['HS256'] })
+    const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] })
     return payload.sub ? { adminId: payload.sub } : null
   } catch {
     return null

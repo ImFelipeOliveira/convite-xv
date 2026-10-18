@@ -28,9 +28,9 @@ describe('rateLimit', () => {
 })
 
 describe('getClientIp', () => {
-  it('takes the first x-forwarded-for IP', () => {
+  it('takes the right-most (proxy-appended) x-forwarded-for IP', () => {
     const h = new Headers({ 'x-forwarded-for': '1.1.1.1, 2.2.2.2' })
-    expect(getClientIp(h)).toBe('1.1.1.1')
+    expect(getClientIp(h)).toBe('2.2.2.2')
   })
 
   it("falls back to 'local'", () => {

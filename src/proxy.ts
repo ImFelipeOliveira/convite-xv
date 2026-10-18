@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { SESSION_COOKIE, verifySessionToken } from '@/features/admin-auth/session'
 import { findGuestByToken } from '@/features/guests/repo'
 import { logger } from '@/lib/logger'
 import { getClientIp, rateLimit } from '@/lib/rate-limit'
@@ -8,7 +9,18 @@ import { getClientIp, rateLimit } from '@/lib/rate-limit'
 // for unknown tokens and rate-limited clients (Next's recommended pattern for 404 status).
 const NO_SUCH_ROUTE = '/invite-not-found'
 
+// Admin gate: pages render in parallel with layouts and layouts don't re-run on client navigation,
+// so the session is checked here for every /admin path. requireAdmin in pages/actions stays the real check.
+async function guardAdmin(request: NextRequest) {
+  const { pathname } = request.nextUrl
+  if (pathname === '/admin/login') return NextResponse.next()
+  const token = request.cookies.get(SESSION_COOKIE)?.value
+  if (token && (await verifySessionToken(token))) return NextResponse.next()
+  return NextResponse.redirect(new URL('/admin/login', request.url))
+}
+
 export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith('/admin')) return guardAdmin(request)
   const notFound = () => NextResponse.rewrite(new URL(NO_SUCH_ROUTE, request.url))
 
   // a rate-limited client intentionally gets the same 404 as an unknown token (no enumeration signal)
@@ -23,5 +35,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: '/c/:token',
+  matcher: ['/c/:token', '/admin/:path*'],
 }
