@@ -118,12 +118,14 @@ tests/e2e/{fake-asaas.ts, gifts.spec.ts, admin-gifts.spec.ts, pix.spec.ts, admin
 
 ### Task 4: Gift nudge
 
+> **Update 2026-10-18 (user):** two gift messages. `gift_list` is sent right after the guest confirms (scheduled for `respondedAt`, i.e. due immediately; quiet hours 09–20 Boa Vista still apply via the dispatcher), default text (exact): `Oba, {nome}! Sua presença nos 15 anos da Isabella está confirmada. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: {link}` (settings `giftListText`). `gift_nudge` stays at +5 days with the approved text. Both: kinds added to `dispatch_kind` (one ADD VALUE migration), same eligibility at send time (yes + phone + no gift + no paid Pix), same cancellation triggers, `{link}` = invite URL + `#gifts`, dispatch labels "Lista de presentes" / "Lembrete de presente", settings textareas for both. `gift_list` is also skipped when `respondedAt` is after `2026-12-20T14:00:00Z`.
+
 **Files:**
 - Modify: `src/server/db/schema.ts` (enum `dispatch_kind` ADD VALUE `gift_nudge` in its own migration; settings `giftNudgeText text not null default …`), `src/features/whatsapp/reminders.ts` (+ `syncGiftNudge(guest, now)`), `src/features/whatsapp/dispatcher.ts` (handle `gift_nudge`), `src/features/rsvp/service.ts` (call after RSVP), `src/features/gifts/actions.ts` (call after reserve/release), settings schema/form (textarea "Lembrete de presente", must contain `{link}`), dispatch labels ("Lembrete de presente")
 - Test: `src/features/whatsapp/__tests__/gift-nudge.test.ts`, extend dispatcher tests
 
 **Interfaces:**
-- `giftNudgeText` default (exact): `Oi, {nome}! Que bom que você vem aos 15 anos da Isabella. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: {link}`
+- `giftNudgeText` default (exact): `Oi, {nome}! Que bom que você vem aos 15 anos da Isabella. Se quiser presentear, a lista de presentes (com sugestões de onde comprar) e a opção de Pix estão no seu convite: {link} — Se você já escolheu um presente ou fez o Pix, pode ignorar esta mensagem.`
 - `{link}` for this kind points to the gifts anchor: `inviteUrl(token) + '#gifts'`.
 - `syncGiftNudge(g: Pick<Guest,'id'|'rsvpStatus'|'phone'|'respondedAt'>, now)`: if `yes` + phone + no gift + no Pix in (`paid`,`notice_sent`) → `upsertReminder(g.id, 'gift_nudge', respondedAt + 5 days)` when that is `> now` and `< 2026-12-20T14:00:00Z`; otherwise `cancelDispatches(g.id, ['gift_nudge'])`. Called (best-effort, logged) after RSVP, after gift reserve/release, and after a Pix becomes `paid` (Task 7). Admin release does **not** re-arm (Review Focus 5) — only guest-driven events call it.
 - Dispatcher: for `gift_nudge`, send only if still yes + phone + no gift + no paid Pix; else cancel. Uses `reminderTemplateValues` with the gifts-anchor link.
