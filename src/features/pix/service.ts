@@ -3,7 +3,7 @@ import { childLogger } from '@/lib/logger'
 import type { Guest, PixPayment, PixStatus } from '@/server/db/schema'
 import { afterPixPaid } from './after-paid'
 import { createPixPayment, deletePayment, ensureCustomer, getPayment, getPixQrCode } from './asaas'
-import { readAsaasConfig, requirePayerCpf, type AsaasConfig } from './config'
+import { readAsaasConfig, requirePayerCpf, testOverridesAllowed, type AsaasConfig } from './config'
 import { isValidCpf } from './cpf'
 import { pixDueDate } from './due-date'
 import { PIX_MAX_CENTS, PIX_MIN_CENTS } from './limits'
@@ -68,8 +68,12 @@ export type PixDeps = {
   afterPaid?: (guestId: string) => Promise<void>
 }
 
-/** Non-negative integer ms from env, or the default (lets e2e poll Asaas right away). */
+/**
+ * Non-negative integer ms from env, or the default (lets e2e poll Asaas right away). A test-only
+ * override: ignored in production unless ALLOW_TEST_OVERRIDES=1 (see testOverridesAllowed).
+ */
 function envMs(name: string, fallback: number): number {
+  if (!testOverridesAllowed()) return fallback
   const raw = process.env[name]?.trim()
   if (!raw || !/^\d+$/.test(raw)) return fallback
   return Number(raw)

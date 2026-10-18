@@ -42,6 +42,9 @@ export default defineConfig({
       EVOLUTION_URL: FAKE_EVOLUTION_URL,
       EVOLUTION_API_KEY: FAKE_EVOLUTION_API_KEY,
       EVOLUTION_INSTANCE: 'convite-xv',
+      // `next start` runs with NODE_ENV=production, where ASAAS_BASE_URL and PIX_POLL_* are ignored
+      // unless this explicit test-only opt-in is set (src/features/pix/config.ts). Never on Railway.
+      ALLOW_TEST_OVERRIDES: '1',
       // fake Asaas started by global-setup (tests/e2e/fake-asaas.ts); never the real API in tests
       ASAAS_BASE_URL: `${FAKE_ASAAS_URL}/v3`,
       ASAAS_API_KEY: FAKE_ASAAS_API_KEY,

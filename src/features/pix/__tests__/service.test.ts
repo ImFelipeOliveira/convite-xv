@@ -499,6 +499,33 @@ describe('getPixStatus poll threshold', () => {
   })
 })
 
+describe('getPixStatus poll overrides in production', () => {
+  async function pollsAtOnce(): Promise<number> {
+    const f = fakeAsaas({ 'GET /payments/:id': () => json({ status: 'PENDING', value: 70 }) })
+    const guest = await makeGuest()
+    const r = await generatePix(guest, 7000, deps(f))
+    if (!r.ok) throw new Error('expected ok')
+    await getPixStatus(guest.id, r.payment.id, deps(f))
+    return f.calls.filter((c) => c.key === 'GET /payments/:id').length
+  }
+
+  it('ignores PIX_POLL_* in production (the 2 min / 30 s defaults apply)', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('ALLOW_TEST_OVERRIDES', '')
+    vi.stubEnv('PIX_POLL_AFTER_MS', '0')
+    vi.stubEnv('PIX_POLL_EVERY_MS', '0')
+    expect(await pollsAtOnce()).toBe(0)
+  })
+
+  it('honours PIX_POLL_* in a production build with ALLOW_TEST_OVERRIDES=1 (e2e)', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('ALLOW_TEST_OVERRIDES', '1')
+    vi.stubEnv('PIX_POLL_AFTER_MS', '0')
+    vi.stubEnv('PIX_POLL_EVERY_MS', '0')
+    expect(await pollsAtOnce()).toBe(1)
+  })
+})
+
 describe('getGuestPixState', () => {
   it('is empty for a guest without charges', async () => {
     const guest = await makeGuest()

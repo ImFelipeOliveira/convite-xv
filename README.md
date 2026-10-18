@@ -53,7 +53,9 @@ Não rode `pnpm test` e `pnpm test:e2e` ao mesmo tempo: ambos usam o banco `conv
 | `ASAAS_ENV` | para Pix | `sandbox` (padrão) ou `production`. |
 | `ASAAS_WEBHOOK_TOKEN` | para Pix | Token do webhook Asaas (veja abaixo). Sem ele, `/api/webhooks/asaas` responde 503. Segredo. |
 | `ASAAS_REQUIRE_PAYER_CPF` | não | Padrão: pede o CPF do pagador (o Asaas recusa Pix sem CPF). `false` usa um cliente genérico sem CPF. |
-| `ASAAS_BASE_URL` | só em testes | Sobrescreve a URL do `ASAAS_ENV` (fake Asaas do e2e). Nunca em produção. |
+| `ASAAS_BASE_URL` | só em testes | Sobrescreve a URL do `ASAAS_ENV` (fake Asaas do e2e). Ignorada com `NODE_ENV=production`, a não ser com `ALLOW_TEST_OVERRIDES=1`. |
+| `PIX_POLL_AFTER_MS`, `PIX_POLL_EVERY_MS` | só em testes | Encurtam a consulta de status do Pix ao Asaas (e2e). Ignoradas em produção, como a anterior. |
+| `ALLOW_TEST_OVERRIDES` | **nunca em produção** | `1` libera `ASAAS_BASE_URL` e `PIX_POLL_*` num build de produção. Só o `playwright.config.ts` define (o `next start` do e2e roda com `NODE_ENV=production`). **Nunca defina no Railway**: `ASAAS_BASE_URL` decide para onde vai a chave do Asaas. |
 
 ## WhatsApp (Evolution API)
 
