@@ -1,9 +1,16 @@
 'use client'
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { generatePixAction, pixStatusAction, type GeneratePixResult, type PixActionError } from '@/features/pix/actions'
+import {
+  generatePixAction,
+  pixStatusAction,
+  type GeneratePixResult,
+  type PixActionError,
+  type PixStatusResult,
+} from '@/features/pix/actions'
 import { isValidCpf } from '@/features/pix/cpf'
 import { formatCents, parseReais } from '@/features/pix/format'
+import { maskCpf, maskReais, qrImageSrc } from '@/features/pix/input'
 import type { PixView } from '@/features/pix/service'
 import { useGiftChoice } from './GiftChoice'
 import { Reveal, RevealItem } from './Reveal'
@@ -36,29 +43,6 @@ const GENERATE_ERRORS: Record<Exclude<PixActionError, 'below_minimum' | 'invalid
 }
 
 type Step = 'choose' | 'qr' | 'paid'
-
-/** '52998224725' → '529.982.247-25' as the guest types. */
-function maskCpf(value: string): string {
-  const d = value.replace(/\D/g, '').slice(0, 11)
-  let out = d.slice(0, 3)
-  if (d.length > 3) out += `.${d.slice(3, 6)}`
-  if (d.length > 6) out += `.${d.slice(6, 9)}`
-  if (d.length > 9) out += `-${d.slice(9)}`
-  return out
-}
-
-/** BRL as the guest types: thousands dots, ',' for cents (max 2): '1250,5' → '1.250,5'. */
-function maskReais(value: string): string {
-  const [intRaw, ...rest] = value.replace(/[^\d,]/g, '').split(',')
-  const int = intRaw.replace(/^0+(?=\d)/, '').slice(0, 7)
-  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  if (rest.length === 0) return grouped
-  return `${grouped || '0'},${rest.join('').slice(0, 2)}`
-}
-
-function qrSrc(image: string): string {
-  return image.startsWith('data:') ? image : `data:image/png;base64,${image}`
-}
 
 function initialStep(payment: PixView | null): Step {
   if (payment?.status === 'paid') return 'paid'
@@ -120,7 +104,11 @@ export function Pix({
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [celebrate, setCelebrate] = useState(false)
   const [announce, setAnnounce] = useState('')
+  // polling gave up (30 min, or the charge is gone): the guest can still ask once
+  const [pollStopped, setPollStopped] = useState(false)
+  const [verifying, setVerifying] = useState(false)
   const titleRef = useRef<HTMLHeadingElement>(null)
+  const paidTitleRef = useRef<HTMLHeadingElement>(null)
   const amountRef = useRef<HTMLInputElement>(null)
   const cpfRef = useRef<HTMLInputElement>(null)
   const codeRef = useRef<HTMLInputElement>(null)
@@ -133,8 +121,34 @@ export function Pix({
 
   useEffect(() => () => clearTimeout(copiedTimer.current), [])
 
+  function expireCharge() {
+    setPayment(null)
+    setStep('choose')
+    setError(EXPIRED_MESSAGE)
+  }
+
+  /** A status answer while the QR is open; true when the charge is settled (paid or gone). */
+  function applyStatus(res: PixStatusResult, amountCents: number | undefined): boolean {
+    if (!res.ok) return false
+    if (res.status === 'paid') {
+      setPayment((p) => (p ? { ...p, status: 'paid', paidAt: res.paidAt } : p))
+      setCelebrate(true)
+      setStep('paid')
+      setAnnounce('Pix recebido. Muito obrigada!')
+      if (amountCents !== undefined) choice?.setPixPaid(amountCents)
+      // the QR step (and the focused control in it) is gone: land on the thanks
+      requestAnimationFrame(() => paidTitleRef.current?.focus())
+      return true
+    }
+    if (res.status !== 'pending') {
+      expireCharge()
+      return true
+    }
+    return false
+  }
+
   // while the QR is open: ask the server every 5 s (up to 30 min) until the charge is settled
-  const pollingId = step === 'qr' ? payment?.id : undefined
+  const pollingId = step === 'qr' && !pollStopped ? payment?.id : undefined
   const expiresAt = payment?.expiresAt
   const paidAmount = payment?.amountCents
   useEffect(() => {
@@ -146,34 +160,23 @@ export function Pix({
       stopped = true
       clearInterval(timer)
     }
-    const expire = () => {
+    const giveUp = () => {
       stop()
-      setPayment(null)
-      setStep('choose')
-      setError(EXPIRED_MESSAGE)
+      setPollStopped(true)
     }
     const tick = async () => {
       if (stopped || busy) return
-      if (Date.now() - startedAt > POLL_FOR_MS) return stop()
-      if (expiresAt && Date.now() >= new Date(expiresAt).getTime()) return expire()
+      if (Date.now() - startedAt > POLL_FOR_MS) return giveUp()
+      if (expiresAt && Date.now() >= new Date(expiresAt).getTime()) {
+        stop()
+        return expireCharge()
+      }
       busy = true
       try {
         const res = await pixStatusAction(token, pollingId)
         if (stopped) return
-        if (!res.ok) {
-          if (res.error === 'not_found') stop()
-          return
-        }
-        if (res.status === 'paid') {
-          stop()
-          setPayment((p) => (p ? { ...p, status: 'paid', paidAt: res.paidAt } : p))
-          setCelebrate(true)
-          setStep('paid')
-          setAnnounce('Pix recebido. Muito obrigada!')
-          if (paidAmount !== undefined) choice?.setPixPaid(paidAmount)
-        } else if (res.status !== 'pending') {
-          expire()
-        }
+        if (!res.ok && res.error === 'not_found') return giveUp()
+        if (applyStatus(res, paidAmount)) stop()
       } catch {
         // offline for a moment: the next tick tries again
       } finally {
@@ -182,9 +185,22 @@ export function Pix({
     }
     const timer = setInterval(tick, POLL_EVERY_MS)
     return stop
-    // `choice` is a fresh object every render: the poll only restarts for another charge
+    // `choice` / the helpers are fresh every render: the poll only restarts for another charge
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollingId, expiresAt, paidAmount, token])
+
+  /** After polling gave up: one status call on demand. */
+  async function verify() {
+    if (!payment || verifying) return
+    setVerifying(true)
+    try {
+      applyStatus(await pixStatusAction(token, payment.id), payment.amountCents)
+    } catch {
+      // offline: the button stays
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   function focusTitle() {
     requestAnimationFrame(() => titleRef.current?.focus())
@@ -229,6 +245,7 @@ export function Pix({
       setCpf('')
       setCpfError(false)
       setCopied(null)
+      setPollStopped(false)
       setPayment(result.payment)
       setStep('qr')
       focusTitle()
@@ -306,8 +323,9 @@ export function Pix({
 
         {/* one always-mounted item: swapping steps never re-runs the scroll reveal */}
         <RevealItem className="flex flex-col">
+          {/* post + no `name` on any input: even a submit before hydration never puts the CPF in a URL */}
           {step === 'choose' && (
-            <form noValidate onSubmit={onSubmit} className="pix-swap flex flex-col">
+            <form method="post" noValidate onSubmit={onSubmit} className="pix-swap flex flex-col">
               <p className="mt-3 mb-0 text-[17px] leading-[1.5] text-deep-rose italic">
                 Se preferir presentear assim, escolha um valor. Sem pressa e sem obrigação — o carinho é o que conta.
               </p>
@@ -407,7 +425,6 @@ export function Pix({
                   <input
                     ref={cpfRef}
                     id={cpfId}
-                    name="cpf"
                     type="text"
                     inputMode="numeric"
                     autoComplete="off"
@@ -485,12 +502,12 @@ export function Pix({
             <div className="pix-swap flex flex-col items-center text-center">
               <div className="mt-4 text-[44px] leading-none">{amountText}</div>
 
-              {payment.qrImage && (
+              {payment.qrImage && qrImageSrc(payment.qrImage) && (
                 <div className="pix-qr relative mt-5 box-border size-[224px] border border-gold bg-paper p-[14px] outline-1 outline-offset-[6px] outline-[rgba(184,149,90,.4)] outline-solid">
                   {/* base64 PNG from Asaas: next/image adds nothing here */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={qrSrc(payment.qrImage)}
+                    src={qrImageSrc(payment.qrImage) ?? undefined}
                     alt={`QR Code Pix de ${amountText}`}
                     width={194}
                     height={194}
@@ -566,9 +583,24 @@ export function Pix({
                 ))}
               </ol>
 
-              <p className="mt-[14px] mb-0 text-left font-sans text-[13px] leading-[1.5] text-deep-rose">
-                A confirmação aparece aqui sozinha quando o banco avisar. Pode fechar a página: nada é cobrado duas vezes.
-              </p>
+              {pollStopped ? (
+                <div className="mt-[14px] flex w-full flex-col items-center gap-2">
+                  <p className="m-0 font-sans text-[13px] leading-[1.5] text-deep-rose">Já pagou? Toque para verificar.</p>
+                  <button
+                    type="button"
+                    onClick={verify}
+                    disabled={verifying}
+                    aria-busy={verifying}
+                    className={`flex h-[48px] w-full cursor-pointer items-center justify-center rounded-full border border-seal bg-transparent font-sans text-[15px] font-medium text-seal ${FOCUS}`}
+                  >
+                    {verifying ? 'Verificando…' : 'Verificar pagamento'}
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-[14px] mb-0 text-left font-sans text-[13px] leading-[1.5] text-deep-rose">
+                  A confirmação aparece aqui sozinha quando o banco avisar. Pode fechar a página: nada é cobrado duas vezes.
+                </p>
+              )}
 
               <button
                 type="button"
@@ -625,7 +657,12 @@ export function Pix({
                   strokeLinejoin="round"
                 />
               </svg>
-              <h3 className="pix-rise mt-[26px] mb-0 text-[32px] leading-[1.1] font-normal" style={{ animationDelay: '.9s' }}>
+              <h3
+                ref={paidTitleRef}
+                tabIndex={-1}
+                className="pix-rise mt-[26px] mb-0 text-[32px] leading-[1.1] font-normal outline-none"
+                style={{ animationDelay: '.9s' }}
+              >
                 Pix recebido.
               </h3>
               <div
@@ -655,7 +692,7 @@ export function Pix({
                 className={`pix-rise mt-7 h-[54px] w-full cursor-pointer rounded-full border border-seal bg-transparent font-sans text-[15px] font-medium text-seal ${FOCUS}`}
                 style={{ animationDelay: '1.45s' }}
               >
-                Voltar ao convite
+                Enviar outro Pix
               </button>
             </div>
           )}

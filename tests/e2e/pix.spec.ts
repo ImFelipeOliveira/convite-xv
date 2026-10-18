@@ -95,6 +95,8 @@ test('R$ 100: shows the QR and copy-paste code, copies it, then turns paid after
 
   await setLatestFakeChargeStatus('RECEIVED')
   await expect(section.getByRole('heading', { name: 'Pix recebido.' })).toBeVisible({ timeout: 15_000 })
+  // the QR step is gone: focus lands on the thanks
+  await expect(section.getByRole('heading', { name: 'Pix recebido.' })).toBeFocused()
   await expect(section.getByText('Muito obrigada!', { exact: true })).toBeVisible()
   await expect(section.getByText('PAGO', { exact: true })).toBeVisible()
   await expect(section.getByText('Seu carinho chegou. Obrigada por fazer parte desse dia!')).toBeVisible()
@@ -115,12 +117,17 @@ test('"Outro valor" below R$ 70 shows the minimum and never calls Asaas', async 
   await shot(section, 'min-error')
   expect(await fakeAsaasCalls()).toEqual([])
 
-  // a valid custom amount with thousands is masked and goes through
+  // a typed "." is the decimal separator, never thousands
+  await input.fill('70.5')
+  await expect(input).toHaveValue('70,5')
+  await expect(section.getByTestId('pix-amount')).toHaveText('R$ 70,50')
   await input.fill('1250')
-  await expect(input).toHaveValue('1.250')
   await expect(section.getByTestId('pix-amount')).toHaveText('R$ 1.250,00')
+  await input.fill('100.50')
+  await expect(input).toHaveValue('100,50')
+  await expect(section.getByTestId('pix-amount')).toHaveText('R$ 100,50')
   await section.getByRole('button', { name: 'Gerar Pix' }).click()
-  await expect(section.getByRole('img', { name: /QR Code Pix de R\$ 1\.250,00/ })).toBeVisible()
+  await expect(section.getByRole('img', { name: /QR Code Pix de R\$ 100,50/ })).toBeVisible()
 })
 
 test('an invalid CPF is caught before any call', async ({ page }) => {
@@ -167,6 +174,50 @@ test('an expired charge asks for a new one', async ({ page }) => {
   await setLatestFakeChargeStatus('OVERDUE')
   await expect(section.getByText('Este Pix expirou. Gere um novo.')).toBeVisible({ timeout: 15_000 })
   await expect(section.getByRole('button', { name: 'Gerar Pix' })).toBeVisible()
+})
+
+test('when polling gives up, the guest can still check the payment once', async ({ page }) => {
+  const section = await openPix(page)
+  await cpfInput(section).fill(VALID_CPF)
+  await section.getByRole('button', { name: 'Gerar Pix' }).click()
+  await expect(section.getByRole('img', { name: /QR Code Pix/ })).toBeVisible()
+  // the charge disappears on our side: the next poll answers not_found and polling stops
+  await deletePixPaymentsForTokens([E2E_GUEST_TOKEN])
+  await expect(section.getByText('Já pagou? Toque para verificar.')).toBeVisible({ timeout: 15_000 })
+  await expect(section.getByText(/A confirmação aparece aqui sozinha/)).toHaveCount(0)
+  await section.getByRole('button', { name: 'Verificar pagamento' }).click()
+  await expect(section.getByRole('button', { name: 'Verificar pagamento' })).toBeVisible()
+  await expect(section.getByText('Já pagou? Toque para verificar.')).toBeVisible()
+})
+
+test('the CPF never reaches a URL, even if the form is submitted before hydration', async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    javaScriptEnabled: false,
+    extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.39' },
+  })
+  try {
+    const page = await context.newPage()
+    const urls: string[] = []
+    page.on('request', (r) => urls.push(r.url()))
+    await page.goto(`/c/${E2E_GUEST_TOKEN}`)
+    const form = page.locator('#pix form')
+    await expect(form).toHaveAttribute('method', 'post')
+    // no input of the form carries a name, so a native submit sends none of them
+    await expect(form.locator('input[name], select[name], textarea[name]')).toHaveCount(0)
+    // not exposed to the a11y tree yet (the opening still covers the invite): target it by id
+    const cpf = form.locator('#pix-cpf')
+    await cpf.fill(VALID_CPF, { force: true })
+    // a native submit (no React handler without JS); the section is still behind the opening overlay
+    await Promise.all([page.waitForEvent('load'), form.evaluate((f: HTMLFormElement) => f.requestSubmit())])
+    for (const url of [...urls, page.url()]) {
+      expect(url).not.toContain('cpf')
+      expect(url).not.toContain('52998224725')
+      expect(url).not.toContain('529.982')
+    }
+  } finally {
+    await context.close()
+  }
 })
 
 test('a reload keeps showing the pending QR', async ({ page }) => {
