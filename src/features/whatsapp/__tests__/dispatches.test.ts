@@ -4,7 +4,7 @@ import { db } from '@/server/db/client'
 import { admins, guests, messageDispatches } from '@/server/db/schema'
 import { makeGuest, reseedSettings, resetDatabase } from '../../../../tests/helpers/db'
 import {
-  cancelReminders,
+  cancelDispatches,
   claimDueReminder,
   createInviteDispatch,
   lastInvitePerGuest,
@@ -128,15 +128,24 @@ describe('dispatches repo', () => {
     expect(r[0].scheduledFor?.toISOString()).toBe('2026-12-20T15:00:00.000Z')
   })
 
-  it('cancelReminders then upsertReminder re-schedules', async () => {
+  it('cancelDispatches then upsertReminder re-schedules', async () => {
     const g = await makeGuest()
     await upsertReminder(g.id, 'reminder_d1', new Date('2026-12-26T14:00:00Z'))
-    await cancelReminders(g.id)
+    await cancelDispatches(g.id, ['reminder_d1'])
     expect((await rows(g.id))[0].status).toBe('cancelled')
     await upsertReminder(g.id, 'reminder_d1', new Date('2026-12-26T14:00:00Z'))
     const r = await rows(g.id)
     expect(r).toHaveLength(1)
     expect(r[0].status).toBe('scheduled')
+  })
+
+  it('cancelDispatches only touches scheduled rows of the given kinds', async () => {
+    const g = await makeGuest()
+    await upsertReminder(g.id, 'reminder_d7', new Date('2026-12-20T14:00:00Z'))
+    await upsertReminder(g.id, 'rsvp_nudge', new Date('2026-11-06T14:00:00Z'))
+    await cancelDispatches(g.id, ['rsvp_nudge', 'rsvp_final'])
+    const byKind = Object.fromEntries((await rows(g.id)).map((r) => [r.kind, r.status]))
+    expect(byKind).toEqual({ reminder_d7: 'scheduled', rsvp_nudge: 'cancelled' })
   })
 
   it('upsertReminder never resurrects a sent row', async () => {

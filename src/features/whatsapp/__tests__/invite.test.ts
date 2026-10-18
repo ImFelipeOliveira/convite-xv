@@ -6,8 +6,8 @@ import { admins, messageDispatches } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
 import type { EvolutionConfig } from '../config'
 import type { EvolutionResult, sendText } from '../evolution'
-import * as dispatches from '../dispatches'
 import { inviteErrorMessage, sendInvite } from '../invite'
+import * as reminders from '../reminders'
 import { logger } from '@/lib/logger'
 
 const CFG: EvolutionConfig = { url: 'http://evolution.test', apiKey: 'k', instance: 'convite-xv' }
@@ -146,22 +146,35 @@ describe('sendInvite', () => {
   })
 })
 
+// Nudge timing rules are covered in reminders.test.ts with fixed dates; here only the wiring is
+// checked (sendInvite hands the invite's sent_at to scheduleRsvpNudges), so nothing depends on today.
 describe('sendInvite rsvp nudges', () => {
+  const realSchedule = reminders.scheduleRsvpNudges
+  const DEADLINE = '2026-12-13' // settings default
+  const shape = (r: Awaited<ReturnType<typeof nudgeRows>>) =>
+    r.map((n) => ({ kind: n.kind, status: n.status, at: n.scheduledFor?.toISOString() })).sort((a, b) => a.kind.localeCompare(b.kind))
+
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('schedules the nudge exactly 5 days after sent_at and the final notice for a pending guest', async () => {
+  it('schedules the nudges from the recorded invite sent_at and the deadline', async () => {
+    const spy = vi.spyOn(reminders, 'scheduleRsvpNudges')
     const g = await makeGuest({ phone: PHONE })
     const r = await sendInvite(g.id, await makeAdmin(), deps())
     if (!r.ok) throw new Error('send failed')
     const [invite] = await rows(g.id)
-    const nudges = await nudgeRows(g.id)
-    const byKind = Object.fromEntries(nudges.map((n) => [n.kind, n]))
-    expect(nudges).toHaveLength(2)
-    expect(byKind.rsvp_nudge.status).toBe('scheduled')
-    expect(byKind.rsvp_nudge.scheduledFor?.getTime()).toBe(invite.sentAt!.getTime() + 5 * 24 * 60 * 60 * 1000)
-    expect(byKind.rsvp_final.scheduledFor?.toISOString()).toBe('2026-12-10T14:00:00.000Z')
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    const [guestArg, sentAtArg, deadlineArg] = spy.mock.calls[0]
+    expect(guestArg).toMatchObject({ id: g.id, rsvpStatus: 'pending' })
+    expect(sentAtArg.getTime()).toBe(invite.sentAt!.getTime())
+    expect(deadlineArg).toBe(DEADLINE)
+
+    // same rows as the rules produce for that sent_at
+    const twin = await makeGuest({ phone: PHONE })
+    await realSchedule(twin, invite.sentAt!, DEADLINE)
+    expect(shape(await nudgeRows(g.id))).toEqual(shape(await nudgeRows(twin.id)))
   })
 
   it('schedules no nudge for a guest who already answered', async () => {
@@ -171,12 +184,18 @@ describe('sendInvite rsvp nudges', () => {
   })
 
   it('schedules nothing when the send fails', async () => {
+    const spy = vi.spyOn(reminders, 'scheduleRsvpNudges')
     const g = await makeGuest({ phone: PHONE })
     await sendInvite(g.id, await makeAdmin(), deps({ ok: false, error: 'not_connected' }))
+    expect(spy).not.toHaveBeenCalled()
     expect(await nudgeRows(g.id)).toHaveLength(0)
   })
 
   it('a resend keeps a single nudge', async () => {
+    // pin the invite time so a nudge is always due (today's date must not matter)
+    const spy = vi
+      .spyOn(reminders, 'scheduleRsvpNudges')
+      .mockImplementation((guest, _sentAt, deadline) => realSchedule(guest, new Date('2026-11-01T12:00:00Z'), deadline))
     const g = await makeGuest({ phone: PHONE })
     const adminId = await makeAdmin()
     expect((await sendInvite(g.id, adminId, deps())).ok).toBe(true)
@@ -184,14 +203,15 @@ describe('sendInvite rsvp nudges', () => {
     await db
       .update(messageDispatches)
       .set({ sentAt: new Date(Date.now() - 120_000) })
-      .where(eq(messageDispatches.guestId, g.id))
+      .where(and(eq(messageDispatches.guestId, g.id), eq(messageDispatches.kind, 'invite')))
     expect((await sendInvite(g.id, adminId, deps())).ok).toBe(true)
+    expect(spy).toHaveBeenCalledTimes(2)
     expect(await rows(g.id)).toHaveLength(2)
     expect((await nudgeRows(g.id)).filter((n) => n.kind === 'rsvp_nudge')).toHaveLength(1)
   })
 
   it('a scheduling failure never fails the send', async () => {
-    vi.spyOn(dispatches, 'upsertReminder').mockRejectedValue(new Error('db down'))
+    vi.spyOn(reminders, 'scheduleRsvpNudges').mockRejectedValue(new Error('db down'))
     const log = vi.spyOn(logger, 'error').mockImplementation(() => {})
     const g = await makeGuest({ phone: PHONE })
     expect((await sendInvite(g.id, await makeAdmin(), deps())).ok).toBe(true)

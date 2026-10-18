@@ -1,9 +1,11 @@
 // Scheduling of the automatic WhatsApp messages (the dispatcher sends them when due).
 // - Confirmed guests (`yes` + phone): reminders D-7 and D-1.
 // - Guests who got the invite and haven't answered: one nudge 5 days later and a final notice.
-import { isDeadlinePassed } from '@/features/rsvp/deadline'
-import type { Guest } from '@/server/db/schema'
+import { inviteUrl } from '@/features/guests/whatsapp'
+import { activePreferredDate, isDeadlinePassed } from '@/features/rsvp/deadline'
+import type { Guest, Settings } from '@/server/db/schema'
 import { cancelDispatches, upsertReminder, type ReminderKind } from './dispatches'
+import type { TemplateValues } from './message'
 
 /** 10h in America/Boa_Vista (UTC−4, no DST). */
 export const REMINDER_TIMES = {
@@ -64,5 +66,23 @@ export async function scheduleRsvpNudges(
 
   if (RSVP_FINAL_TIME.getTime() > sentAt.getTime() && !isDeadlinePassed(rsvpDeadline, RSVP_FINAL_TIME)) {
     await upsertReminder(g.id, 'rsvp_final', RSVP_FINAL_TIME)
+  }
+}
+
+/**
+ * Values for rendering an automatic message (reminders and rsvp nudges) at `now`: `{prazo}` is the
+ * deadline and `{preferencia}` the preferred date only while it is still active (see
+ * activePreferredDate); a past or unset one falls back to the deadline.
+ */
+export function reminderTemplateValues(
+  settings: Pick<Settings, 'rsvpDeadline' | 'rsvpPreferredDate'>,
+  guest: Pick<Guest, 'name' | 'token'>,
+  now: Date,
+): TemplateValues {
+  return {
+    name: guest.name,
+    link: inviteUrl(guest.token),
+    deadline: settings.rsvpDeadline,
+    preferredDate: activePreferredDate(settings.rsvpPreferredDate, settings.rsvpDeadline, now),
   }
 }

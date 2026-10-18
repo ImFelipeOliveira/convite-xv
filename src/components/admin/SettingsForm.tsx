@@ -205,7 +205,7 @@ export function SettingsForm({ initial }: Props) {
         </Section>
         <Section
           title="Lembretes de confirmação"
-          description="Enviados pelo WhatsApp a quem recebeu o convite e ainda não respondeu: 5 dias depois do convite e em 10/12, às 10h (horário de Boa Vista)."
+          description="Enviados pelo WhatsApp a quem recebeu o convite e ainda não respondeu: 5 dias depois do convite e em 10/12, às 10h (horário de Boa Vista). Mudanças nas datas de confirmação valem para os convites enviados a partir de agora."
         >
           <Field
             id="settings-rsvpNudgeText"

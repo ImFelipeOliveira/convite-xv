@@ -3,7 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db } from '@/server/db/client'
 import { guests, messageDispatches } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
-import { RSVP_FINAL_TIME, REMINDER_TIMES, scheduleRsvpNudges, syncRemindersForGuest } from '../reminders'
+import { inviteUrl } from '@/features/guests/whatsapp'
+import { RSVP_NUDGE_TEXT_DEFAULT } from '@/server/db/schema'
+import { renderTemplate } from '../message'
+import {
+  RSVP_FINAL_TIME,
+  REMINDER_TIMES,
+  reminderTemplateValues,
+  scheduleRsvpNudges,
+  syncRemindersForGuest,
+} from '../reminders'
 
 // saveGuestAction runs behind the admin guard and revalidates a path: both stubbed here
 vi.mock('@/features/admin-auth/guard', () => ({
@@ -186,5 +195,28 @@ describe('saveGuestAction', () => {
     fd.set('plusOnesLimit', '0')
     expect((await saveGuestAction(null, fd))?.ok).toBe(true)
     expect(await rows(g.id)).toHaveLength(0)
+  })
+})
+
+describe('reminderTemplateValues', () => {
+  const settings = { rsvpDeadline: '2026-12-13', rsvpPreferredDate: '2026-11-21' }
+  const guest = { name: 'Ana Souza', token: 'TOKEN0000000000000000A' }
+
+  it('renders the active preferred date in {preferencia}', () => {
+    const v = reminderTemplateValues(settings, guest, new Date('2026-11-06T14:00:00Z'))
+    expect(v).toEqual({ name: 'Ana Souza', link: inviteUrl(guest.token), deadline: '2026-12-13', preferredDate: '2026-11-21' })
+    expect(renderTemplate(RSVP_NUDGE_TEXT_DEFAULT, v)).toContain('responda até 21/11 pelo seu convite')
+  })
+
+  it('falls back to the deadline once the preferred date has passed', () => {
+    const v = reminderTemplateValues(settings, guest, new Date('2026-11-22T04:00:00Z'))
+    expect(renderTemplate(RSVP_NUDGE_TEXT_DEFAULT, v)).toBe(
+      `Oi, Ana! Ainda não recebemos sua confirmação para os 15 anos da Isabella. Se puder, responda até 13/12 pelo seu convite: ${inviteUrl(guest.token)}`,
+    )
+  })
+
+  it('falls back to the deadline without a preferred date', () => {
+    const v = reminderTemplateValues({ ...settings, rsvpPreferredDate: null }, guest, new Date('2026-11-06T14:00:00Z'))
+    expect(renderTemplate('{preferencia} {prazo}', v)).toBe('13/12 13/12')
   })
 })

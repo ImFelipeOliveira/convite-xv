@@ -5,7 +5,12 @@ export type TemplateValues = {
   link: string
   /** rsvpDeadline 'YYYY-MM-DD' → `{prazo}` as dd/mm */
   deadline?: string
-  /** rsvpPreferredDate 'YYYY-MM-DD' → `{preferencia}` as dd/mm (falls back to the deadline) */
+  /**
+   * Preferred date 'YYYY-MM-DD' → `{preferencia}` as dd/mm (falls back to the deadline). Pass the
+   * ACTIVE one — `activePreferredDate(settings.rsvpPreferredDate, settings.rsvpDeadline, now)`, or
+   * build everything with `reminderTemplateValues` — never the raw setting, so a past preferred
+   * date is replaced by the deadline.
+   */
   preferredDate?: string | null
 }
 

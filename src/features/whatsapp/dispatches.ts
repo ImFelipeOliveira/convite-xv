@@ -135,19 +135,6 @@ export async function cancelDispatches(guestId: string, kinds: readonly Reminder
     )
 }
 
-export async function cancelReminders(guestId: string): Promise<void> {
-  await db
-    .update(messageDispatches)
-    .set({ status: 'cancelled', updatedAt: sql`now()` })
-    .where(
-      and(
-        eq(messageDispatches.guestId, guestId),
-        eq(messageDispatches.status, 'scheduled'),
-        sql`${messageDispatches.kind} <> 'invite'`,
-      ),
-    )
-}
-
 export async function claimDueReminder(now: Date): Promise<MessageDispatch | null> {
   const rows = await db.execute(sql`
     UPDATE message_dispatches

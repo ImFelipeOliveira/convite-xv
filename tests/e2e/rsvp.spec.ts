@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { MAX_DEADLINE, todayInBoaVista } from '../../src/features/settings/schema'
 import { resetE2eGuestRsvp, resetE2eSettings, setE2eSettings } from './db'
 import { E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
@@ -35,23 +36,36 @@ test('greets the guest and starts unanswered', async ({ page }) => {
 })
 
 test.describe('preferred answer date', () => {
+  // dates derived from today (Boa Vista) so the spec never depends on the calendar
+  const DEADLINE = MAX_DEADLINE
+  const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+  const today = todayInBoaVista()
+  const tomorrow = new Date(Date.parse(`${today}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+  const preferred = tomorrow < DEADLINE ? tomorrow : DEADLINE
+
+  test.beforeEach(() => {
+    test.skip(today > DEADLINE, 'RSVP is closed for every possible deadline')
+  })
+
   test.afterEach(async () => {
     await resetE2eSettings()
   })
 
   test('shows the preferred date and the final deadline', async ({ page }) => {
-    await setE2eSettings({ rsvpDeadline: '2026-12-13', rsvpPreferredDate: '2026-12-01' })
+    await setE2eSettings({ rsvpDeadline: DEADLINE, rsvpPreferredDate: preferred })
     // already opened once (beforeEach): a returning visitor skips the opening
     await page.reload()
     await expect(
-      rsvp(page).getByText('Este convite é só seu — responda de preferência até 01/12. O prazo final é 13/12.'),
+      rsvp(page).getByText(
+        `Este convite é só seu — responda de preferência até ${dm(preferred)}. O prazo final é ${dm(DEADLINE)}.`,
+      ),
     ).toBeVisible()
   })
 
   test('without a preferred date shows only the deadline', async ({ page }) => {
-    await setE2eSettings({ rsvpDeadline: '2026-12-13', rsvpPreferredDate: null })
+    await setE2eSettings({ rsvpDeadline: DEADLINE, rsvpPreferredDate: null })
     await page.reload()
-    await expect(rsvp(page).getByText('Este convite é só seu — responda até 13/12.')).toBeVisible()
+    await expect(rsvp(page).getByText(`Este convite é só seu — responda até ${dm(DEADLINE)}.`)).toBeVisible()
     await expect(rsvp(page).getByText(/de preferência/)).toHaveCount(0)
   })
 })
