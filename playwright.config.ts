@@ -43,6 +43,8 @@ export default defineConfig({
       EVOLUTION_INSTANCE: 'convite-xv',
       // gift list, Pix section and their Closing shortcuts (tests/e2e/gifts.spec.ts, invite.spec.ts)
       FEATURES: 'gifts,pix',
+      // no background reminder sends during e2e (src/instrumentation.ts)
+      DISPATCHER_ENABLED: 'false',
     },
   },
 })

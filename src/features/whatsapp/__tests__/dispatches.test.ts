@@ -7,6 +7,8 @@ import {
   cancelDispatches,
   claimDueReminder,
   createInviteDispatch,
+  deferDueReminders,
+  DISPATCH_LIST_LIMIT,
   lastInvitePerGuest,
   listDispatches,
   markDispatchFailed,
@@ -159,24 +161,27 @@ describe('dispatches repo', () => {
     expect((await rows(g.id))[0].status).toBe('sent')
   })
 
-  it('claimDueReminder returns null before scheduled_for and the row after', async () => {
+  it('claimDueReminder compares scheduled_for with the DB clock', async () => {
     const g = await makeGuest()
-    await upsertReminder(g.id, 'reminder_d7', new Date('2026-12-20T14:00:00Z'))
-    expect(await claimDueReminder(new Date('2026-12-20T13:59:59Z'))).toBeNull()
-    const claimed = await claimDueReminder(new Date('2026-12-20T14:00:00Z'))
+    await upsertReminder(g.id, 'reminder_d7', new Date(Date.now() + 60 * 60 * 1000))
+    expect(await claimDueReminder()).toBeNull()
+    await db
+      .update(messageDispatches)
+      .set({ scheduledFor: sql`now() - interval '1 second'` })
+      .where(eq(messageDispatches.guestId, g.id))
+    const claimed = await claimDueReminder()
     expect(claimed?.guestId).toBe(g.id)
     expect(claimed?.status).toBe('sending')
     expect(claimed?.attempts).toBe(1)
-    expect(await claimDueReminder(new Date('2026-12-21T00:00:00Z'))).toBeNull()
+    expect(await claimDueReminder()).toBeNull()
   })
 
   it('concurrent claims never return the same row', async () => {
     const g1 = await makeGuest()
     const g2 = await makeGuest()
-    await upsertReminder(g1.id, 'reminder_d7', new Date('2026-12-20T14:00:00Z'))
-    await upsertReminder(g2.id, 'reminder_d7', new Date('2026-12-20T14:00:00Z'))
-    const now = new Date('2026-12-20T15:00:00Z')
-    const res = await Promise.all([claimDueReminder(now), claimDueReminder(now), claimDueReminder(now)])
+    await upsertReminder(g1.id, 'reminder_d7', new Date('2026-01-01T14:00:00Z'))
+    await upsertReminder(g2.id, 'reminder_d7', new Date('2026-01-01T14:00:00Z'))
+    const res = await Promise.all([claimDueReminder(), claimDueReminder(), claimDueReminder()])
     const ids = res.filter((r) => r !== null).map((r) => r!.id)
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).toHaveLength(2)
@@ -185,13 +190,13 @@ describe('dispatches repo', () => {
   it('does not claim invites', async () => {
     const g = await makeGuest()
     await createInviteDispatch(g.id, null)
-    expect(await claimDueReminder(new Date('2099-01-01T00:00:00Z'))).toBeNull()
+    expect(await claimDueReminder()).toBeNull()
   })
 
   it('rescheduleReminder goes back to scheduled with error code', async () => {
     const g = await makeGuest()
-    await upsertReminder(g.id, 'reminder_d7', new Date('2026-12-20T14:00:00Z'))
-    const c = await claimDueReminder(new Date('2026-12-20T14:00:00Z'))
+    await upsertReminder(g.id, 'reminder_d7', new Date('2026-01-01T14:00:00Z'))
+    const c = await claimDueReminder()
     await rescheduleReminder(c!.id, new Date('2026-12-20T14:05:00Z'), 'timeout')
     const [r] = await rows(g.id)
     expect(r.status).toBe('scheduled')
@@ -201,14 +206,14 @@ describe('dispatches repo', () => {
 
   it('recoverStuckSending recovers reminders and fails invites', async () => {
     const g = await makeGuest()
-    await upsertReminder(g.id, 'reminder_d7', new Date('2026-12-20T14:00:00Z'))
-    await claimDueReminder(new Date('2026-12-20T14:00:00Z'))
+    await upsertReminder(g.id, 'reminder_d7', new Date('2026-01-01T14:00:00Z'))
+    await claimDueReminder()
     await createInviteDispatch(g.id, null)
     await db
       .update(messageDispatches)
       .set({ updatedAt: sql`now() - interval '11 minutes'` })
       .where(eq(messageDispatches.guestId, g.id))
-    expect(await recoverStuckSending(new Date())).toBe(2)
+    expect(await recoverStuckSending()).toBe(2)
     const r = await rows(g.id)
     expect(r.find((x) => x.kind === 'reminder_d7')?.status).toBe('scheduled')
     const inv = r.find((x) => x.kind === 'invite')
@@ -219,7 +224,55 @@ describe('dispatches repo', () => {
   it('does not recover fresh sending rows', async () => {
     const g = await makeGuest()
     await createInviteDispatch(g.id, null)
-    expect(await recoverStuckSending(new Date())).toBe(0)
+    expect(await recoverStuckSending()).toBe(0)
+  })
+
+  it('recoverStuckSending uses the DB clock: 9 min untouched is kept, 11 min is recovered', async () => {
+    const g = await makeGuest()
+    await createInviteDispatch(g.id, null)
+    await db
+      .update(messageDispatches)
+      .set({ updatedAt: sql`now() - interval '9 minutes'` })
+      .where(eq(messageDispatches.guestId, g.id))
+    expect(await recoverStuckSending()).toBe(0)
+    await db
+      .update(messageDispatches)
+      .set({ updatedAt: sql`now() - interval '11 minutes'` })
+      .where(eq(messageDispatches.guestId, g.id))
+    expect(await recoverStuckSending()).toBe(1)
+  })
+
+  it('createInviteDispatch treats a sending invite older than 10 min as interrupted (not blocking)', async () => {
+    const g = await makeGuest()
+    const first = await createInviteDispatch(g.id, null)
+    expect(await createInviteDispatch(g.id, null)).toEqual({ blocked: true })
+    await db
+      .update(messageDispatches)
+      .set({ updatedAt: sql`now() - interval '11 minutes'` })
+      .where(eq(messageDispatches.guestId, g.id))
+    const second = await createInviteDispatch(g.id, null)
+    expect('id' in second).toBe(true)
+    const r = await rows(g.id)
+    const old = r.find((x) => 'id' in first && x.id === first.id)
+    expect([old?.status, old?.errorCode]).toEqual(['failed', 'interrupted'])
+  })
+
+  it('deferDueReminders moves every due scheduled reminder to the given time, attempts untouched', async () => {
+    const g1 = await makeGuest()
+    const g2 = await makeGuest()
+    await upsertReminder(g1.id, 'reminder_d7', new Date('2026-01-01T14:00:00Z'))
+    await upsertReminder(g2.id, 'reminder_d7', new Date(Date.now() + 60 * 60 * 1000))
+    await db.update(messageDispatches).set({ attempts: 1 }).where(eq(messageDispatches.guestId, g1.id))
+    const at = new Date('2099-01-01T13:00:00Z')
+    expect(await deferDueReminders(at)).toBe(1)
+    const [r1] = await rows(g1.id)
+    expect([r1.status, r1.attempts, r1.scheduledFor?.toISOString()]).toEqual(['scheduled', 1, at.toISOString()])
+    const [r2] = await rows(g2.id)
+    expect(r2.scheduledFor?.getTime()).not.toBe(at.getTime())
+  })
+
+  it('listDispatches returns at most DISPATCH_LIST_LIMIT rows', () => {
+    expect(DISPATCH_LIST_LIMIT).toBe(2000)
   })
 
   it('deleting a guest cascades its dispatches', async () => {

@@ -8,6 +8,24 @@ test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.23' }, storageState
 
 const OWN_GUESTS = ['Resumo Sim Um', 'Resumo Sim Dois', 'Resumo Aberto']
 
+/** Same limit as MAX_DEADLINE in src/features/settings/schema.ts (the day before the party). */
+const MAX_DEADLINE = '2026-12-26'
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** 'YYYY-MM-DD' in Boa Vista (UTC−4, no DST) `days` from now. */
+function boaVistaDate(days: number): string {
+  return new Date(Date.now() - 4 * 60 * 60 * 1000 + days * DAY_MS).toISOString().slice(0, 10)
+}
+
+function addDays(date: string, days: number): string {
+  return new Date(new Date(`${date}T00:00:00Z`).getTime() + days * DAY_MS).toISOString().slice(0, 10)
+}
+
+// a valid future deadline (never past MAX_DEADLINE), a preferred date after it (invalid) and one on it
+const DEADLINE = [boaVistaDate(7), MAX_DEADLINE].sort()[0]
+const AFTER_DEADLINE = addDays(DEADLINE, 1)
+const DEADLINE_DDMM = `${DEADLINE.slice(8, 10)}\\/${DEADLINE.slice(5, 7)}`
+
 test.describe('admin summary, messages and settings', () => {
   test.afterAll(async () => {
     await deleteGuestsByName(OWN_GUESTS)
@@ -103,15 +121,17 @@ test.describe('admin summary, messages and settings', () => {
     // settings: deadline reflected on the invite
     await page.goto('/admin/settings')
     const settingsForm = page.getByRole('form', { name: 'Configurações' })
-    await settingsForm.getByLabel('Prazo para confirmar').fill('2026-12-10')
+    await settingsForm.getByLabel('Prazo para confirmar').fill(DEADLINE)
+    // the stored preferred date (default 21/11) may fall after a near deadline: keep it on the deadline
+    await settingsForm.getByLabel('Confirmar de preferência até').fill(DEADLINE)
     await settingsForm.getByRole('button', { name: 'Salvar' }).click()
     await expect(page.getByRole('status', { name: 'Notificações' })).toContainText('Configurações salvas.')
 
     // the preferred date can't be after the deadline
-    await settingsForm.getByLabel('Confirmar de preferência até').fill('2026-12-11')
+    await settingsForm.getByLabel('Confirmar de preferência até').fill(AFTER_DEADLINE)
     await settingsForm.getByRole('button', { name: 'Salvar' }).click()
     await expect(page.getByText('A data de preferência deve ser até o prazo para confirmar.')).toBeVisible()
-    await settingsForm.getByLabel('Confirmar de preferência até').fill('2026-12-01')
+    await settingsForm.getByLabel('Confirmar de preferência até').fill(DEADLINE)
 
     await settingsForm.getByLabel('Mensagem do WhatsApp').fill('Sem o link')
     await settingsForm.getByRole('button', { name: 'Salvar' }).click()
@@ -119,6 +139,6 @@ test.describe('admin summary, messages and settings', () => {
 
     await page.goto(`/c/${E2E_GUEST_TOKEN}`)
     await page.getByRole('button', { name: 'Entrar sem animação' }).click()
-    await expect(page.locator('#rsvp').getByText(/(O prazo final é|responda até) 10\/12\./)).toBeVisible()
+    await expect(page.locator('#rsvp').getByText(new RegExp(`(O prazo final é|responda até) ${DEADLINE_DDMM}\\.`))).toBeVisible()
   })
 })

@@ -1,11 +1,11 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { headers } from 'next/headers'
 import { connection } from 'next/server'
 import { Closing } from '@/components/invite/Closing'
 import { GiftChoiceProvider } from '@/components/invite/GiftChoice'
 import { Gifts } from '@/components/invite/Gifts'
 import { Hero } from '@/components/invite/Hero'
+import { MarkOpened } from '@/components/invite/MarkOpened'
 import { Opening } from '@/components/invite/Opening'
 import { Rsvp } from '@/components/invite/Rsvp'
 import { TheDay } from '@/components/invite/TheDay'
@@ -13,13 +13,11 @@ import { EVENT } from '@/features/event/event'
 import { isFeatureEnabled } from '@/features/event/flags'
 import { guestHasGift, listGiftsForInvite } from '@/features/gifts/repo'
 import { chosenGiftNames, toGiftViews } from '@/features/gifts/view'
-import { findGuestByToken, markOpened } from '@/features/guests/repo'
+import { findGuestByToken } from '@/features/guests/repo'
 import { activePreferredDate, isDeadlinePassed } from '@/features/rsvp/deadline'
 import { toRsvpGuestView } from '@/features/rsvp/view'
 import { getSettings } from '@/features/settings/repo'
 import { getAppUrl } from '@/lib/app-url'
-import { isLinkPreviewBot } from '@/lib/bots'
-import { logger } from '@/lib/logger'
 
 // Rate limit and the 404 status for unknown tokens live in src/proxy.ts (the shell streams
 // before this lookup, so notFound() here can't change the status). The gate needs the guest,
@@ -43,13 +41,7 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
   const { token } = await params
   const guest = await findGuestByToken(token)
   if (!guest) notFound()
-  const ua = (await headers()).get('user-agent') ?? ''
-  if (isLinkPreviewBot(ua)) {
-    logger.debug({ event: 'invite.preview_bot', ua }, 'invite preview bot skipped')
-  } else {
-    const firstOpen = await markOpened(guest.id)
-    logger.info({ event: 'invite.opened', guestId: guest.id, firstOpen }, 'invite opened')
-  }
+  // the open is recorded by <MarkOpened> in the browser: rendering here may be a link-preview fetch
   const settings = await getSettings()
   const now = await requestTime()
   // only free | mine | taken reaches the browser; an empty catalog hides the section
@@ -84,14 +76,17 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
   )
 
   return (
-    <Opening name={EVENT.celebrant}>
-      {gifts.length > 0 ? (
-        <GiftChoiceProvider hasGiven={hasGiven} chosenNames={chosenGiftNames(gifts)}>
-          {body}
-        </GiftChoiceProvider>
-      ) : (
-        body
-      )}
-    </Opening>
+    <>
+      <MarkOpened token={token} />
+      <Opening name={EVENT.celebrant}>
+        {gifts.length > 0 ? (
+          <GiftChoiceProvider hasGiven={hasGiven} chosenNames={chosenGiftNames(gifts)}>
+            {body}
+          </GiftChoiceProvider>
+        ) : (
+          body
+        )}
+      </Opening>
+    </>
   )
 }

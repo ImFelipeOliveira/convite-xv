@@ -7,6 +7,7 @@ export type SendInviteError =
   | 'not_found'
   | 'blocked'
   | 'invalid_number'
+  | 'uncertain'
   | 'failed'
 
 export type SendInviteResult = { ok: true; sentAt: string } | { ok: false; error: SendInviteError }
@@ -18,6 +19,8 @@ const MESSAGES: Record<SendInviteError, string> = {
   not_found: 'Convidado não encontrado.',
   blocked: 'Envio em andamento. Aguarde um minuto.',
   invalid_number: 'Este número não tem WhatsApp.',
+  uncertain:
+    'O WhatsApp demorou a responder — a mensagem pode ter sido enviada. Confira no celular antes de reenviar.',
   failed: 'Não foi possível enviar agora. Tente de novo.',
 }
 

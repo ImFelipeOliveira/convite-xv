@@ -11,9 +11,16 @@ import {
 /** Every automatic (scheduled, one-per-guest) kind: confirmed-guest reminders and rsvp nudges. */
 export type ReminderKind = Exclude<DispatchKind, 'invite'>
 
+/** A `sending` row untouched this long was interrupted (process died mid-send). */
+const STUCK_SENDING = sql.raw(`interval '10 minutes'`)
+
+/** Most rows the admin history loads (newest first). */
+export const DISPATCH_LIST_LIMIT = 2000
+
 /**
  * Registers an invite send. The guest row lock serializes concurrent calls; blocked while a
- * `sending` invite exists or a `sent` one in the last 60 s.
+ * `sending` invite exists or a `sent` one in the last 60 s. A `sending` invite untouched for
+ * 10 min is failed as `interrupted` first (so it never blocks, even with the dispatcher off).
  */
 export async function createInviteDispatch(
   guestId: string,
@@ -21,6 +28,11 @@ export async function createInviteDispatch(
 ): Promise<{ id: string } | { blocked: true }> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT id FROM guests WHERE id = ${guestId} FOR UPDATE`)
+    await tx.execute(sql`
+      UPDATE message_dispatches
+      SET status = 'failed', error_code = 'interrupted', updated_at = now()
+      WHERE guest_id = ${guestId} AND kind = 'invite' AND status = 'sending'
+        AND updated_at < now() - ${STUCK_SENDING}`)
     const recent = await tx.execute(sql`
       SELECT id FROM message_dispatches
       WHERE guest_id = ${guestId} AND kind = 'invite'
@@ -57,10 +69,11 @@ export async function markDispatchSent(id: string, providerMessageId: string | n
   return row?.sentAt ?? new Date()
 }
 
-export async function markDispatchFailed(id: string, errorCode: string): Promise<void> {
+/** Marks a dispatch failed; `attempts`, when given, corrects the counter (e.g. back to the cap). */
+export async function markDispatchFailed(id: string, errorCode: string, attempts?: number): Promise<void> {
   await db
     .update(messageDispatches)
-    .set({ status: 'failed', errorCode, updatedAt: sql`now()` })
+    .set({ status: 'failed', errorCode, updatedAt: sql`now()`, ...(attempts === undefined ? {} : { attempts }) })
     .where(eq(messageDispatches.id, id))
 }
 
@@ -99,7 +112,7 @@ export async function listDispatches(
     .innerJoin(guests, eq(guests.id, messageDispatches.guestId))
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(messageDispatches.createdAt))
-    .limit(500)
+    .limit(DISPATCH_LIST_LIMIT)
   return rows.map((r) => ({ ...r.dispatch, guestName: r.guestName }))
 }
 
@@ -135,13 +148,14 @@ export async function cancelDispatches(guestId: string, kinds: readonly Reminder
     )
 }
 
-export async function claimDueReminder(now: Date): Promise<MessageDispatch | null> {
+/** Claims the oldest due reminder (DB clock): `sending`, one more attempt counted. */
+export async function claimDueReminder(): Promise<MessageDispatch | null> {
   const rows = await db.execute(sql`
     UPDATE message_dispatches
     SET status = 'sending', attempts = attempts + 1, updated_at = now()
     WHERE id = (
       SELECT id FROM message_dispatches
-      WHERE status = 'scheduled' AND kind <> 'invite' AND scheduled_for <= ${now.toISOString()}
+      WHERE status = 'scheduled' AND kind <> 'invite' AND scheduled_for <= now()
       ORDER BY scheduled_for
       LIMIT 1
       FOR UPDATE SKIP LOCKED
@@ -181,15 +195,55 @@ export async function rescheduleReminder(id: string, at: Date, errorCode: string
     .where(eq(messageDispatches.id, id))
 }
 
-/** `sending` rows untouched for 10 min: reminders go back to `scheduled`, invites fail. */
-export async function recoverStuckSending(now: Date): Promise<number> {
-  const cutoff = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
+/** `sending` rows untouched for 10 min (DB clock): reminders go back to `scheduled`, invites fail. */
+export async function recoverStuckSending(): Promise<number> {
   const rows = await db.execute(sql`
     UPDATE message_dispatches
     SET status = CASE WHEN kind = 'invite' THEN 'failed'::dispatch_status ELSE 'scheduled'::dispatch_status END,
         error_code = CASE WHEN kind = 'invite' THEN 'interrupted' ELSE error_code END,
         updated_at = now()
-    WHERE status = 'sending' AND updated_at < ${cutoff}
+    WHERE status = 'sending' AND updated_at < now() - ${STUCK_SENDING}
+    RETURNING id`)
+  return rows.length
+}
+
+/**
+ * Cancels a claimed reminder: the guest is no longer eligible (no code) or the message no longer
+ * fits the moment (`deadline_passed`, `stale`, `after_event`).
+ */
+export async function markDispatchCancelled(id: string, errorCode?: string): Promise<void> {
+  await db
+    .update(messageDispatches)
+    .set({ status: 'cancelled', updatedAt: sql`now()`, ...(errorCode === undefined ? {} : { errorCode }) })
+    .where(eq(messageDispatches.id, id))
+}
+
+/**
+ * Puts a claimed reminder back for later without consuming the attempt the claim counted
+ * (e.g. the WhatsApp instance disconnected: the message was never handed to the provider).
+ */
+export async function deferReminder(id: string, at: Date, errorCode: string): Promise<void> {
+  await db
+    .update(messageDispatches)
+    .set({
+      status: 'scheduled',
+      scheduledFor: at,
+      errorCode,
+      attempts: sql`greatest(${messageDispatches.attempts} - 1, 0)`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(messageDispatches.id, id))
+}
+
+/**
+ * Quiet hours: moves every due `scheduled` reminder to `at` (attempts and error code untouched,
+ * nothing is claimed). Returns how many rows moved.
+ */
+export async function deferDueReminders(at: Date): Promise<number> {
+  const rows = await db.execute(sql`
+    UPDATE message_dispatches
+    SET scheduled_for = ${at.toISOString()}, updated_at = now()
+    WHERE status = 'scheduled' AND kind <> 'invite' AND scheduled_for <= now()
     RETURNING id`)
   return rows.length
 }

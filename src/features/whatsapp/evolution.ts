@@ -54,11 +54,18 @@ function mapFailure(raw: Raw, opts: { send?: boolean } = {}): EvolutionError {
   if (opts.send) {
     const text = raw.text
     if (/connection closed/i.test(text)) return 'not_connected'
-    if (raw.status === 400 && (/"exists"\s*:\s*false/.test(text) || /number/i.test(text))) {
-      return 'invalid_number'
-    }
+    if (raw.status === 400 && saysNumberDoesNotExist(raw.body)) return 'invalid_number'
   }
   return 'provider_error'
+}
+
+/** Evolution's explicit "no WhatsApp on this number" answer: `response.message[]` with `exists: false`. */
+function saysNumberDoesNotExist(body: unknown): boolean {
+  const message = pick(body, 'response', 'message')
+  return (
+    Array.isArray(message) &&
+    message.some((m) => m !== null && typeof m === 'object' && (m as { exists?: unknown }).exists === false)
+  )
 }
 
 function fail<T>(error: EvolutionError): EvolutionResult<T> {

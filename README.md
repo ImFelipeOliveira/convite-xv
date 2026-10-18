@@ -42,6 +42,76 @@ Não rode `pnpm test` e `pnpm test:e2e` ao mesmo tempo: ambos usam o banco `conv
 | `AUTH_SECRET` | sim | Segredo da sessão do admin, mínimo 32 caracteres. |
 | `LOG_LEVEL` | não | Nível do pino (`info` por padrão). |
 | `FEATURES` | não | Flags de funcionalidades separadas por vírgula; vazio por padrão. |
+| `EVOLUTION_URL` | para WhatsApp | URL da Evolution API (produção: `http://evolution.railway.internal:8080`; local: `http://localhost:8080`). Sem ela, o painel mostra o WhatsApp como não configurado. |
+| `EVOLUTION_API_KEY` | para WhatsApp | Mesma chave definida em `AUTHENTICATION_API_KEY` na Evolution. Segredo, nunca versionar. |
+| `EVOLUTION_INSTANCE` | para WhatsApp | Nome da instância (`convite-xv`). |
+| `DISPATCHER_ENABLED` | não | Dispatcher dos lembretes automáticos; ligado por padrão, `false` desliga (usado nos testes e2e). |
+
+## WhatsApp (Evolution API)
+
+O envio usa a [Evolution API](https://doc.evolution-api.com) v2, um serviço separado que fala com o WhatsApp Web. Ele permite:
+
+- enviar o convite **um por um** pelo painel (Painel › Convidados);
+- lembretes automáticos **D-7** e **D-1** da festa;
+- **lembrete de confirmação** (5 dias após o convite) e **aviso final** para quem ainda não respondeu o RSVP.
+
+### Conectar o número
+
+1. Use um **chip dedicado** ao convite.
+2. Abra **Painel › WhatsApp › Conectar número**.
+3. No celular do chip, vá em WhatsApp › Aparelhos conectados › Conectar um aparelho e leia o QR code **a partir de outro dispositivo** (o QR aparece na tela do computador).
+
+### Boas práticas anti-banimento
+
+- Chip dedicado; **nunca** use o número pessoal.
+- Volume baixo: só a lista de convidados, sem mensagens em massa para desconhecidos.
+- O intervalo aleatório de 20 a 60 s entre envios já é aplicado pelo sistema.
+- Aqueça o número com algumas conversas reais (com amigos/família) antes do primeiro envio.
+- Mesmo assim, existe risco de banimento: mantenha o link do convite como alternativa (copiar/compartilhar manualmente).
+
+### Serviço no Railway
+
+Serviço `evolution` no mesmo projeto/ambiente, **sem domínio público** (só rede privada), imagem `evoapicloud/evolution-api:v2.3.7`:
+
+| Variável | Valor |
+| --- | --- |
+| `SERVER_PORT` | `8080` |
+| `SERVER_URL` | `http://evolution.railway.internal:8080` |
+| `DATABASE_ENABLED` | `true` |
+| `DATABASE_PROVIDER` | `postgresql` |
+| `DATABASE_CONNECTION_URI` | `${{Postgres.DATABASE_URL}}?schema=evolution_api` |
+| `DATABASE_CONNECTION_CLIENT_NAME` | `convite_xv` |
+| `DATABASE_SAVE_DATA_INSTANCE` | `true` (necessário para manter a sessão) |
+| demais `DATABASE_SAVE_*` | `false` (privacidade: não guarda mensagens, contatos nem chats) |
+| `CACHE_REDIS_ENABLED` / `CACHE_LOCAL_ENABLED` | `false` / `true` |
+| `DEL_INSTANCE` | `false` |
+| `TELEMETRY_ENABLED` | `false` |
+| `LOG_LEVEL` | `ERROR,WARN,INFO` |
+| `LANGUAGE` | `pt-BR` |
+| `AUTHENTICATION_API_KEY` | segredo (32+ caracteres) |
+
+No serviço `web`: `EVOLUTION_URL=http://evolution.railway.internal:8080`, `EVOLUTION_API_KEY` (o mesmo segredo), `EVOLUTION_INSTANCE=convite-xv`.
+
+### Lembretes automáticos
+
+Os lembretes ficam agendados no banco. Um dispatcher **dentro do processo web** roda a cada 60 s, envia o que venceu e respeita o intervalo de 20 a 60 s entre envios. Só envia **entre 9h e 20h (horário de Boa Vista)**; o que vencer fora desse horário fica para as 9h seguintes, sem gastar tentativa. Antes de cada envio confere se a mensagem ainda faz sentido: depois do prazo não sai lembrete de confirmação, depois do horário do lembrete da véspera não sai o de 7 dias, e nada sai depois do início da festa (esses ficam como cancelados no histórico).
+
+Se o WhatsApp não responder a tempo (15 s), o envio fica como **falhou** e não é repetido sozinho — a mensagem pode ter chegado; confira no celular antes de usar **Tentar de novo**.
+
+O ideal é **uma única réplica** do `web`. Com mais de uma, o `FOR UPDATE SKIP LOCKED` impede que o mesmo lembrete seja enviado duas vezes, mas cada réplica envia no seu ritmo e o intervalo de 20 a 60 s entre mensagens deixa de valer; num deploy com troca gradual, as duas versões podem rodar juntas por alguns instantes (sem envio duplicado). Para desligar, use `DISPATCHER_ENABLED=false`.
+
+### Desenvolvimento local
+
+```bash
+docker compose --profile whatsapp up -d
+```
+
+Sobe a Evolution em `http://localhost:8080`, usando o Postgres do compose (`?schema=evolution_api`). Defina `EVOLUTION_URL=http://localhost:8080` e `EVOLUTION_API_KEY` (padrão de dev: `dev-evolution-key`, ou o valor de `EVOLUTION_API_KEY` no seu ambiente) no `.env.local`.
+
+### Problemas comuns
+
+- **Desconectado**: reconecte em Painel › WhatsApp lendo o QR code de novo.
+- **Mensagem não chegou**: veja o histórico de envios do convidado e use **Tentar de novo** nas falhas.
 
 ## Deploy (Railway)
 

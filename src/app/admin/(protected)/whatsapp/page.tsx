@@ -7,7 +7,7 @@ import { Skeleton, TableSkeleton } from '@/components/admin/ui/Skeleton'
 import { requireAdmin } from '@/features/admin-auth/guard'
 import { readStatus } from '@/features/whatsapp/connection'
 import { isDispatchKind, isDispatchStatus } from '@/features/whatsapp/dispatch-labels'
-import { listDispatches } from '@/features/whatsapp/dispatches'
+import { DISPATCH_LIST_LIMIT, listDispatches } from '@/features/whatsapp/dispatches'
 
 export const metadata: Metadata = { title: 'WhatsApp | Painel' }
 
@@ -34,9 +34,17 @@ async function HistorySection({ searchParams }: { searchParams: SearchParams }) 
     when: (
       (d.status === 'sent' ? d.sentAt : d.status === 'scheduled' ? d.scheduledFor : null) ?? d.updatedAt
     ).toISOString(),
-    errorCode: d.status === 'failed' || d.status === 'scheduled' ? d.errorCode : null,
+    // cancelled rows keep the reason when the message no longer fit the moment (e.g. deadline passed)
+    errorCode: d.status === 'failed' || d.status === 'scheduled' || d.status === 'cancelled' ? d.errorCode : null,
   }))
-  return <DispatchTable rows={rows} initialFilters={initialFilters} />
+  return (
+    <>
+      <DispatchTable rows={rows} initialFilters={initialFilters} />
+      {list.length >= DISPATCH_LIST_LIMIT ? (
+        <p className="text-sm text-muted">Mostrando os últimos {DISPATCH_LIST_LIMIT} envios.</p>
+      ) : null}
+    </>
+  )
 }
 
 function StatusSkeleton() {
@@ -71,7 +79,8 @@ export default async function WhatsappPage({ searchParams }: { searchParams: Sea
             Histórico de envios
           </h2>
           <p className="text-[15px] text-muted">
-            Convites enviados pelo painel e lembretes de 7 dias e da véspera.
+            Convites enviados pelo painel, lembretes de confirmação para quem ainda não respondeu e lembretes de
+            7 dias e da véspera. Os automáticos só saem entre 9h e 20h.
           </p>
         </div>
         <Suspense fallback={<TableSkeleton />}>

@@ -159,8 +159,8 @@ export function DispatchTable({
       <div className="flex flex-col gap-1.5">
         <p className="text-lg font-medium">Nenhum envio ainda</p>
         <p className="max-w-[46ch] text-[15px] text-muted">
-          Os convites enviados pela lista de convidados aparecem aqui, junto com os lembretes de 7 dias e da
-          véspera.
+          Os convites enviados pela lista de convidados aparecem aqui, junto com os lembretes de confirmação e
+          os lembretes de 7 dias e da véspera.
         </p>
       </div>
       <Link href="/admin/guests" className={buttonClass('secondary')}>

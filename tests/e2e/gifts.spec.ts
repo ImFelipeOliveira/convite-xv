@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { deleteGiftsByName, deleteGuestsByName, insertGuestWithToken, reserveGiftForE2eGuest, resetE2eGuestRsvp, seedGifts, setE2eGuestRsvp } from './db'
+import { deleteGiftsByName, deleteGuestsByName, insertGuestWithFixedToken, reserveGiftForE2eGuest, resetE2eGuestRsvp, seedGifts, setE2eGuestRsvp } from './db'
 import { E2E_GUEST_TOKEN } from './fixtures'
 
 // The invite's gift list (prancha 08). The webServer runs with FEATURES=gifts,pix (playwright.config.ts).
@@ -24,7 +24,7 @@ test.beforeEach(async () => {
     { name: BAG, category: 'Moda' },
     { name: HEADPHONES, category: 'Tecnologia', priceCents: 25000 },
   ])
-  await insertGuestWithToken(OTHER_GUEST, OTHER_TOKEN)
+  await insertGuestWithFixedToken(OTHER_GUEST, OTHER_TOKEN)
 })
 
 test.afterEach(async () => {

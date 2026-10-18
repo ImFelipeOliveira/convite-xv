@@ -67,3 +67,24 @@ localStorage key `xv:aberto` → `xv:opened`.
 ## Extra names (from implementation)
 `WHATSAPP_INVITE_TEMPLATE_DEFAULT` — default pt-BR WhatsApp invite text (src/server/db/schema.ts).
 Component dirs: `src/components/ornaments/`, `src/components/invite/`; admin route group `admin/(protected)`.
+
+## Phase 2 — WhatsApp (Evolution API)
+| Concept | Name |
+|---|---|
+| table of every WhatsApp send (invites and automatic messages) | `message_dispatches` / `messageDispatches`; type `MessageDispatch` |
+| columns | `guest_id`, `admin_id`, `kind`, `status`, `scheduled_for`, `attempts`, `provider_message_id`, `error_code`, `sent_at`, `created_at`, `updated_at` |
+| enum `dispatch_kind` / `DispatchKind` | `invite`, `reminder_d7`, `reminder_d1`, `rsvp_nudge`, `rsvp_final` |
+| enum `dispatch_status` / `DispatchStatus` | `scheduled`, `sending`, `sent`, `failed`, `cancelled` |
+| automatic (one-per-guest) kinds | `ReminderKind` = `DispatchKind` minus `invite` |
+| settings texts | `reminder_d7_text`, `reminder_d1_text`, `rsvp_nudge_text`, `rsvp_final_text`, `rsvp_preferred_date` (`reminderD7Text`, …, `rsvpPreferredDate`) |
+| times | `REMINDER_TIMES` (`reminder_d7`, `reminder_d1`), `RSVP_FINAL_TIME` |
+| error codes stored in `error_code` | `EvolutionError` (`not_configured`, `not_connected`, `invalid_number`, `timeout`, `unauthorized`, `provider_error`) plus `internal_error`, `interrupted`, `no_phone`, `deadline_passed`, `stale`, `after_event` |
+| Evolution client (`src/features/whatsapp/evolution.ts`) | `getConnectionState`, `connectQr`, `fetchQr`, `logout`, `sendText`; `EvolutionConfig`, `readEvolutionConfig` |
+| invite send | `sendInvite`, `sendInviteAction`, `SendInviteResult`, `SendInviteError` (… `uncertain` on timeout), `inviteErrorMessage` |
+| repo (`dispatches.ts`) | `createInviteDispatch`, `markDispatchSent`, `markDispatchFailed`, `markDispatchCancelled`, `upsertReminder`, `cancelDispatches`, `claimDueReminder`, `rescheduleReminder`, `deferReminder`, `deferDueReminders`, `recoverStuckSending`, `retryFailedReminder`, `listDispatches` (`DISPATCH_LIST_LIMIT`), `lastInvitePerGuest`, `dbNow` |
+| scheduling (`reminders.ts`) | `syncRemindersForGuest`, `scheduleRsvpNudges`, `reminderTemplateValues` |
+| dispatcher (`dispatcher.ts`) | `runDispatcherTick`, `startDispatcher`, `DispatcherDeps`, `DispatcherTickResult` (`skipped`: `not_configured` \| `not_connected` \| `quiet_hours`), `isWithinSendingHours`, `nextSendingWindowStart`, `staleReason` (`StaleReason`), `greetingSeed` |
+| message helpers (`message.ts`) | `renderTemplate`, `varyGreeting`, `TemplateValues` |
+| labels (`dispatch-labels.ts`) | `DISPATCH_KIND_LABEL`, `DISPATCH_STATUS_LABEL`, `dispatchErrorLabel` |
+| env | `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`, `DISPATCHER_ENABLED` |
+| log events | `whatsapp.invite_sent`, `whatsapp.invite_failed`, `whatsapp.reminder_sent`, `whatsapp.reminder_failed`, `whatsapp.reminder_cancelled`, `whatsapp.reminders_deferred`, `whatsapp.dispatcher_paused`, `whatsapp.dispatcher_error`, `invite.opened` |
