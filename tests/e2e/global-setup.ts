@@ -20,7 +20,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const db = drizzle(client)
   try {
     await migrate(db, { migrationsFolder: './drizzle' })
-    await db.execute(sql`TRUNCATE guests, admins, settings RESTART IDENTITY CASCADE`)
+    // webhook_events too: the pix spec reuses fixed event ids, so a second run would see duplicates
+    await db.execute(sql`TRUNCATE guests, admins, settings, webhook_events RESTART IDENTITY CASCADE`)
     await db.insert(settings).values({ id: 1 })
     await db.insert(guests).values({ token: E2E_GUEST_TOKEN, name: E2E_GUEST_NAME, plusOnesLimit: 2 })
     await db.insert(admins).values({
