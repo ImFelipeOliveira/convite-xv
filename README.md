@@ -52,7 +52,7 @@ Cada ambiente (`staging`, `production`) tem dois serviços: **Postgres** e **web
 - **Build arg `APP_URL`**: o Next lê `APP_URL` durante o `next build` (metadados da prévia do convite), e o Railway repassa as variáveis do serviço como build args. Ela precisa estar definida no serviço e ser igual à usada em runtime; ao mudar o domínio, faça um novo deploy.
 - Health check: `GET /api/health` → `200 {"ok":true}` (executa `SELECT 1`).
 - Start: a imagem roda `node scripts/migrate.js && node server.js`, ou seja, migra o banco a cada start.
-- Rate limit por IP lê `X-Forwarded-For` assumindo **um único proxy confiável** (o edge do Railway). Se colocar outro proxy/CDN na frente, ajuste `getClientIp`.
+- Rate limit por IP lê `X-Real-IP` (definido pelo edge do Railway) e, na falta dele, a entrada mais à direita do `X-Forwarded-For`. Se colocar outro proxy/CDN na frente, ajuste `getClientIp`.
 
 Teste local da imagem:
 

@@ -45,6 +45,11 @@ describe('getClientIp', () => {
     expect(getClientIp(h)).toBe('2.2.2.2')
   })
 
+  it('prefers x-real-ip when present', () => {
+    const h = new Headers({ 'x-real-ip': '9.9.9.9', 'x-forwarded-for': '1.1.1.1, 2.2.2.2' })
+    expect(getClientIp(h)).toBe('9.9.9.9')
+  })
+
   it("falls back to 'local'", () => {
     expect(getClientIp(new Headers())).toBe('local')
   })

@@ -30,7 +30,10 @@ export function rateLimit(
 }
 
 export function getClientIp(headers: Headers): string {
-  // the right-most entry is the one appended by our trusted proxy; earlier ones are client-controlled
+  // Railway's edge sets x-real-ip to the client address; fall back to the
+  // right-most x-forwarded-for entry (the one appended by the trusted proxy)
+  const realIp = headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp
   const parts = headers.get('x-forwarded-for')?.split(',') ?? []
   return parts[parts.length - 1]?.trim() || 'local'
 }
