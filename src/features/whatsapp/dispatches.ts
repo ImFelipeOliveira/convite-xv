@@ -57,10 +57,11 @@ export async function markDispatchSent(id: string, providerMessageId: string | n
   return row?.sentAt ?? new Date()
 }
 
-export async function markDispatchFailed(id: string, errorCode: string): Promise<void> {
+/** Marks a dispatch failed; `attempts`, when given, corrects the counter (e.g. back to the cap). */
+export async function markDispatchFailed(id: string, errorCode: string, attempts?: number): Promise<void> {
   await db
     .update(messageDispatches)
-    .set({ status: 'failed', errorCode, updatedAt: sql`now()` })
+    .set({ status: 'failed', errorCode, updatedAt: sql`now()`, ...(attempts === undefined ? {} : { attempts }) })
     .where(eq(messageDispatches.id, id))
 }
 

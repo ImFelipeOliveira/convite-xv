@@ -68,11 +68,16 @@ function logPaused(state: string): void {
   logger.warn({ event: 'whatsapp.dispatcher_paused', state }, 'reminder dispatcher paused')
 }
 
-type Outcome = 'sent' | 'failed' | 'retry' | 'cancelled' | 'not_connected'
+type Outcome = 'sent' | 'retry' | 'failed' | 'not_connected'
+
+function isEligible(guest: Guest | null, kind: ReminderKind): guest is Guest & { phone: string } {
+  return !!guest && guest.rsvpStatus === KIND_RULES[kind].rsvpStatus && !!guest.phone
+}
 
 /**
- * One pass: config → connection open → recover stuck rows → claim/send due rows one at a time
- * (20–60 s apart, at most 30 sends). A disconnect mid-tick stops it.
+ * One pass: config → connection open → recover stuck rows → then, one row at a time:
+ * pause 20–60 s if the previous iteration sent → claim → eligibility check → send at once
+ * (at most 30 sends). A disconnect mid-tick stops it.
  */
 export async function runDispatcherTick(deps: DispatcherDeps): Promise<DispatcherTickResult> {
   const result: DispatcherTickResult = { sent: 0, failed: 0, skipped: null }
@@ -90,42 +95,40 @@ export async function runDispatcherTick(deps: DispatcherDeps): Promise<Dispatche
   await recoverStuckSending(deps.now())
 
   let sends = 0
+  let sentLast = false
   while (sends < MAX_SENDS_PER_TICK) {
+    if (sentLast) await deps.sleep(20_000 + deps.random() * 40_000)
+    sentLast = false
+
     const row = await claimDueReminder(deps.now())
     if (!row) break
     const kind = row.kind as ReminderKind
+    const ids = { dispatchId: row.id, guestId: row.guestId, kind }
 
     if (row.attempts > MAX_ATTEMPTS) {
-      // recovered after an interrupted last attempt: the budget is spent
-      await markDispatchFailed(row.id, row.errorCode ?? 'interrupted')
+      // recovered after an interrupted last attempt: the budget is spent (the claim counted one more)
+      await markDispatchFailed(row.id, 'interrupted', MAX_ATTEMPTS)
       result.failed++
-      logger.warn(
-        { event: 'whatsapp.reminder_failed', dispatchId: row.id, guestId: row.guestId, kind, errorCode: 'max_attempts' },
-        'reminder failed',
-      )
+      logger.warn({ event: 'whatsapp.reminder_failed', ...ids, errorCode: 'interrupted' }, 'reminder failed')
       continue
     }
 
+    // checked right before sending: the guest may have answered during the pause
     const guest = await findGuestById(row.guestId)
-    if (!guest || guest.rsvpStatus !== KIND_RULES[kind].rsvpStatus || !guest.phone) {
+    if (!isEligible(guest, kind)) {
       await markDispatchCancelled(row.id)
-      logger.info(
-        { event: 'whatsapp.reminder_cancelled', dispatchId: row.id, guestId: row.guestId, kind },
-        'reminder cancelled',
-      )
+      logger.info({ event: 'whatsapp.reminder_cancelled', ...ids }, 'reminder cancelled')
       continue
     }
 
-    if (sends > 0) await deps.sleep(20_000 + deps.random() * 40_000)
     sends++
-
-    const outcome = await sendOne(deps, cfg, row, kind)
+    sentLast = true
+    const outcome = await sendOne(deps, cfg, row, kind, guest)
     if (outcome === 'sent') result.sent++
-    else if (outcome === 'failed' || outcome === 'retry') result.failed++
     else if (outcome === 'not_connected') {
       logPaused('not_connected')
       return { ...result, skipped: 'not_connected' }
-    }
+    } else result.failed++
   }
   return result
 }
@@ -135,38 +138,50 @@ async function sendOne(
   cfg: NonNullable<ReturnType<DispatcherDeps['readEvolutionConfig']>>,
   row: MessageDispatch,
   kind: ReminderKind,
+  guest: Guest & { phone: string },
 ): Promise<Outcome> {
   const ids = { dispatchId: row.id, guestId: row.guestId, kind }
-  let errorCode: string
+  let res: Awaited<ReturnType<DispatcherDeps['sendText']>>
   try {
-    // re-read after the pause: the guest may have answered (or changed) meanwhile
-    const guest = await findGuestById(row.guestId)
-    if (!guest || guest.rsvpStatus !== KIND_RULES[kind].rsvpStatus || !guest.phone) {
-      await markDispatchCancelled(row.id)
-      logger.info({ event: 'whatsapp.reminder_cancelled', ...ids }, 'reminder cancelled')
-      return 'cancelled'
-    }
     const settings = await getSettings()
-    const now = deps.now()
-    const rendered = renderTemplate(KIND_RULES[kind].text(settings), reminderTemplateValues(settings, guest, now))
+    const rendered = renderTemplate(
+      KIND_RULES[kind].text(settings),
+      reminderTemplateValues(settings, guest, deps.now()),
+    )
     const text = varyGreeting(rendered, greetingSeed(guest.id, row.attempts))
-    const res = await deps.sendText(cfg, { phoneE164: guest.phone, text })
-    if (res.ok) {
-      await markDispatchSent(row.id, res.value.messageId)
-      logger.info({ event: 'whatsapp.reminder_sent', ...ids }, 'reminder sent')
-      return 'sent'
-    }
-    if (res.error === 'not_connected') {
-      await deferReminder(row.id, new Date(now.getTime() + NOT_CONNECTED_DELAY_MS), 'not_connected')
-      logger.warn({ event: 'whatsapp.reminder_failed', ...ids, errorCode: 'not_connected' }, 'reminder deferred')
-      return 'not_connected'
-    }
-    errorCode = res.error
+    res = await deps.sendText(cfg, { phoneE164: guest.phone, text })
   } catch (err) {
+    // nothing reached the provider: goes through the normal retry budget
     logger.error({ event: 'whatsapp.dispatcher_error', ...ids, err }, 'reminder send crashed')
-    errorCode = 'internal_error'
+    return retryOrFail(deps, row, ids, 'internal_error')
   }
 
+  if (res.ok) {
+    try {
+      await markDispatchSent(row.id, res.value.messageId)
+    } catch (err) {
+      // the message went out: never reschedule it here (that would send it twice); the row stays
+      // `sending` and the tick stops
+      logger.error({ event: 'whatsapp.dispatcher_error', ...ids, errorCode: 'record_failed', err }, 'reminder sent but not recorded')
+      throw err
+    }
+    logger.info({ event: 'whatsapp.reminder_sent', ...ids }, 'reminder sent')
+    return 'sent'
+  }
+  if (res.error === 'not_connected') {
+    await deferReminder(row.id, new Date(deps.now().getTime() + NOT_CONNECTED_DELAY_MS), 'not_connected')
+    logger.warn({ event: 'whatsapp.reminder_failed', ...ids, errorCode: 'not_connected' }, 'reminder deferred')
+    return 'not_connected'
+  }
+  return retryOrFail(deps, row, ids, res.error)
+}
+
+async function retryOrFail(
+  deps: DispatcherDeps,
+  row: MessageDispatch,
+  ids: { dispatchId: string; guestId: string; kind: ReminderKind },
+  errorCode: string,
+): Promise<Outcome> {
   if (row.attempts < MAX_ATTEMPTS) {
     await rescheduleReminder(row.id, new Date(deps.now().getTime() + retryDelayMs(row.attempts)), errorCode)
     logger.warn({ event: 'whatsapp.reminder_failed', ...ids, errorCode, attempts: row.attempts }, 'reminder will retry')
@@ -186,15 +201,16 @@ const defaultDeps: DispatcherDeps = {
   readEvolutionConfig,
 }
 
-const globalForDispatcher = globalThis as typeof globalThis & { __reminderDispatcherStarted?: boolean }
+const globalForDispatcher = globalThis as typeof globalThis & {
+  __reminderDispatcherTimer?: ReturnType<typeof setInterval>
+}
 
 /**
  * Starts the once-a-minute dispatcher (idempotent per process). A tick with sends takes minutes
  * (20–60 s spacing): overlapping intervals are skipped by the `running` guard. Never throws.
  */
 export function startDispatcher(deps: DispatcherDeps = defaultDeps): void {
-  if (globalForDispatcher.__reminderDispatcherStarted) return
-  globalForDispatcher.__reminderDispatcherStarted = true
+  if (globalForDispatcher.__reminderDispatcherTimer) return
 
   let running = false
   const tick = async () => {
@@ -210,5 +226,13 @@ export function startDispatcher(deps: DispatcherDeps = defaultDeps): void {
   }
   const timer = setInterval(() => void tick(), TICK_INTERVAL_MS)
   timer.unref?.()
+  globalForDispatcher.__reminderDispatcherTimer = timer
   logger.info({ event: 'whatsapp.dispatcher_started' }, 'reminder dispatcher started')
+}
+
+/** Tests only: stops the interval and forgets the paused state. */
+export function resetDispatcherForTests(): void {
+  clearInterval(globalForDispatcher.__reminderDispatcherTimer)
+  globalForDispatcher.__reminderDispatcherTimer = undefined
+  pausedState = null
 }

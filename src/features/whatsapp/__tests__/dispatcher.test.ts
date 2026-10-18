@@ -1,12 +1,20 @@
 import { eq, sql } from 'drizzle-orm'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { logger } from '@/lib/logger'
 import { inviteUrl } from '@/features/guests/whatsapp'
 import { db } from '@/server/db/client'
 import { guests, messageDispatches, settings, type DispatchKind } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
 import type { EvolutionConfig } from '../config'
+import * as dispatches from '../dispatches'
 import { dbNow, retryFailedReminder } from '../dispatches'
-import { greetingSeed, runDispatcherTick, type DispatcherDeps } from '../dispatcher'
+import {
+  greetingSeed,
+  resetDispatcherForTests,
+  runDispatcherTick,
+  startDispatcher,
+  type DispatcherDeps,
+} from '../dispatcher'
 import type { EvolutionError, EvolutionResult } from '../evolution'
 import { varyGreeting } from '../message'
 
@@ -23,6 +31,7 @@ function makeDeps(
     state?: EvolutionResult<'open' | 'connecting' | 'close'>
     cfg?: EvolutionConfig | null
     random?: number
+    onSleep?: (n: number) => Promise<void>
   } = {},
 ) {
   let n = 0
@@ -31,6 +40,7 @@ function makeDeps(
     now: () => now,
     sleep: vi.fn(async (ms: number) => {
       sleeps.push(ms)
+      await opts.onSleep?.(sleeps.length)
     }),
     random: () => opts.random ?? 0.5,
     sendText: vi.fn<DispatcherDeps['sendText']>(async () => {
@@ -65,6 +75,13 @@ async function row(id: string) {
   return r
 }
 
+beforeEach(() => resetDispatcherForTests())
+afterEach(() => {
+  resetDispatcherForTests()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
+
 describe('runDispatcherTick', () => {
   it('sends two due reminders in order with one 20–60 s pause between them', async () => {
     const now = await dbNow()
@@ -78,14 +95,72 @@ describe('runDispatcherTick', () => {
 
     expect(res).toEqual({ sent: 2, failed: 0, skipped: null })
     expect(deps.sendText.mock.calls.map((c) => c[1].phoneE164)).toEqual([PHONE, '+5595990000001'])
-    expect(sleeps).toEqual([30_000])
-    expect(sleeps[0]).toBeGreaterThanOrEqual(20_000)
-    expect(sleeps[0]).toBeLessThanOrEqual(60_000)
+    // a pause follows each send, before the next claim (the last one finds nothing due)
+    expect(sleeps).toEqual([30_000, 30_000])
     const s1 = await row(r1.id)
     const s2 = await row(r2.id)
     expect([s1.status, s1.providerMessageId]).toEqual(['sent', 'MSG-1'])
     expect([s2.status, s2.providerMessageId]).toEqual(['sent', 'MSG-2'])
     expect(s1.sentAt).not.toBeNull()
+  })
+
+  it('pauses with 20–60 s between sends', async () => {
+    const now = await dbNow()
+    for (const r of [0, 0.999]) {
+      const g = await makeGuest({ rsvpStatus: 'yes', phone: PHONE })
+      await makeReminder(g.id, 'reminder_d7', new Date(now.getTime() - MIN))
+      const { deps, sleeps } = makeDeps(now, { random: r })
+      await runDispatcherTick(deps)
+      expect(sleeps[0]).toBeGreaterThanOrEqual(20_000)
+      expect(sleeps[0]).toBeLessThanOrEqual(60_000)
+    }
+  })
+
+  it('cancels the next row when its guest answers during the pause (checked right before sending)', async () => {
+    const now = await dbNow()
+    const a = await makeGuest({ rsvpStatus: 'yes', phone: PHONE })
+    const b = await makeGuest({ rsvpStatus: 'yes', phone: PHONE })
+    const r1 = await makeReminder(a.id, 'reminder_d7', new Date(now.getTime() - 2 * MIN))
+    const r2 = await makeReminder(b.id, 'reminder_d7', new Date(now.getTime() - MIN))
+    const { deps } = makeDeps(now, {
+      onSleep: async (n) => {
+        if (n === 1) await db.update(guests).set({ rsvpStatus: 'no' }).where(eq(guests.id, b.id))
+      },
+    })
+
+    expect(await runDispatcherTick(deps)).toEqual({ sent: 1, failed: 0, skipped: null })
+    expect(deps.sendText).toHaveBeenCalledTimes(1)
+    expect((await row(r1.id)).status).toBe('sent')
+    expect((await row(r2.id)).status).toBe('cancelled')
+  })
+
+  it('leaves the row sending (never rescheduled) when recording a successful send fails', async () => {
+    const now = await dbNow()
+    const g = await makeGuest({ rsvpStatus: 'yes', phone: PHONE })
+    const r = await makeReminder(g.id, 'reminder_d7', new Date(now.getTime() - MIN))
+    vi.spyOn(dispatches, 'markDispatchSent').mockRejectedValue(new Error('db down'))
+    const log = vi.spyOn(logger, 'error').mockImplementation(() => {})
+    const { deps } = makeDeps(now)
+
+    await expect(runDispatcherTick(deps)).rejects.toThrow('db down')
+    expect(deps.sendText).toHaveBeenCalledTimes(1)
+    const s = await row(r.id)
+    expect([s.status, s.attempts]).toEqual(['sending', 1])
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'whatsapp.dispatcher_error', dispatchId: r.id }),
+      expect.any(String),
+    )
+  })
+
+  it('logs dispatcher_paused once per state change', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const now = await dbNow()
+    const close = makeDeps(now, { state: { ok: true, value: 'close' } }).deps
+    await runDispatcherTick(close)
+    await runDispatcherTick(close)
+    await runDispatcherTick(makeDeps(now, { state: { ok: true, value: 'connecting' } }).deps)
+    const paused = warn.mock.calls.filter((c) => (c[0] as { event?: string }).event === 'whatsapp.dispatcher_paused')
+    expect(paused.map((c) => (c[0] as { state: string }).state)).toEqual(['close', 'connecting'])
   })
 
   it('renders the settings template with first name, invite link and a seeded greeting', async () => {
@@ -221,7 +296,8 @@ describe('runDispatcherTick', () => {
 
     await runDispatcherTick(deps)
     expect(deps.sendText).not.toHaveBeenCalled()
-    expect((await row(r.id)).status).toBe('failed')
+    const s = await row(r.id)
+    expect([s.status, s.attempts, s.errorCode]).toEqual(['failed', 3, 'interrupted'])
   })
 
   it('picks up a failed reminder re-armed by retryFailedReminder on the next tick', async () => {
@@ -254,6 +330,7 @@ describe('runDispatcherTick', () => {
     const { deps, sleeps } = makeDeps(now)
     expect(await runDispatcherTick(deps)).toEqual({ sent: 30, failed: 0, skipped: null })
     expect(sleeps).toHaveLength(29)
+    expect(deps.sendText).toHaveBeenCalledTimes(30)
     const [{ left }] = await db.execute<{ left: number }>(
       sql`SELECT count(*)::int AS left FROM message_dispatches WHERE status = 'scheduled'`,
     )
@@ -300,5 +377,67 @@ describe('runDispatcherTick — rsvp nudges', () => {
     await runDispatcherTick(deps)
     expect(deps.sendText).not.toHaveBeenCalled()
     expect((await row(r1.id)).status).toBe('cancelled')
+  })
+})
+
+describe('startDispatcher', () => {
+  function slowDeps() {
+    const pending: Array<() => void> = []
+    const deps: DispatcherDeps = {
+      now: () => new Date(),
+      sleep: async () => {},
+      random: () => 0,
+      sendText: vi.fn(),
+      // a tick that hangs until released (stands in for minutes of spaced sends)
+      getConnectionState: vi.fn(
+        () =>
+          new Promise<EvolutionResult<'open' | 'connecting' | 'close'>>((resolve) => {
+            pending.push(() => resolve({ ok: true, value: 'close' }))
+          }),
+      ),
+      readEvolutionConfig: () => CFG,
+    }
+    return { deps, release: () => pending.splice(0).forEach((r) => r()) }
+  }
+
+  it('is idempotent: a second call does not start another interval', async () => {
+    vi.useFakeTimers()
+    const { deps, release } = slowDeps()
+    startDispatcher(deps)
+    startDispatcher(deps)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(deps.getConnectionState).toHaveBeenCalledTimes(1)
+    release()
+  })
+
+  it('never overlaps a long tick with the next interval', async () => {
+    vi.useFakeTimers()
+    const { deps, release } = slowDeps()
+    startDispatcher(deps)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(deps.getConnectionState).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(deps.getConnectionState).toHaveBeenCalledTimes(1)
+    release()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(deps.getConnectionState).toHaveBeenCalledTimes(2)
+    release()
+  })
+
+  it('swallows and logs a crashing tick', async () => {
+    vi.useFakeTimers()
+    const log = vi.spyOn(logger, 'error').mockImplementation(() => {})
+    const deps: DispatcherDeps = {
+      ...slowDeps().deps,
+      getConnectionState: vi.fn(async () => {
+        throw new Error('boom')
+      }),
+    }
+    startDispatcher(deps)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'whatsapp.dispatcher_error' }),
+      expect.any(String),
+    )
   })
 })
