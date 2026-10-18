@@ -71,4 +71,17 @@ describe('giftFormSchema', () => {
     const r = parse({ imageUrl: 'http://x.com/a.png' })
     expect(!r.success && r.error.issues[0].message).toBe('Use um link que comece com https://')
   })
+
+  it('parses the sort order (default 0, integers 0..9999)', () => {
+    const a = parse({})
+    expect(a.success && a.data.sortOrder).toBe(0)
+    const b = parse({ sortOrder: ' 3 ' })
+    expect(b.success && b.data.sortOrder).toBe(3)
+    const c = parse({ sortOrder: '' })
+    expect(c.success && c.data.sortOrder).toBe(0)
+    expect(parse({ sortOrder: '-1' }).success).toBe(false)
+    expect(parse({ sortOrder: '1.5' }).success).toBe(false)
+    expect(parse({ sortOrder: '10000' }).success).toBe(false)
+    expect(parse({ sortOrder: 'abc' }).success).toBe(false)
+  })
 })

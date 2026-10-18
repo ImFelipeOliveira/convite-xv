@@ -5,6 +5,7 @@ import { gifts, guests } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
 import {
   adminReleaseGift,
+  countGifts,
   createGift,
   deleteGift,
   guestHasGift,
@@ -125,5 +126,21 @@ describe('toGiftViews', () => {
       expect(v).not.toHaveProperty('guestId')
       expect(v).not.toHaveProperty('reservedBy')
     }
+  })
+})
+
+describe('gifts repo: counts and order', () => {
+  it('counts reserved and total gifts', async () => {
+    expect(await countGifts()).toEqual({ reserved: 0, total: 0 })
+    const a = await createGift(base)
+    await createGift({ ...base, name: 'Outro' })
+    await reserveGift(a.id, (await makeGuest()).id)
+    expect(await countGifts()).toEqual({ reserved: 1, total: 2 })
+  })
+
+  it('stores and updates the sort order', async () => {
+    const g = await createGift({ ...base, sortOrder: 4 })
+    expect(g.sortOrder).toBe(4)
+    expect((await updateGift(g.id, { ...base, sortOrder: 2 }))?.sortOrder).toBe(2)
   })
 })

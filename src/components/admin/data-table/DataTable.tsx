@@ -58,6 +58,8 @@ export type DataTableColumnMeta = {
   align?: 'start' | 'end'
   /** Pinned to the right edge while the table scrolls sideways (row actions). */
   stickyEnd?: boolean
+  /** Not rendered: the column only feeds the chip filters (e.g. a category shown inside another cell). */
+  hidden?: boolean
   className?: string
 }
 
@@ -431,7 +433,9 @@ export function DataTable<T extends RowData>({
             <thead role="rowgroup">
               {table.getHeaderGroups().map((group) => (
                 <tr role="row" key={group.id}>
-                  {group.headers.map((header) => {
+                  {group.headers
+                    .filter((header) => !header.column.columnDef.meta?.hidden)
+                    .map((header) => {
                     const meta = header.column.columnDef.meta
                     const canSort = header.column.getCanSort()
                     const dir = header.column.getIsSorted()
@@ -482,7 +486,10 @@ export function DataTable<T extends RowData>({
                   key={row.id}
                   className="transition-colors duration-(--dur-micro) sm:border-b sm:border-hairline sm:last:border-b-0 sm:hover:bg-blush/45"
                 >
-                  {row.getAllCells().map((cell) => {
+                  {row
+                    .getAllCells()
+                    .filter((cell) => !cell.column.columnDef.meta?.hidden)
+                    .map((cell) => {
                     const meta = cell.column.columnDef.meta
                     const header = cell.column.columnDef.header
                     const label = meta?.label ?? (typeof header === 'string' ? header : undefined)

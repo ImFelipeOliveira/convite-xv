@@ -77,6 +77,7 @@ test.describe('admin', () => {
 
     for (const [path, heading] of [
       ['/admin', 'Resumo'],
+      ['/admin/gifts', 'Presentes'],
       ['/admin/settings', 'Configurações'],
     ]) {
       await page.goto(path)

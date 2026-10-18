@@ -2,7 +2,7 @@
 import { and, eq, inArray, like, ne, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import { guests, messageDispatches, settings, type DispatchKind } from '../../src/server/db/schema'
+import { gifts, guests, messageDispatches, settings, type DispatchKind, type RsvpStatus } from '../../src/server/db/schema'
 import { E2E_GUEST_TOKEN } from './fixtures'
 
 /**
@@ -137,6 +137,66 @@ export async function insertDispatch(
       .values({ guestId, ...values })
       .returning({ id: messageDispatches.id })
     return row.id
+  } finally {
+    await client.end()
+  }
+}
+
+/** Reserves the gift named `giftName` for the shared e2e guest (reset with resetE2eGuestRsvp / deleteGiftsByName). */
+export async function reserveGiftForE2eGuest(giftName: string): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const d = drizzle(client)
+    const [guest] = await d.select({ id: guests.id }).from(guests).where(eq(guests.token, E2E_GUEST_TOKEN))
+    if (!guest) throw new Error('e2e guest missing')
+    await d.update(gifts).set({ guestId: guest.id, reservedAt: new Date() }).where(eq(gifts.name, giftName))
+  } finally {
+    await client.end()
+  }
+}
+
+/** Sets the shared e2e guest's answer (the spec must call resetE2eGuestRsvp afterwards). */
+export async function setE2eGuestRsvp(status: RsvpStatus): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    await drizzle(client)
+      .update(guests)
+      .set({ rsvpStatus: status, respondedAt: status === 'pending' ? null : new Date() })
+      .where(eq(guests.token, E2E_GUEST_TOKEN))
+  } finally {
+    await client.end()
+  }
+}
+
+/** Removes gifts an e2e spec created. */
+export async function deleteGiftsByName(names: string[]): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    await drizzle(client).delete(gifts).where(inArray(gifts.name, names))
+  } finally {
+    await client.end()
+  }
+}
+
+/** Reserved and total gift counts (to check the summary card regardless of other rows). */
+export async function countGifts(): Promise<{ reserved: number; total: number }> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const [row] = await drizzle(client)
+      .select({
+        reserved: sql<number>`count(${gifts.guestId})::int`,
+        total: sql<number>`count(*)::int`,
+      })
+      .from(gifts)
+    return row
   } finally {
     await client.end()
   }

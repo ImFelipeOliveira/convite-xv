@@ -1,6 +1,6 @@
 'use client'
 
-import { House, LogOut, Menu, MessageCircle, MessageSquareHeart, Settings, Users } from 'lucide-react'
+import { Gift, House, LogOut, Menu, MessageCircle, MessageSquareHeart, Settings, Users } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Suspense, useRef, useState, type ReactNode } from 'react'
@@ -13,6 +13,7 @@ import { ToastProvider } from './ui/Toast'
 const NAV = [
   { href: '/admin', label: 'Resumo', icon: House },
   { href: '/admin/guests', label: 'Convidados', icon: Users },
+  { href: '/admin/gifts', label: 'Presentes', icon: Gift },
   { href: '/admin/messages', label: 'Recados', icon: MessageSquareHeart },
   { href: '/admin/whatsapp', label: 'WhatsApp', icon: MessageCircle },
   { href: '/admin/settings', label: 'Configurações', icon: Settings },

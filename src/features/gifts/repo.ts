@@ -8,6 +8,7 @@ type GiftData = {
   priceCents: number | null
   imageUrl: string | null
   purchaseUrl: string | null
+  sortOrder?: number
 }
 
 export async function listGiftsAdmin(): Promise<
@@ -87,4 +88,15 @@ export async function adminReleaseGift(giftId: string): Promise<boolean> {
 export async function guestHasGift(guestId: string): Promise<boolean> {
   const [row] = await db.select({ id: gifts.id }).from(gifts).where(eq(gifts.guestId, guestId)).limit(1)
   return !!row
+}
+
+/** For the admin summary: how many gifts exist and how many are reserved. */
+export async function countGifts(): Promise<{ reserved: number; total: number }> {
+  const [row] = await db
+    .select({
+      reserved: sql<number>`count(${gifts.guestId})::int`,
+      total: sql<number>`count(*)::int`,
+    })
+    .from(gifts)
+  return row
 }

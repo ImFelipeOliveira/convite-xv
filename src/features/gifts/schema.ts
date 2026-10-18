@@ -3,7 +3,6 @@ import { z } from 'zod'
 const HTTPS_ERROR = 'Use um link que comece com https://'
 const PRICE_ERROR = 'Valor inválido'
 
-/** pt-BR reais ("250", "250,90", "1.250,00") to cents; empty -> null. */
 const MAX_PRICE_CENTS = 100_000_000 // R$ 1.000.000
 
 /** Reais to cents: pt-BR ("250", "250,90", "1.250,00", "R$ 250,90") or an unambiguous dot decimal ("250.90"); empty -> null. */
@@ -75,6 +74,18 @@ export const giftFormSchema = z
     price: priceField,
     purchaseUrl: httpsUrl,
     imageUrl: httpsUrl,
+    sortOrder: z
+      .string()
+      .trim()
+      .optional()
+      .transform((v, ctx) => {
+        if (!v) return 0
+        if (!/^\d{1,4}$/.test(v)) {
+          ctx.addIssue({ code: 'custom', message: 'Use um número inteiro de 0 a 9999' })
+          return z.NEVER
+        }
+        return Number(v)
+      }),
   })
   .transform(({ price, ...rest }) => ({ ...rest, priceCents: price }))
 
