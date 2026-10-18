@@ -212,10 +212,11 @@ export function Opening({
               <button
                 type="button"
                 onClick={open}
-                aria-label="Abrir o convite"
                 className="absolute top-[30px] left-[30px] h-[120px] w-[120px] cursor-pointer rounded-full border-0 bg-transparent p-0 [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-wine"
               >
+                <span className="sr-only">Abrir o convite</span>
                 <span
+                  aria-hidden="true"
                   className={`seal-wrap absolute inset-0 block drop-shadow-[0_8px_10px_rgba(90,33,54,.35)]${phase === 'press' ? ' is-pressed' : ''}`}
                 >
                   <span className="half half-left">
