@@ -1,5 +1,8 @@
 // In-progress form drafts kept in sessionStorage across a forced reload (version skew recovery).
 // Every storage access is wrapped: private mode, blocked site data or a full quota must never break a form.
+// Scope: one string per field name, which is all the admin forms use (text, number, date, textarea).
+// Checkbox groups, multi-selects and repeated names would keep only the last value, and files are
+// never stored; extend formDataToValues/applyDraftToForm before using drafts on such a form.
 
 export type DraftValues = Record<string, string>
 type StoredDraft = { values: DraftValues; savedAt: number }
@@ -8,9 +11,10 @@ const PREFIX = 'xv:draft:'
 /** A draft older than this is ignored (the reload happens ~1.5 s after saving). */
 export const DRAFT_TTL_MS = 30 * 60_000
 
-type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
+export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
 
-function sessionStore(): StorageLike | null {
+/** window.sessionStorage, or null when there is no window or access throws. */
+export function sessionStore(): StorageLike | null {
   try {
     return typeof window === 'undefined' ? null : window.sessionStorage
   } catch {
@@ -59,7 +63,12 @@ function parse(raw: string | null, now: number): DraftValues | null {
 export function readDraft(path: string, formKey: string, store = sessionStore(), now = Date.now()): DraftValues | null {
   if (!store) return null
   try {
-    return parse(store.getItem(draftStorageKey(path, formKey)), now)
+    const key = draftStorageKey(path, formKey)
+    const raw = store.getItem(key)
+    const values = parse(raw, now)
+    // expired or malformed: drop it now instead of leaving it around for the session
+    if (raw !== null && !values) store.removeItem(key)
+    return values
   } catch {
     return null
   }
@@ -86,9 +95,14 @@ export function listDraftKeys(path: string, keyPrefix: string, store = sessionSt
   const head = draftStorageKey(path, keyPrefix)
   const keys: string[] = []
   try {
+    const candidates: string[] = []
     for (let i = 0; i < store.length; i++) {
       const k = store.key(i)
-      if (k?.startsWith(head) && parse(store.getItem(k), now)) keys.push(k.slice(draftStorageKey(path, '').length))
+      if (k?.startsWith(head)) candidates.push(k)
+    }
+    for (const k of candidates) {
+      if (parse(store.getItem(k), now)) keys.push(k.slice(draftStorageKey(path, '').length))
+      else store.removeItem(k) // expired or malformed
     }
   } catch {
     return []

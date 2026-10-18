@@ -153,9 +153,10 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
   const guard = useSkewGuard()
   // reloaded after a deploy mid-edit: reopen the sheet that had the draft
   useReopenDraftSheet('gift:', (rest) => {
-    if (rest === 'new') return setSheet({ kind: 'new' })
-    const gift = gifts.find((g) => g.id === rest)
-    if (gift) setSheet({ kind: 'edit', gift })
+    const gift = rest === 'new' ? null : gifts.find((g) => g.id === rest)
+    if (gift === undefined) return false // deleted meanwhile
+    setSheet(gift ? { kind: 'edit', gift } : { kind: 'new' })
+    return true
   })
 
   const categories = useMemo(

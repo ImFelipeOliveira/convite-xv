@@ -155,9 +155,10 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
   const guard = useSkewGuard()
   // reloaded after a deploy mid-edit: reopen the sheet that had the draft
   useReopenDraftSheet('guest:', (rest) => {
-    if (rest === 'new') return setSheet({ kind: 'new' })
-    const guest = guests.find((g) => g.id === rest)
-    if (guest) setSheet({ kind: 'edit', guest })
+    const guest = rest === 'new' ? null : guests.find((g) => g.id === rest)
+    if (guest === undefined) return false // deleted meanwhile
+    setSheet(guest ? { kind: 'edit', guest } : { kind: 'new' })
+    return true
   })
   const [moreOpen, setMoreOpen] = useState(false)
   const moreButton = useRef<HTMLButtonElement>(null)

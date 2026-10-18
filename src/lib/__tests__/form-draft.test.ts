@@ -70,6 +70,9 @@ describe('form drafts', () => {
     expect(readDraft('/p', 'f', store, DRAFT_TTL_MS + 1)).toBeNull()
     store.setItem(draftStorageKey('/p', 'g'), '{not json')
     expect(readDraft('/p', 'g', store, 0)).toBeNull()
+    // both were deleted when encountered
+    expect(store.map.has(draftStorageKey('/p', 'f'))).toBe(false)
+    expect(store.map.has(draftStorageKey('/p', 'g'))).toBe(false)
     store.setItem(draftStorageKey('/p', 'h'), JSON.stringify({ values: { a: 1, b: 'ok' }, savedAt: 0 }))
     expect(readDraft('/p', 'h', store, 0)).toEqual({ b: 'ok' })
     expect(saveDraft('/p', 'empty', {}, store)).toBe(false)
@@ -82,6 +85,9 @@ describe('form drafts', () => {
     saveDraft('/admin/gifts', 'guest:zzz', { name: 'Y' }, store, 1000)
     expect(listDraftKeys('/admin/guests', 'guest:', store, 2000)).toEqual(['guest:abc'])
     expect(listDraftKeys('/admin/guests', 'guest:', store, 1000 + DRAFT_TTL_MS + 1)).toEqual([])
+    // the expired guest draft was removed; unrelated keys stay
+    expect(store.map.has(draftStorageKey('/admin/guests', 'guest:abc'))).toBe(false)
+    expect(store.map.has(draftStorageKey('/admin/guests', 'other:new'))).toBe(true)
   })
 
   it('never throws when storage is unavailable', () => {

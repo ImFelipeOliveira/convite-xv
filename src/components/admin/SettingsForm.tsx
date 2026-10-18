@@ -1,8 +1,8 @@
 'use client'
 
-import { useActionState, useEffect, useRef } from 'react'
+import { useActionState, useEffect } from 'react'
 import { saveSettingsAction, type SettingsFormState } from '@/features/settings/actions'
-import { useDraftRestore, useSkewSafeFormAction } from './skew-recovery'
+import { useSkewSafeForm } from './skew-recovery'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
@@ -43,10 +43,8 @@ function Section({
 }
 
 export function SettingsForm({ initial }: Props) {
-  const safeAction = useSkewSafeFormAction(saveSettingsAction, 'settings')
+  const { action: safeAction, formRef } = useSkewSafeForm(saveSettingsAction, 'settings')
   const [state, action, pending] = useActionState<SettingsFormState, FormData>(safeAction, null)
-  const formRef = useRef<HTMLFormElement>(null)
-  useDraftRestore(formRef, 'settings')
   const toast = useToast()
 
   useEffect(() => {

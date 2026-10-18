@@ -1,9 +1,9 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useActionState, useEffect, useRef } from 'react'
+import { useActionState, useEffect } from 'react'
 import { saveGuestAction, type GuestFormState } from '@/features/guests/actions'
-import { useDraftRestore, useSkewSafeFormAction } from './skew-recovery'
+import { useSkewSafeForm } from './skew-recovery'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
@@ -21,10 +21,8 @@ type Props = {
 
 export function GuestForm({ guest, onSaved, redirectTo, onCancel }: Props) {
   const draftKey = guest ? `guest:${guest.id}` : 'guest:new'
-  const safeAction = useSkewSafeFormAction(saveGuestAction, draftKey)
+  const { action: safeAction, formRef } = useSkewSafeForm(saveGuestAction, draftKey)
   const [state, action, pending] = useActionState<GuestFormState, FormData>(safeAction, null)
-  const formRef = useRef<HTMLFormElement>(null)
-  useDraftRestore(formRef, draftKey)
   const toast = useToast()
   const router = useRouter()
 

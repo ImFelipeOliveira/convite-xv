@@ -1,9 +1,9 @@
 'use client'
 
 import { ImageOff } from 'lucide-react'
-import { useActionState, useEffect, useId, useRef, useState } from 'react'
+import { useActionState, useEffect, useId, useState } from 'react'
 import { saveGiftAction, type GiftFormState } from '@/features/gifts/admin-actions'
-import { useDraftRestore, useSkewSafeFormAction } from './skew-recovery'
+import { useSkewSafeForm } from './skew-recovery'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
@@ -59,10 +59,8 @@ function PhotoPreview({ url }: { url: string }) {
 
 export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
   const draftKey = gift ? `gift:${gift.id}` : 'gift:new'
-  const safeAction = useSkewSafeFormAction(saveGiftAction, draftKey)
+  const { action: safeAction, formRef } = useSkewSafeForm(saveGiftAction, draftKey)
   const [state, action, pending] = useActionState<GiftFormState, FormData>(safeAction, null)
-  const formRef = useRef<HTMLFormElement>(null)
-  useDraftRestore(formRef, draftKey)
   const toast = useToast()
   const uid = useId()
 

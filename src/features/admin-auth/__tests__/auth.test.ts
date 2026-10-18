@@ -56,6 +56,15 @@ describe('sliding session renewal', () => {
     expect(shouldRenewSession(now - 20 * DAY, now)).toBe(true)
   })
 
+  it('stops renewing 90 days after the password sign-in (authAt)', () => {
+    const now = 1_800_000_000
+    expect(shouldRenewSession(now - 2 * DAY, now, now - 89 * DAY)).toBe(true)
+    expect(shouldRenewSession(now - 2 * DAY, now, now - 90 * DAY)).toBe(false)
+    // tokens without authAt count from their own iat
+    expect(shouldRenewSession(now - 2 * DAY, now)).toBe(true)
+    expect(shouldRenewSession(now - 91 * DAY, now)).toBe(false)
+  })
+
   it('does not renew without a usable iat', () => {
     expect(shouldRenewSession(undefined, 1_800_000_000)).toBe(false)
     expect(shouldRenewSession(Number.NaN, 1_800_000_000)).toBe(false)
@@ -66,5 +75,11 @@ describe('sliding session renewal', () => {
     const claims = await readSessionToken(await signSessionToken('admin-1'))
     expect(claims?.adminId).toBe('admin-1')
     expect(claims?.issuedAt).toBeGreaterThanOrEqual(before)
+    expect(claims?.authAt).toBe(claims?.issuedAt)
+  })
+
+  it('keeps the original authAt when a session is re-issued', async () => {
+    const claims = await readSessionToken(await signSessionToken('admin-1', 1_700_000_000))
+    expect(claims?.authAt).toBe(1_700_000_000)
   })
 })

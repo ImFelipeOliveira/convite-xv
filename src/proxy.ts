@@ -25,8 +25,10 @@ async function guardAdmin(request: NextRequest) {
   if (!session) return NextResponse.redirect(new URL('/admin/login', request.url))
   const res = NextResponse.next()
   // sliding session: an admin who keeps using the panel never hits the 30-day expiry mid-task
-  if (shouldRenewSession(session.issuedAt, Math.floor(Date.now() / 1000))) {
-    res.cookies.set(SESSION_COOKIE, await signSessionToken(session.adminId), SESSION_COOKIE_OPTIONS)
+  // (until 90 days after the password sign-in: authAt is carried over, then the cookie just expires)
+  if (shouldRenewSession(session.issuedAt, Math.floor(Date.now() / 1000), session.authAt)) {
+    const authAt = session.authAt ?? session.issuedAt
+    res.cookies.set(SESSION_COOKIE, await signSessionToken(session.adminId, authAt), SESSION_COOKIE_OPTIONS)
   }
   return res
 }
