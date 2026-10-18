@@ -41,6 +41,22 @@ export function normalizeReaisInput(typed: string): string {
   return maskReais(typed)
 }
 
+export const PAYER_NAME_MIN = 3
+export const PAYER_NAME_MAX = 100
+const CONTROL_CHARS = /\p{Cc}/u
+
+/**
+ * The payer's full name (the Asaas customer, the holder of the typed CPF): trimmed, inner spaces
+ * collapsed, 3–100 characters, at least two words, no control characters. Anything else → null.
+ */
+export function normalizePayerName(value: string): string | null {
+  if (typeof value !== 'string' || CONTROL_CHARS.test(value)) return null
+  const name = value.replace(/\s+/g, ' ').trim()
+  if (name.length < PAYER_NAME_MIN || name.length > PAYER_NAME_MAX) return null
+  if (name.split(' ').length < 2) return null
+  return name
+}
+
 const PNG_DATA_URL = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/
 const RAW_BASE64 = /^[A-Za-z0-9+/=]+$/
 

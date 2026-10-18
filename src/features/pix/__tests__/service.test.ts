@@ -7,6 +7,8 @@ import { makeGuest } from '../../../../tests/helpers/db'
 import { withAdvisoryLock } from '../repo'
 import { GENERIC_CUSTOMER_NAME, generatePix, getGuestPixState, getPixStatus, resetPollClock } from '../service'
 
+/** The payer's full name typed in the invite (the CPF holder, not the guest). */
+const PAYER = 'Tia Rosa Lima'
 const config = { apiKey: 'k', baseUrl: 'http://asaas.test/v3', webhookToken: null }
 const NOW = new Date('2026-10-18T15:00:00Z') // 11h in Boa Vista
 
@@ -278,7 +280,7 @@ describe('generatePix', () => {
       const guest = await makeGuest()
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
-      const a = await generatePix(guest, 7000, d, { cpf: '529.982.247-25' })
+      const a = await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name: PAYER })
       const b = await generatePix(guest, 7000, d)
       expect(a.ok && b.ok && a.payment.id === b.payment.id).toBe(true)
       expect(await generatePix(guest, 10000, d)).toEqual({ ok: false, error: 'cpf_required' })
@@ -294,25 +296,50 @@ describe('generatePix', () => {
       expect(f.calls).toEqual([])
     })
 
+    it('requires a valid payer name (trimmed, 3–100 chars, two words, no control characters)', async () => {
+      const guest = await makeGuest()
+      const f = fakeAsaas()
+      const d = deps(f, { requireCpf: true })
+      for (const name of [undefined, null, '', 'Rosa', ' R ', 'Rosa\u0007 Lima', `Rosa ${'a'.repeat(100)}`]) {
+        expect(await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name })).toEqual({
+          ok: false,
+          error: 'invalid_payer_name',
+        })
+      }
+      expect(f.calls).toEqual([])
+    })
+
+    it('names the customer after the trimmed payer name, and reuses it for the same CPF with another name', async () => {
+      const guest = await makeGuest({ name: 'Ana Souza' })
+      const f = fakeAsaas()
+      const d = deps(f, { requireCpf: true })
+      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name: '  Tia   Rosa Lima ' })).ok).toBe(true)
+      expect((await generatePix(guest, 10000, d, { cpf: '529.982.247-25', name: 'Rosa Lima' })).ok).toBe(true)
+      const customers = f.calls.filter((c) => c.key === 'POST /customers')
+      expect(customers.map((c) => (c.body as { name: string }).name)).toEqual(['Tia Rosa Lima'])
+      const payments = f.calls.filter((c) => c.key === 'POST /payments')
+      expect(payments.map((c) => (c.body as { customer: string }).customer)).toEqual(['cus_1', 'cus_1'])
+    })
+
     it('rejects an invalid CPF', async () => {
       const guest = await makeGuest()
       const f = fakeAsaas()
       expect(
-        await generatePix(guest, 7000, deps(f, { requireCpf: true }), { cpf: '529.982.247-24' }),
+        await generatePix(guest, 7000, deps(f, { requireCpf: true }), { cpf: '529.982.247-24', name: PAYER }),
       ).toEqual({ ok: false, error: 'invalid_cpf' })
       expect(f.calls).toEqual([])
     })
 
-    it('creates one customer per guest with the CPF, stores only the customer id, then reuses it', async () => {
+    it('creates one customer per guest with the CPF and the payer’s name, stores only the customer id, then reuses it', async () => {
       const guest = await makeGuest({ name: 'Ana Souza' })
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
-      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25' })).ok).toBe(true)
-      expect((await generatePix(guest, 10000, d, { cpf: '529.982.247-25' })).ok).toBe(true)
+      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name: PAYER })).ok).toBe(true)
+      expect((await generatePix(guest, 10000, d, { cpf: '529.982.247-25', name: PAYER })).ok).toBe(true)
       const customers = f.calls.filter((c) => c.key === 'POST /customers')
       expect(customers).toHaveLength(1)
       expect(customers[0].body).toEqual({
-        name: 'Ana Souza',
+        name: PAYER,
         cpfCnpj: '52998224725',
         notificationDisabled: true,
       })
@@ -320,6 +347,9 @@ describe('generatePix', () => {
       expect(row.asaasCustomerId).toBe('cus_1')
       expect(JSON.stringify(row)).not.toContain('52998224725')
       expect(JSON.stringify(await rows())).not.toContain('52998224725')
+      // the payer's name goes to Asaas only
+      expect(JSON.stringify(row)).not.toContain('Rosa')
+      expect(JSON.stringify(await rows())).not.toContain('Rosa')
       expect((await getSettings()).asaasCustomerId).toBeNull()
     })
 
@@ -327,8 +357,8 @@ describe('generatePix', () => {
       const guest = await makeGuest()
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
-      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25' })).ok).toBe(true)
-      expect((await generatePix(guest, 10000, d, { cpf: '52998224725' })).ok).toBe(true)
+      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name: PAYER })).ok).toBe(true)
+      expect((await generatePix(guest, 10000, d, { cpf: '52998224725', name: PAYER })).ok).toBe(true)
       expect(f.calls.filter((c) => c.key === 'POST /customers')).toHaveLength(1)
       const [row] = await db.select().from(guests).where(eq(guests.id, guest.id))
       expect(row.asaasCustomerCpfHash).toMatch(/^[0-9a-f]{64}$/)
@@ -339,11 +369,12 @@ describe('generatePix', () => {
       const guest = await makeGuest({ name: 'Ana Souza' })
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
-      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25' })).ok).toBe(true)
+      expect((await generatePix(guest, 7000, d, { cpf: '529.982.247-25', name: PAYER })).ok).toBe(true)
       const [first] = await db.select().from(guests).where(eq(guests.id, guest.id))
-      expect((await generatePix(guest, 10000, d, { cpf: '111.444.777-35' })).ok).toBe(true)
+      expect((await generatePix(guest, 10000, d, { cpf: '111.444.777-35', name: PAYER })).ok).toBe(true)
       const customers = f.calls.filter((c) => c.key === 'POST /customers')
       expect(customers.map((c) => (c.body as { cpfCnpj: string }).cpfCnpj)).toEqual(['52998224725', '11144477735'])
+      expect(customers.map((c) => (c.body as { name: string }).name)).toEqual([PAYER, PAYER])
       const payments = f.calls.filter((c) => c.key === 'POST /payments')
       expect(payments.map((c) => (c.body as { customer: string }).customer)).toEqual(['cus_1', 'cus_2'])
       const [row] = await db.select().from(guests).where(eq(guests.id, guest.id))
@@ -356,7 +387,7 @@ describe('generatePix', () => {
       const guest = await makeGuest()
       await db.update(guests).set({ asaasCustomerId: 'cus_legacy' }).where(eq(guests.id, guest.id))
       const f = fakeAsaas()
-      expect((await generatePix(guest, 7000, deps(f, { requireCpf: true }), { cpf: '529.982.247-25' })).ok).toBe(true)
+      expect((await generatePix(guest, 7000, deps(f, { requireCpf: true }), { cpf: '529.982.247-25', name: PAYER })).ok).toBe(true)
       expect(f.calls.filter((c) => c.key === 'POST /customers')).toHaveLength(1)
       const [row] = await db.select().from(guests).where(eq(guests.id, guest.id))
       expect(row.asaasCustomerId).toBe('cus_1')
@@ -766,11 +797,11 @@ describe('generatePix per-guest caps', () => {
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
       for (const [i, cpf] of cpfs.slice(0, 3).entries()) {
-        expect((await generatePix(guest, 7000 + i * 1000, d, { cpf })).ok).toBe(true)
+        expect((await generatePix(guest, 7000 + i * 1000, d, { cpf, name: PAYER })).ok).toBe(true)
         await payAll()
       }
       const before = f.calls.length
-      expect(await generatePix(guest, 10000, d, { cpf: cpfs[3] })).toEqual({ ok: false, error: 'too_many_payers' })
+      expect(await generatePix(guest, 10000, d, { cpf: cpfs[3], name: PAYER })).toEqual({ ok: false, error: 'too_many_payers' })
       expect(f.calls.length).toBe(before)
       expect(f.calls.filter((c) => c.key === 'POST /customers')).toHaveLength(3)
     })
@@ -780,14 +811,14 @@ describe('generatePix per-guest caps', () => {
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
       for (const [i, cpf] of cpfs.slice(0, 3).entries()) {
-        expect((await generatePix(guest, 7000 + i * 1000, d, { cpf })).ok).toBe(true)
+        expect((await generatePix(guest, 7000 + i * 1000, d, { cpf, name: PAYER })).ok).toBe(true)
         await payAll()
       }
       // the first payer again (stored customer is the third one's: a new customer, but no new payer)
-      expect((await generatePix(guest, 12000, d, { cpf: cpfs[0] })).ok).toBe(true)
+      expect((await generatePix(guest, 12000, d, { cpf: cpfs[0], name: PAYER })).ok).toBe(true)
       await payAll()
       const nextDay = new Date(NOW.getTime() + 24 * 3600_000 + 60_000)
-      expect((await generatePix(guest, 13000, deps(f, { requireCpf: true, now: () => nextDay }), { cpf: cpfs[3] })).ok).toBe(
+      expect((await generatePix(guest, 13000, deps(f, { requireCpf: true, now: () => nextDay }), { cpf: cpfs[3], name: PAYER })).ok).toBe(
         true,
       )
     })
@@ -795,7 +826,7 @@ describe('generatePix per-guest caps', () => {
     it('stores only the CPF hash on the charge, never the CPF', async () => {
       const guest = await makeGuest()
       const f = fakeAsaas()
-      expect((await generatePix(guest, 7000, deps(f, { requireCpf: true }), { cpf: cpfs[0] })).ok).toBe(true)
+      expect((await generatePix(guest, 7000, deps(f, { requireCpf: true }), { cpf: cpfs[0], name: PAYER })).ok).toBe(true)
       const [row] = await rows()
       expect(row.payerCpfHash).toMatch(/^[0-9a-f]{64}$/)
       expect(JSON.stringify(row)).not.toContain(cpfs[0])
@@ -809,10 +840,10 @@ describe('generatePix per-guest caps', () => {
       const f = fakeAsaas()
       const d = deps(f, { requireCpf: true })
       for (const [i, cpf] of cpfs.slice(0, 3).entries()) {
-        expect((await generatePix(one, 7000 + i * 1000, d, { cpf })).ok).toBe(true)
+        expect((await generatePix(one, 7000 + i * 1000, d, { cpf, name: PAYER })).ok).toBe(true)
         await payAll()
       }
-      expect((await generatePix(two, 7000, d, { cpf: cpfs[3] })).ok).toBe(true)
+      expect((await generatePix(two, 7000, d, { cpf: cpfs[3], name: PAYER })).ok).toBe(true)
     })
   })
 })

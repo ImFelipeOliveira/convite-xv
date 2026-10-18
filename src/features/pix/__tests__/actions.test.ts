@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { logger } from '@/lib/logger'
 import { db } from '@/server/db/client'
 import { pixPayments } from '@/server/db/schema'
 import { makeGuest } from '../../../../tests/helpers/db'
@@ -12,20 +13,28 @@ vi.mock('next/headers', () => ({
 }))
 
 const VALID_CPF = '529.982.247-25'
+const PAYER_NAME = 'Tia Rosa Lima'
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
+/** Bodies of the POST /customers calls of the current stubAsaas. */
+let customerBodies: unknown[] = []
+
 /** Global fetch stand-in for Asaas (the actions read the config from env). */
 function stubAsaas(opts: { failPayments?: boolean; status?: string } = {}) {
   const calls: string[] = []
+  customerBodies = []
   let n = 0
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).replace('http://asaas.test/v3', '')
     const key = `${init?.method ?? 'GET'} ${path.replace(/^\/payments\/[^/]+/, '/payments/:id')}`
     calls.push(key)
-    if (key === 'POST /customers') return json({ id: 'cus_1' })
+    if (key === 'POST /customers') {
+      customerBodies.push(JSON.parse(String(init?.body)))
+      return json({ id: 'cus_1' })
+    }
     if (key === 'POST /payments') return opts.failPayments ? json({}, 500) : json({ id: `pay_${++n}` })
     if (key === 'GET /payments/:id/pixQrCode')
       return json({ encodedImage: 'iVBORw0KGgo=', payload: '00020126abc', expirationDate: '2099-01-01 23:59:59' })
@@ -55,6 +64,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
@@ -63,7 +73,7 @@ describe('generatePixAction', () => {
   it('creates a charge for the token’s guest and returns its QR', async () => {
     const guest = await makeGuest()
     stubAsaas()
-    const res = await generatePixAction(null, form({ token: guest.token, amount: '10000', cpf: VALID_CPF }))
+    const res = await generatePixAction(null, form({ token: guest.token, amount: '10000', cpf: VALID_CPF, payerName: PAYER_NAME }))
     expect(res).toMatchObject({
       ok: true,
       payment: { amountCents: 10000, status: 'pending', qrImage: 'iVBORw0KGgo=', copyPaste: '00020126abc' },
@@ -76,7 +86,7 @@ describe('generatePixAction', () => {
   it('rejects below the minimum without calling Asaas', async () => {
     const guest = await makeGuest()
     const calls = stubAsaas()
-    expect(await generatePixAction(null, form({ token: guest.token, amount: '5000', cpf: VALID_CPF }))).toEqual({
+    expect(await generatePixAction(null, form({ token: guest.token, amount: '5000', cpf: VALID_CPF, payerName: PAYER_NAME }))).toEqual({
       ok: false,
       error: 'below_minimum',
     })
@@ -86,7 +96,7 @@ describe('generatePixAction', () => {
   it('rejects above the R$ 10.000,00 maximum without calling Asaas', async () => {
     const guest = await makeGuest()
     const calls = stubAsaas()
-    expect(await generatePixAction(null, form({ token: guest.token, amount: '1000001', cpf: VALID_CPF }))).toEqual({
+    expect(await generatePixAction(null, form({ token: guest.token, amount: '1000001', cpf: VALID_CPF, payerName: PAYER_NAME }))).toEqual({
       ok: false,
       error: 'above_maximum',
     })
@@ -97,7 +107,7 @@ describe('generatePixAction', () => {
     const guest = await makeGuest()
     const calls = stubAsaas()
     for (const amount of ['', 'abc', '100.5', '-7000', '1e9']) {
-      expect(await generatePixAction(null, form({ token: guest.token, amount, cpf: VALID_CPF }))).toEqual({
+      expect(await generatePixAction(null, form({ token: guest.token, amount, cpf: VALID_CPF, payerName: PAYER_NAME }))).toEqual({
         ok: false,
         error: 'invalid',
       })
@@ -110,28 +120,62 @@ describe('generatePixAction', () => {
     const calls = stubAsaas()
     for (const amount of ['7000', '8000', '9000']) {
       ip.current = `203.0.113.${amount.slice(0, 1)}`
-      expect((await generatePixAction(null, form({ token: guest.token, amount, cpf: VALID_CPF }))).ok).toBe(true)
+      expect((await generatePixAction(null, form({ token: guest.token, amount, cpf: VALID_CPF, payerName: PAYER_NAME }))).ok).toBe(true)
     }
     ip.current = '203.0.113.200'
     const before = calls.length
-    expect(await generatePixAction(null, form({ token: guest.token, amount: '10000', cpf: VALID_CPF }))).toEqual({
+    expect(await generatePixAction(null, form({ token: guest.token, amount: '10000', cpf: VALID_CPF, payerName: PAYER_NAME }))).toEqual({
       ok: false,
       error: 'too_many_pending',
     })
     expect(calls.length).toBe(before)
   })
 
+  it('creates the Asaas customer with the payer’s name (not the guest’s), never logging it', async () => {
+    const guest = await makeGuest({ name: 'Convidada Ana' })
+    stubAsaas()
+    const spies = (['info', 'warn', 'error'] as const).map((level) => vi.spyOn(logger, level))
+    const res = await generatePixAction(
+      null,
+      form({ token: guest.token, amount: '7000', cpf: VALID_CPF, payerName: '  Tia   Rosa Lima ' }),
+    )
+    expect(res.ok).toBe(true)
+    expect(customerBodies).toEqual([{ name: 'Tia Rosa Lima', cpfCnpj: '52998224725', notificationDisabled: true }])
+    for (const spy of spies) expect(JSON.stringify(spy.mock.calls)).not.toMatch(/Rosa|52998224725/)
+  })
+
+  it('answers invalid_payer_name for a missing or invalid payer name, before any Asaas call', async () => {
+    const guest = await makeGuest()
+    const calls = stubAsaas()
+    const warn = vi.spyOn(logger, 'warn')
+    for (const payerName of [undefined, '', 'Rosa', '  Ro  ', 'Rosa\nLima', `Rosa ${'a'.repeat(100)}`]) {
+      const values: Record<string, string> = { token: guest.token, amount: '7000', cpf: VALID_CPF }
+      if (payerName !== undefined) values.payerName = payerName
+      expect(await generatePixAction(null, form(values))).toEqual({ ok: false, error: 'invalid_payer_name' })
+    }
+    expect(calls).toEqual([])
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('Rosa')
+  })
+
+  it('without the CPF requirement, ignores the payer name and uses the generic customer', async () => {
+    vi.stubEnv('ASAAS_REQUIRE_PAYER_CPF', 'false')
+    const guest = await makeGuest()
+    stubAsaas()
+    expect((await generatePixAction(null, form({ token: guest.token, amount: '7000' }))).ok).toBe(true)
+    expect(customerBodies).toEqual([expect.objectContaining({ name: 'Convidados — 15 anos da Isabella' })])
+  })
+
   it('answers invalid_cpf for a bad CPF', async () => {
     const guest = await makeGuest()
     stubAsaas()
     expect(
-      await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: '529.982.247-24' })),
+      await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: '529.982.247-24', payerName: PAYER_NAME })),
     ).toEqual({ ok: false, error: 'invalid_cpf' })
   })
 
   it('answers not_found for an unknown token', async () => {
     const calls = stubAsaas()
-    expect(await generatePixAction(null, form({ token: 'nope', amount: '7000', cpf: VALID_CPF }))).toEqual({
+    expect(await generatePixAction(null, form({ token: 'nope', amount: '7000', cpf: VALID_CPF, payerName: PAYER_NAME }))).toEqual({
       ok: false,
       error: 'not_found',
     })
@@ -141,7 +185,7 @@ describe('generatePixAction', () => {
   it('maps an Asaas failure to unavailable', async () => {
     const guest = await makeGuest()
     stubAsaas({ failPayments: true })
-    expect(await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: VALID_CPF }))).toEqual({
+    expect(await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: VALID_CPF, payerName: PAYER_NAME }))).toEqual({
       ok: false,
       error: 'unavailable',
     })
@@ -151,13 +195,13 @@ describe('generatePixAction', () => {
     const guest = await makeGuest()
     const calls = stubAsaas()
     vi.stubEnv('ASAAS_API_KEY', '')
-    expect(await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: VALID_CPF }))).toEqual({
+    expect(await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: VALID_CPF, payerName: PAYER_NAME }))).toEqual({
       ok: false,
       error: 'not_configured',
     })
     vi.stubEnv('ASAAS_API_KEY', 'test-key')
     vi.stubEnv('FEATURES', 'gifts')
-    expect(await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: VALID_CPF }))).toEqual({
+    expect(await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: VALID_CPF, payerName: PAYER_NAME }))).toEqual({
       ok: false,
       error: 'not_configured',
     })
@@ -180,7 +224,7 @@ describe('generatePixAction', () => {
 describe('pixStatusAction', () => {
   async function charge() {
     const guest = await makeGuest()
-    const res = await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: VALID_CPF }))
+    const res = await generatePixAction(null, form({ token: guest.token, amount: '7000', cpf: VALID_CPF, payerName: PAYER_NAME }))
     if (!res.ok) throw new Error('expected ok')
     return { guest, payment: res.payment }
   }

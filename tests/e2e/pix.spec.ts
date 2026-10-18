@@ -3,12 +3,13 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { deleteGiftsByName, deletePixPaymentsForTokens, resetE2eGuestRsvp, seedGifts, setE2eGuestRsvp } from './db'
 import {
   fakeAsaasCalls,
+  fakeAsaasCustomerNames,
   resetFakeAsaas,
   sendFakeAsaasWebhook,
   setFakeAsaasMode,
   setLatestFakeChargeStatus,
 } from './fake-asaas'
-import { E2E_GUEST_TOKEN } from './fixtures'
+import { E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
 
 // The invite's Pix section (prancha 09) against the fake Asaas (tests/e2e/fake-asaas.ts). The webServer
 // runs with FEATURES=gifts,pix, ASAAS_REQUIRE_PAYER_CPF=true and ASAAS_WEBHOOK_TOKEN set: payments are
@@ -61,6 +62,10 @@ function cpfInput(section: Locator) {
   return section.getByRole('textbox', { name: 'CPF de quem vai pagar' })
 }
 
+function payerNameInput(section: Locator) {
+  return section.getByRole('textbox', { name: 'Nome completo de quem paga' })
+}
+
 test('R$ 100: shows the QR and copy-paste code, copies it, then turns paid after the bank confirms', async ({ page }) => {
   const section = await openPix(page)
   await expect(section.getByText('CAPÍTULO VI')).toBeVisible()
@@ -74,6 +79,10 @@ test('R$ 100: shows the QR and copy-paste code, copies it, then turns paid after
   await expect(section.getByTestId('pix-amount')).toHaveText('R$ 100,00')
   await expect(section.getByTestId('pix-from')).toHaveText('Convidado')
   await expect(section.getByText('Usado só para gerar o Pix no Asaas.')).toBeVisible()
+  // the payer's name starts as the guest's; another family member pays here
+  await expect(payerNameInput(section)).toHaveValue(E2E_GUEST_NAME)
+  await expect(payerNameInput(section)).toHaveAttribute('autocomplete', 'name')
+  await payerNameInput(section).fill('Tia Rosa Lima')
   await cpfInput(section).fill('52998224725')
   // masked as the guest types
   await expect(cpfInput(section)).toHaveValue(VALID_CPF)
@@ -99,6 +108,8 @@ test('R$ 100: shows the QR and copy-paste code, copies it, then turns paid after
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await code.inputValue())
   // the CPF went to Asaas once (customer), never stored on the page
   expect((await fakeAsaasCalls()).filter((c) => c === 'POST /customers')).toHaveLength(1)
+  // the Asaas customer carries the payer's name (the CPF holder), not the guest's
+  expect(await fakeAsaasCustomerNames()).toEqual(['Tia Rosa Lima'])
 
   // the bank confirms: Asaas delivers PAYMENT_RECEIVED to our webhook (a redelivery is a no-op)
   expect(await sendFakeAsaasWebhook('PAYMENT_RECEIVED', 'evt_e2e_received')).toEqual({ status: 200, body: { ok: true } })
@@ -189,6 +200,29 @@ test('an invalid CPF is caught before any call', async ({ page }) => {
   expect(await fakeAsaasCalls()).toEqual([])
 })
 
+test('the prefilled guest name is used as is; an incomplete payer name is caught before any call', async ({ page }) => {
+  const section = await openPix(page)
+  await payerNameInput(section).fill('Rosa')
+  await cpfInput(section).fill('529.982.247-24')
+  await section.getByRole('button', { name: 'Gerar Pix' }).click()
+  // both fields flagged at once; focus on the first one
+  const message = 'Informe o nome completo (nome e sobrenome) de quem paga.'
+  await expect(section.getByText(message)).toBeVisible()
+  await expect(payerNameInput(section)).toHaveAttribute('aria-invalid', 'true')
+  await expect(payerNameInput(section)).toBeFocused()
+  await expect(section.getByText('CPF inválido. Confira os números.')).toBeVisible()
+  expect(await fakeAsaasCalls()).toEqual([])
+
+  // typing clears the field's error
+  await payerNameInput(section).fill(` ${E2E_GUEST_NAME} `)
+  await expect(section.getByText(message)).toHaveCount(0)
+  await expect(payerNameInput(section)).toHaveAttribute('aria-invalid', 'false')
+  await cpfInput(section).fill(VALID_CPF)
+  await section.getByRole('button', { name: 'Gerar Pix' }).click()
+  await expect(section.getByRole('img', { name: /QR Code Pix/ })).toBeVisible()
+  expect(await fakeAsaasCustomerNames()).toEqual([E2E_GUEST_NAME])
+})
+
 test('an Asaas failure shows the error and a retry works', async ({ page }) => {
   const section = await openPix(page)
   await setFakeAsaasMode({ failPayments: true })
@@ -240,7 +274,7 @@ test('when polling gives up, the guest can still check the payment once', async 
   await expect(section.getByText('Já pagou? Toque para verificar.')).toBeVisible()
 })
 
-test('the CPF never reaches a URL, even if the form is submitted before hydration', async ({ browser }) => {
+test('the CPF and the payer name never reach a URL, even if the form is submitted before hydration', async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     javaScriptEnabled: false,
@@ -258,12 +292,14 @@ test('the CPF never reaches a URL, even if the form is submitted before hydratio
     // not exposed to the a11y tree yet (the opening still covers the invite): target it by id
     const cpf = form.locator('#pix-cpf')
     await cpf.fill(VALID_CPF, { force: true })
+    await form.locator('#pix-payer-name').fill('Tia Rosa Lima', { force: true })
     // a native submit (no React handler without JS); the section is still behind the opening overlay
     await Promise.all([page.waitForEvent('load'), form.evaluate((f: HTMLFormElement) => f.requestSubmit())])
     for (const url of [...urls, page.url()]) {
       expect(url).not.toContain('cpf')
       expect(url).not.toContain('52998224725')
       expect(url).not.toContain('529.982')
+      expect(url).not.toContain('Rosa')
     }
   } finally {
     await context.close()

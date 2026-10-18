@@ -6,6 +6,7 @@ import { createPixPayment, deletePayment, ensureCustomer, getPayment, getPixQrCo
 import { readAsaasConfig, requirePayerCpf, testOverridesAllowed, type AsaasConfig } from './config'
 import { isValidCpf } from './cpf'
 import { pixDueDate } from './due-date'
+import { normalizePayerName } from './input'
 import { PIX_MAX_CENTS, PIX_MIN_CENTS } from './limits'
 import {
   countActivePending,
@@ -64,6 +65,8 @@ export type PixError =
   | 'unavailable'
   | 'cpf_required'
   | 'invalid_cpf'
+  /** payer-CPF mode: the payer's full name is missing or invalid (see normalizePayerName) */
+  | 'invalid_payer_name'
   /** too many generations at once: try again in a few seconds */
   | 'busy'
   /** the guest already has MAX_ACTIVE_PENDING_PER_GUEST charges waiting (none for this amount) */
@@ -197,9 +200,12 @@ export function cpfHash(normalizedCpf: string): string {
 
 type CustomerResult = { ok: true; id: string } | { ok: false; error: 'unavailable' | 'too_many_payers' }
 
+/** Payer-CPF mode: the typed CPF (normalized), its keyed hash and the name of its holder. */
+type Payer = { cpf: string; hash: string; name: string }
+
 async function customerFor(
-  guest: Pick<Guest, 'id' | 'name'>,
-  cpf: { value: string; hash: string } | null,
+  guest: Pick<Guest, 'id'>,
+  cpf: Payer | null,
   config: AsaasConfig,
   fetchImpl: typeof fetch,
   at: Date,
@@ -207,7 +213,8 @@ async function customerFor(
 ): Promise<CustomerResult> {
   if (cpf) {
     // already under this guest's lock. The customer carries the CPF it was created with: reused only
-    // for that same CPF; another family member's CPF (or a pre-0009 customer without hash) gets a new one
+    // for that same CPF (even if the name was typed differently); another family member's CPF (or a
+    // pre-0009 customer without hash) gets a new one
     const existing = await getGuestCustomer(guest.id, tx)
     if (existing && existing.cpfHash === cpf.hash) return { ok: true, id: existing.id }
     // a CPF not seen on this guest's charges in the last day is one more payer: at most 3 a day
@@ -216,7 +223,7 @@ async function customerFor(
       log.warn({ guestId: guest.id, code: 'too_many_payers' }, 'pix payer cap reached')
       return { ok: false, error: 'too_many_payers' }
     }
-    const created = await ensureCustomer(config, { name: guest.name, cpfCnpj: cpf.value }, fetchImpl)
+    const created = await ensureCustomer(config, { name: cpf.name, cpfCnpj: cpf.cpf }, fetchImpl)
     if (!created.ok) {
       log.warn({ guestId: guest.id, code: created.error }, 'pix customer failed')
       return { ok: false, error: 'unavailable' }
@@ -259,12 +266,14 @@ async function genericCustomer(config: AsaasConfig, fetchImpl: typeof fetch, tx:
  * guest runs one at a time (one more may wait its turn; beyond that, `busy`). Per guest: at most 3
  * charges waiting for payment (`too_many_pending`) and, in payer-CPF mode, 3 distinct payer CPFs a day
  * (`too_many_payers`). The CPF goes to Asaas only: never stored (just its keyed hash), never logged.
+ * In payer-CPF mode the Asaas customer is named after the payer (the CPF holder, who may not be the
+ * guest): that name also goes to Asaas only, never stored nor logged.
  */
 export async function generatePix(
-  guest: Pick<Guest, 'id' | 'name'>,
+  guest: Pick<Guest, 'id'>,
   amountCents: number,
   deps: PixDeps = {},
-  payer: { cpf?: string | null } = {},
+  payer: PayerInput = {},
 ): Promise<PixResult> {
   if (!Number.isSafeInteger(amountCents) || amountCents < PIX_MIN_CENTS) {
     return { ok: false, error: 'below_minimum' }
@@ -303,10 +312,13 @@ export async function generatePix(
 
 type PixResult = { ok: true; payment: PixView } | { ok: false; error: PixError }
 
+/** What the guest typed for the payer (payer-CPF mode only). */
+export type PayerInput = { cpf?: string | null; name?: string | null }
+
 async function createOrReuse(
-  guest: Pick<Guest, 'id' | 'name'>,
+  guest: Pick<Guest, 'id'>,
   amountCents: number,
-  payer: { cpf?: string | null },
+  payer: PayerInput,
   { config, fetchImpl, now, requireCpf }: ReturnType<typeof resolve> & { config: AsaasConfig },
   tx: Executor,
 ): Promise<PixResult> {
@@ -323,13 +335,15 @@ async function createOrReuse(
     return { ok: false, error: 'too_many_pending' }
   }
 
-  let cpf: { value: string; hash: string } | null = null
+  let cpf: Payer | null = null
   if (requireCpf) {
     const raw = payer.cpf?.trim() ?? ''
     if (!raw) return { ok: false, error: 'cpf_required' }
     if (!isValidCpf(raw)) return { ok: false, error: 'invalid_cpf' }
+    const name = normalizePayerName(payer.name ?? '')
+    if (!name) return { ok: false, error: 'invalid_payer_name' }
     const value = raw.replace(/\D/g, '')
-    cpf = { value, hash: cpfHash(value) }
+    cpf = { cpf: value, hash: cpfHash(value), name }
   }
 
   const customer = await customerFor(guest, cpf, config, fetchImpl, at, tx)

@@ -292,7 +292,7 @@ export async function guestOpenedAt(id: string): Promise<Date | null> {
   }
 }
 
-/** Drops every Pix charge of the guests with these tokens (each Pix spec starts without a reusable QR). */
+/** Drops every Pix charge and the stored Asaas customer of the guests with these tokens (each Pix spec starts without a reusable QR). */
 export async function deletePixPaymentsForTokens(tokens: string[]): Promise<void> {
   const url = process.env.DATABASE_URL_TEST
   if (!url) throw new Error('DATABASE_URL_TEST is not set')
@@ -300,7 +300,15 @@ export async function deletePixPaymentsForTokens(tokens: string[]): Promise<void
   try {
     const d = drizzle(client)
     const rows = await d.select({ id: guests.id }).from(guests).where(inArray(guests.token, tokens))
-    if (rows.length > 0) await d.delete(pixPayments).where(inArray(pixPayments.guestId, rows.map((r) => r.id)))
+    if (rows.length > 0) {
+      const ids = rows.map((r) => r.id)
+      await d.delete(pixPayments).where(inArray(pixPayments.guestId, ids))
+      // the fake Asaas forgets its customers on reset: never reuse a stored one across tests
+      await d
+        .update(guests)
+        .set({ asaasCustomerId: null, asaasCustomerCpfHash: null })
+        .where(inArray(guests.id, ids))
+    }
   } finally {
     await client.end()
   }

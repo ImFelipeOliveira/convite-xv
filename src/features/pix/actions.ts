@@ -6,11 +6,13 @@ import { findGuestByToken } from '@/features/guests/repo'
 import { logger } from '@/lib/logger'
 import { getClientIp, rateLimit } from '@/lib/rate-limit'
 import type { PixStatus } from '@/server/db/schema'
+import { requirePayerCpf } from './config'
+import { normalizePayerName } from './input'
 import { generatePix, getPixStatus, type PixError, type PixView } from './service'
 
 // Public Pix actions for the invite: keyed by the guest token (never guest ids from the client), rate
-// limited (generation per IP, the status poll per token), answering only the token's own charges. The payer CPF goes straight to the service
-// (and from there to Asaas only): never logged, never stored.
+// limited (generation per IP, the status poll per token), answering only the token's own charges. The payer CPF
+// and the payer's name go straight to the service (and from there to Asaas only): never logged, never stored.
 
 export type PixActionError = PixError | 'not_found' | 'invalid'
 
@@ -60,7 +62,21 @@ export async function generatePixAction(
       logger.warn({ event: 'pix.generate_rejected', guestId: guest.id, reason: 'invalid' }, 'pix action rejected')
       return { ok: false, error: 'invalid' }
     }
-    const result = await generatePix(guest, Number(amount), {}, { cpf: field(formData, 'cpf') || null })
+    // payer-CPF mode: the payer's full name names the Asaas customer (the CPF holder, maybe not the guest)
+    const payerName = field(formData, 'payerName')
+    if (requirePayerCpf() && !normalizePayerName(payerName)) {
+      logger.warn(
+        { event: 'pix.generate_rejected', guestId: guest.id, reason: 'invalid_payer_name' },
+        'pix action rejected',
+      )
+      return { ok: false, error: 'invalid_payer_name' }
+    }
+    const result = await generatePix(
+      guest,
+      Number(amount),
+      {},
+      { cpf: field(formData, 'cpf') || null, name: payerName || null },
+    )
     if (!result.ok) {
       logger.info({ event: 'pix.generate_rejected', guestId: guest.id, reason: result.error }, 'pix action rejected')
       return result

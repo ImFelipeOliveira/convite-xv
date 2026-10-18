@@ -11,6 +11,7 @@
 //                                              delivered right away, before the guest's next 5 s poll.
 //                                              Answers {status, body} of the app.
 //   GET /__calls                              – the Asaas calls so far ("METHOD /path")
+//   GET /__customers                          – the names of the customers created so far
 //   POST /__reset                             – clears calls, charges and modes
 import './load-env'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
@@ -125,6 +126,7 @@ function json(res: ServerResponse, status: number, body: unknown) {
 
 export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: () => Promise<void> }> {
   let calls: string[] = []
+  let customerNames: string[] = []
   let charges: Charge[] = []
   let customerN = 0
   let paymentN = 0
@@ -178,8 +180,10 @@ export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: (
       return json(res, 200, { status: delivery.status, body: await delivery.json().catch(() => null) })
     }
     if (path === '/__calls' && method === 'GET') return json(res, 200, calls)
+    if (path === '/__customers' && method === 'GET') return json(res, 200, customerNames)
     if (path === '/__reset' && method === 'POST') {
       calls = []
+      customerNames = []
       charges = []
       failPayments = false
       latencyMs = 0
@@ -199,6 +203,7 @@ export async function startFakeAsaas(port = FAKE_ASAAS_PORT): Promise<{ close: (
       if (typeof body?.cpfCnpj !== 'string' || !/^\d{11}$/.test(body.cpfCnpj)) {
         return json(res, 400, { errors: [{ code: 'invalid_cpfCnpj', description: 'CPF obrigatório' }] })
       }
+      customerNames.push(String(body.name))
       return json(res, 200, { id: `cus_fake_${++customerN}`, name: body.name })
     }
 
@@ -298,5 +303,11 @@ export async function sendFakeAsaasWebhook(
 
 export async function fakeAsaasCalls(): Promise<string[]> {
   const res = await fetch(`${FAKE_ASAAS_URL}/__calls`)
+  return (await res.json()) as string[]
+}
+
+/** The `name` of every customer created at the fake since the last reset. */
+export async function fakeAsaasCustomerNames(): Promise<string[]> {
+  const res = await fetch(`${FAKE_ASAAS_URL}/__customers`)
   return (await res.json()) as string[]
 }

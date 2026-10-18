@@ -10,7 +10,14 @@ import {
 } from '@/features/pix/actions'
 import { isValidCpf } from '@/features/pix/cpf'
 import { formatCents, parseReais } from '@/features/pix/format'
-import { looksLikeThousands, maskCpf, normalizeReaisInput, qrImageSrc } from '@/features/pix/input'
+import {
+  looksLikeThousands,
+  maskCpf,
+  normalizePayerName,
+  normalizeReaisInput,
+  PAYER_NAME_MAX,
+  qrImageSrc,
+} from '@/features/pix/input'
 import { PIX_RECEIVER_NAME_DEFAULT, PIX_THANKS_MESSAGE_DEFAULT } from '@/features/pix/defaults'
 import { PIX_MAX_CENTS, PIX_MIN_CENTS } from '@/features/pix/limits'
 import type { PixView } from '@/features/pix/service'
@@ -21,7 +28,9 @@ import './pix.css'
 // Pix gift (prancha 09, Chapter VI). The charge is created by the server (Asaas); the QR and the
 // copy-paste code only appear after it answered, and "Pix recebido." only once the server reports the
 // payment as paid (status polled every 5 s for up to 30 min while the QR is open). The payer CPF lives
-// only in this form's state, goes only to the action, and is cleared after a successful generation.
+// only in this form's state, goes only to the action, and is cleared after a successful generation. With the
+// CPF comes the payer's full name (prefilled with the guest's, editable): the CPF holder may be someone else
+// in the family, and Asaas names the customer after them.
 
 const VALUES = [7000, 10000, 15000, 20000, 30000]
 const DEFAULT_PICK = 10000
@@ -34,9 +43,10 @@ const MIN_MESSAGE = 'O valor mínimo para presentear via Pix é de R$ 70,00.'
 const MAX_MESSAGE = 'O valor máximo é R$ 10.000,00.'
 const THOUSANDS_HINT = 'Digite sem ponto (ex.: 1000,00).'
 const CPF_MESSAGE = 'CPF inválido. Confira os números.'
+const PAYER_NAME_MESSAGE = 'Informe o nome completo (nome e sobrenome) de quem paga.'
 const EXPIRED_MESSAGE = 'Este Pix expirou. Gere um novo.'
 
-const GENERATE_ERRORS: Record<Exclude<PixActionError, 'below_minimum' | 'above_maximum' | 'invalid_cpf' | 'cpf_required'>, string> = {
+const GENERATE_ERRORS: Record<Exclude<PixActionError, 'below_minimum' | 'above_maximum' | 'invalid_cpf' | 'cpf_required' | 'invalid_payer_name'>, string> = {
   busy: 'Muitas solicitações agora. Tente em alguns segundos.',
   too_many_pending: 'Você já tem Pix aguardando pagamento. Use um deles ou aguarde alguns minutos.',
   too_many_payers: 'Este convite já usou o limite de CPFs por hoje. Use um CPF já informado ou tente amanhã.',
@@ -82,6 +92,7 @@ export function Pix({
   id,
   token,
   guestFirstName,
+  guestName,
   requireCpf,
   thanksMessage,
   receiverName,
@@ -90,6 +101,8 @@ export function Pix({
   id: string
   token: string
   guestFirstName: string
+  /** the guest's full name: the payer-name field starts with it */
+  guestName: string
   requireCpf: boolean
   thanksMessage: string | null
   /** the Asaas account holder, shown under the QR ("{name} · Asaas") to match what the bank shows */
@@ -106,6 +119,8 @@ export function Pix({
   const [touched, setTouched] = useState(false)
   const [cpf, setCpf] = useState('')
   const [cpfError, setCpfError] = useState(false)
+  const [payerName, setPayerName] = useState(() => guestName.trim())
+  const [payerNameError, setPayerNameError] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
@@ -118,6 +133,7 @@ export function Pix({
   const paidTitleRef = useRef<HTMLHeadingElement>(null)
   const amountRef = useRef<HTMLInputElement>(null)
   const cpfRef = useRef<HTMLInputElement>(null)
+  const payerNameRef = useRef<HTMLInputElement>(null)
   const codeRef = useRef<HTMLInputElement>(null)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -246,16 +262,24 @@ export function Pix({
       requestAnimationFrame(() => amountRef.current?.focus())
       return
     }
-    if (requireCpf && !isValidCpf(cpf)) {
-      setCpfError(true)
-      cpfRef.current?.focus()
-      return
+    if (requireCpf) {
+      // flag every invalid field at once; focus goes to the first one
+      const nameOk = normalizePayerName(payerName) !== null
+      const cpfOk = isValidCpf(cpf)
+      setPayerNameError(!nameOk)
+      setCpfError(!cpfOk)
+      if (!nameOk) payerNameRef.current?.focus()
+      else if (!cpfOk) cpfRef.current?.focus()
+      if (!nameOk || !cpfOk) return
     }
     setGenerating(true)
     const fd = new FormData()
     fd.set('token', token)
     fd.set('amount', String(cents))
-    if (requireCpf) fd.set('cpf', cpf)
+    if (requireCpf) {
+      fd.set('payerName', payerName)
+      fd.set('cpf', cpf)
+    }
     const result = await generate(fd)
     setGenerating(false)
     if (result.ok) {
@@ -274,6 +298,9 @@ export function Pix({
     } else if (result.error === 'invalid_cpf' || result.error === 'cpf_required') {
       setCpfError(true)
       cpfRef.current?.focus()
+    } else if (result.error === 'invalid_payer_name') {
+      setPayerNameError(true)
+      payerNameRef.current?.focus()
     } else {
       setError(GENERATE_ERRORS[result.error])
     }
@@ -311,6 +338,8 @@ export function Pix({
   const amountHelpId = `${id}-amount-help`
   const cpfId = `${id}-cpf`
   const cpfHelpId = `${id}-cpf-help`
+  const payerNameId = `${id}-payer-name`
+  const payerNameHelpId = `${id}-payer-name-help`
   const codeId = `${id}-code`
   const shownCents = step === 'choose' ? cents : (payment?.amountCents ?? null)
   const amountText = shownCents !== null ? formatCents(shownCents) : 'R$ —'
@@ -431,6 +460,47 @@ export function Pix({
                   ) : (
                     <span id={amountHelpId} className="font-sans text-[12px] text-deep-rose">
                       A partir de R$ 70,00.
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {requireCpf && (
+                <div className="mt-[18px] flex flex-col gap-2">
+                  <label htmlFor={payerNameId} className="font-sans text-[13px] font-medium tracking-[.02em] text-wine">
+                    Nome completo de quem paga
+                  </label>
+                  <input
+                    ref={payerNameRef}
+                    id={payerNameId}
+                    type="text"
+                    autoComplete="name"
+                    autoCapitalize="words"
+                    spellCheck={false}
+                    maxLength={PAYER_NAME_MAX}
+                    value={payerName}
+                    onChange={(e) => {
+                      setPayerName(e.target.value)
+                      setPayerNameError(false)
+                    }}
+                    aria-invalid={payerNameError}
+                    aria-describedby={payerNameHelpId}
+                    className={`box-border h-14 w-full rounded-[2px] border bg-paper px-4 font-sans text-[18px] text-wine placeholder:text-muted ${FOCUS} ${
+                      payerNameError ? 'border-error' : 'border-[rgba(184,149,90,.8)]'
+                    }`}
+                  />
+                  {payerNameError ? (
+                    <span
+                      id={payerNameHelpId}
+                      role="alert"
+                      className="pix-shake flex items-start gap-[6px] font-sans text-[13px] leading-[1.4] text-error"
+                    >
+                      <AlertIcon />
+                      {PAYER_NAME_MESSAGE}
+                    </span>
+                  ) : (
+                    <span id={payerNameHelpId} className="font-sans text-[12px] leading-[1.45] text-deep-rose">
+                      O titular do CPF abaixo.
                     </span>
                   )}
                 </div>

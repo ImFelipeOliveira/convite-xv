@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseReais } from '../format'
-import { looksLikeThousands, maskCpf, maskReais, normalizeReaisInput, qrImageSrc } from '../input'
+import { looksLikeThousands, maskCpf, maskReais, normalizePayerName, normalizeReaisInput, qrImageSrc } from '../input'
 
 describe('maskReais', () => {
   it('treats a typed "." as the decimal separator', () => {
@@ -77,5 +77,35 @@ describe('qrImageSrc', () => {
     expect(qrImageSrc('data:image/svg+xml;base64,PHN2Zz4=')).toBeNull()
     expect(qrImageSrc('javascript:alert(1)')).toBeNull()
     expect(qrImageSrc('data:image/png;base64,abc"onerror')).toBeNull()
+  })
+})
+
+describe('normalizePayerName', () => {
+  it('trims and collapses inner spaces of a full name', () => {
+    expect(normalizePayerName('  Maria   da Silva ')).toBe('Maria da Silva')
+    expect(normalizePayerName('Ana Souza')).toBe('Ana Souza')
+    expect(normalizePayerName('Jo Li')).toBe('Jo Li')
+  })
+
+  it('needs at least two words', () => {
+    expect(normalizePayerName('Maria')).toBeNull()
+    expect(normalizePayerName('   Maria   ')).toBeNull()
+    expect(normalizePayerName('')).toBeNull()
+  })
+
+  it('takes 3 to 100 characters after trimming', () => {
+    expect(normalizePayerName('A B')).toBe('A B')
+    expect(normalizePayerName(' A ')).toBeNull()
+    const long = `Maria ${'a'.repeat(94)}`
+    expect(long).toHaveLength(100)
+    expect(normalizePayerName(long)).toBe(long)
+    expect(normalizePayerName(`${long}a`)).toBeNull()
+  })
+
+  it('rejects control characters', () => {
+    expect(normalizePayerName('Maria\nSilva')).toBeNull()
+    expect(normalizePayerName('Maria\tSilva')).toBeNull()
+    expect(normalizePayerName('Maria Silva\u0000')).toBeNull()
+    expect(normalizePayerName('Maria \u007fSilva')).toBeNull()
   })
 })
