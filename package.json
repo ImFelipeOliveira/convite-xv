@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "tsx scripts/migrate.ts && next start",
     "lint": "eslint",
     "test": "vitest run",
     "test:e2e": "playwright test",
@@ -38,6 +38,7 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.1.2",
     "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "pino-pretty": "^13.2.0",
