@@ -1,0 +1,8 @@
+/* Ornaments (pranchas 04/05). Lily tepals bloom from the flower's centre. */
+.petal {
+  transform-origin: 120px 130px;
+}
+
+.lily-bloom .petal {
+  animation: bloom 1.4s var(--ease-letter) both;
+}

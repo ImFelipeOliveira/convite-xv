@@ -1,0 +1,151 @@
+/* Opening — wax seal and doors, ported from the Opening board (prancha 04). */
+
+.opening-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  perspective: 1200px;
+}
+.opening-gate.is-opening {
+  pointer-events: none;
+}
+/* returning visitor: the inline script flags <html> before first paint, so the doors never flash */
+html[data-xv-opened] .opening-gate {
+  display: none;
+}
+
+/* Doors: the left one leaves 60 ms before the right */
+.door {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  transition: transform 1.2s var(--ease-doors), opacity .4s ease 1s;
+}
+.door-left {
+  left: 0;
+  transform-origin: left center;
+}
+.door-right {
+  right: 0;
+  transform-origin: right center;
+  transition-delay: .06s, 1.06s;
+}
+.door-left.is-open {
+  transform: rotateY(-106deg);
+  opacity: 0;
+  pointer-events: none;
+}
+.door-right.is-open {
+  transform: rotateY(106deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Seal (`.ring` in the board; renamed: Tailwind owns `ring`): press, then cracks in a zigzag and the halves drift apart */
+.seal-wrap {
+  transition: transform .16s var(--ease-letter);
+}
+.seal-wrap.is-pressed {
+  transform: scale(.92);
+}
+.half {
+  position: absolute;
+  inset: 0;
+  transition: transform .8s var(--ease-letter), opacity .5s ease .3s;
+}
+.half-left {
+  clip-path: polygon(0 0, 52% 0, 46% 30%, 54% 55%, 47% 80%, 52% 100%, 0 100%);
+}
+.half-right {
+  clip-path: polygon(52% 0, 100% 0, 100% 100%, 52% 100%, 47% 80%, 54% 55%, 46% 30%);
+}
+.is-broken .half-left {
+  transform: translate(-34px, 26px) rotate(-18deg);
+  opacity: 0;
+}
+.is-broken .half-right {
+  transform: translate(34px, 26px) rotate(18deg);
+  opacity: 0;
+}
+.seal-ring {
+  animation: orbit 40s linear infinite;
+  transition: opacity .3s ease;
+}
+.is-broken .seal-ring {
+  opacity: 0;
+}
+@keyframes orbit {
+  to { transform: rotate(360deg); }
+}
+
+/* Stage: content behind the doors opts in with stage-item / stage-ink / stage-bloom */
+.stage .stage-item,
+.stage .stage-bloom .petal {
+  opacity: 0;
+}
+.stage .stage-ink {
+  -webkit-mask-image: linear-gradient(90deg, #000 40%, transparent 60%);
+  mask-image: linear-gradient(90deg, #000 40%, transparent 60%);
+  -webkit-mask-size: 250% 100%;
+  mask-size: 250% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: 100% 0;
+  mask-position: 100% 0;
+}
+
+/* full reveal after the doors */
+.stage-reveal .stage-item {
+  opacity: 1;
+  animation: reveal-up .8s var(--ease-letter) both;
+}
+.stage-reveal .stage-ink {
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  animation: ink 1.2s var(--ease-letter) both;
+}
+.stage-reveal .stage-bloom .petal {
+  opacity: 1;
+  animation: bloom 1.4s var(--ease-letter) both;
+}
+
+/* "Entrar sem animação" and reduced motion: plain 300 ms fade */
+.stage-quick .stage-item,
+.stage-quick .stage-bloom .petal {
+  opacity: 1;
+  animation: fade .3s ease both;
+}
+.stage-quick .stage-ink {
+  -webkit-mask-image: none;
+  mask-image: none;
+  animation: fade .3s ease both;
+}
+
+/* returning visitor: short 900 ms version, everything together */
+html[data-xv-opened] .stage .stage-item,
+html[data-xv-opened] .stage .stage-bloom .petal,
+.stage-short .stage-item,
+.stage-short .stage-bloom .petal {
+  opacity: 1;
+  animation: reveal-up .9s var(--ease-letter) both;
+  animation-delay: 0s !important;
+}
+html[data-xv-opened] .stage .stage-ink,
+.stage-short .stage-ink {
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  animation: ink .9s var(--ease-letter) both;
+  animation-delay: 0s !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seal-ring {
+    animation: none !important;
+  }
+  /* doors and seal don't move: the whole gate crossfades out in 300 ms */
+  .opening-gate.is-fading {
+    opacity: 0;
+    transition: opacity 300ms ease !important;
+  }
+}

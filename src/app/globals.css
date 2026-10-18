@@ -67,6 +67,24 @@ body {
   font-family: var(--font-jost), sans-serif;
 }
 
+/* Motion primitives shared by the boards (prancha 03) */
+@keyframes bloom {
+  from { transform: scale(.18) rotate(-16deg); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(var(--reveal-y)); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ink {
+  from { -webkit-mask-position: 100% 0; mask-position: 100% 0; }
+  to { -webkit-mask-position: 0 0; mask-position: 0 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
