@@ -6,6 +6,25 @@ function defaultLevel(): string {
   return process.env.LOG_LEVEL || (process.env.NODE_ENV === 'test' ? 'silent' : 'info')
 }
 
+/**
+ * Error serializer that never emits messages or query data: Drizzle errors embed SQL params
+ * (phones, messages, tokens) in message, stack header, `query`, `params` and `cause`.
+ * Keeps type/name, code, cause code/name and stack frames only.
+ */
+export function sanitizeErr(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { type: typeof err }
+  const e = err as Error & { code?: unknown; cause?: unknown }
+  const out: Record<string, unknown> = { type: e.constructor?.name ?? e.name, name: e.name }
+  if (e.code !== undefined) out.code = e.code
+  if (e.cause instanceof Error) {
+    const c = e.cause as Error & { code?: unknown }
+    out.cause = { name: c.name, ...(c.code !== undefined ? { code: c.code } : {}) }
+  }
+  const at = e.stack?.indexOf('\n    at ') ?? -1
+  if (e.stack && at >= 0) out.stack = e.stack.slice(at + 1)
+  return out
+}
+
 /** Builds a logger writing to `destination` (stdout when omitted). Exported so tests can capture output. */
 export function createLogger(destination?: DestinationStream, level: string = defaultLevel()): Logger {
   return pino(
@@ -13,6 +32,7 @@ export function createLogger(destination?: DestinationStream, level: string = de
       level,
       base: { service: 'convite-xv' },
       timestamp: pino.stdTimeFunctions.isoTime,
+      serializers: { err: sanitizeErr, error: sanitizeErr },
       redact: {
         paths: [
           ...REDACT_KEYS,

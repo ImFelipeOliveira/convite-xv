@@ -34,6 +34,39 @@ describe('logger', () => {
     expect(row.time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
   })
 
+  it('keeps pino msg next to a redacted message field', () => {
+    const { lines, stream } = capture()
+    createLogger(stream, 'info').info({ message: 'secret' }, 'kept msg')
+    const row = JSON.parse(lines[0])
+    expect(row.message).toBe('[redacted]')
+    expect(row.msg).toBe('kept msg')
+  })
+
+  it('does not leak query data through err', () => {
+    const token = 'AbCdEfGhIjKlMnOpQrStUv'
+    const err = Object.assign(
+      new Error('Failed query: insert ...\nparams: Ana,+5595991234567,minha mensagem,' + token),
+      {
+        query: 'insert into guests',
+        params: ['Ana', '+5595991234567', 'minha mensagem', token],
+        cause: Object.assign(new Error('duplicate key ... +5595991234567'), { code: '23505' }),
+      },
+    )
+    err.name = 'DrizzleQueryError'
+    const { lines, stream } = capture()
+    const log = createLogger(stream, 'info')
+    log.error({ err }, 'boom')
+    log.error({ error: err }, 'boom2')
+    for (const line of lines) {
+      for (const s of ['+5595991234567', 'minha mensagem', token, 'Failed query']) {
+        expect(line).not.toContain(s)
+      }
+      expect(line).toContain('23505')
+      expect(line).toContain('DrizzleQueryError')
+    }
+    expect(lines).toHaveLength(2)
+  })
+
   it('takes the level from LOG_LEVEL', () => {
     vi.stubEnv('LOG_LEVEL', 'warn')
     const { lines, stream } = capture()
