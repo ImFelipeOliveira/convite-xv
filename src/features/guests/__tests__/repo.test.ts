@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { makeGuest } from '../../../../tests/helpers/db'
 import {
   createGuest,
+  createGuests,
   deleteGuest,
   findGuestById,
   findGuestByToken,
@@ -49,6 +50,24 @@ describe('guests repo', () => {
     expect(await findGuestById(g.id)).toBeNull()
     expect(await updateGuest(g.id, { name: 'X' })).toBeUndefined()
     expect(await listGuests()).toHaveLength(0)
+  })
+
+  it('createGuests inserts all rows or none', async () => {
+    expect(
+      await createGuests([
+        { name: 'Ana', phone: null, plusOnesLimit: 0 },
+        { name: 'Bia', phone: '+5595991234567', plusOnesLimit: 2 },
+      ]),
+    ).toBe(2)
+    expect((await listGuests()).map((g) => g.name)).toEqual(['Ana', 'Bia'])
+    await expect(
+      createGuests([
+        { name: 'Caio', phone: null, plusOnesLimit: 1 },
+        { name: 'Duda', phone: null, plusOnesLimit: 9 },
+      ]),
+    ).rejects.toThrow()
+    expect(await listGuests()).toHaveLength(2)
+    expect(await createGuests([])).toBe(0)
   })
 
   it('lists by name with status and search filters', async () => {

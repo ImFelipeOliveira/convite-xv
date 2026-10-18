@@ -7,7 +7,7 @@ import { requireAdmin } from '@/features/admin-auth/guard'
 import { logger } from '@/lib/logger'
 import { parseGuestsCsv } from './csv'
 import type { CsvLineError } from './import-report'
-import { createGuest, deleteGuest, updateGuest } from './repo'
+import { createGuest, createGuests, deleteGuest, updateGuest } from './repo'
 import { guestFormSchema } from './schema'
 
 const GUESTS_PATH = '/admin/guests'
@@ -108,16 +108,15 @@ export async function importGuestsAction(
     }
   }
 
-  let imported = 0
+  let imported: number
   try {
-    for (const row of valid) {
-      await createGuest(row)
-      imported++
-    }
+    imported = await createGuests(valid)
   } catch (err) {
-    logger.error({ event: 'admin.guests_import_failed', imported, adminId, err }, 'guest import failed')
-    revalidatePath(GUESTS_PATH)
-    return { imported, errors, error: 'Erro ao importar: parte dos convidados não foi salva.' }
+    logger.error(
+      { event: 'admin.guests_import_failed', rows: valid.length, adminId, err },
+      'guest import failed',
+    )
+    return { imported: 0, errors, error: 'Nenhum convidado foi importado. Tente novamente.' }
   }
   logger.info(
     { event: 'admin.guests_imported', imported, errors: errors.length, adminId },

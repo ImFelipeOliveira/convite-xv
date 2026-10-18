@@ -1,3 +1,4 @@
+import Papa from 'papaparse'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Guest } from '@/server/db/schema'
 import { buildGuestsCsv, parseGuestsCsv } from '../csv'
@@ -37,6 +38,37 @@ describe('parseGuestsCsv', () => {
     expect(parseGuestsCsv('nome;limite_acompanhantes\nAna;9\nBia;6\n')).toEqual({
       valid: [{ name: 'Bia', phone: null, plusOnesLimit: 6 }],
       errors: [{ line: 2, reason: 'Limite deve ser de 0 a 6' }],
+    })
+  })
+
+  it('keeps commas in names when "nome" is the only column', () => {
+    expect(parseGuestsCsv('nome\nSilva, João\n"Ana"\n')).toEqual({
+      valid: [
+        { name: 'Silva, João', phone: null, plusOnesLimit: 0 },
+        { name: 'Ana', phone: null, plusOnesLimit: 0 },
+      ],
+      errors: [],
+    })
+  })
+
+  it('reports a malformed line and keeps reading the next lines', () => {
+    expect(parseGuestsCsv('nome;telefone\nAna;\n"Bia;\nCaio;\n"Duda"x;\nEva;\n')).toEqual({
+      valid: [
+        { name: 'Ana', phone: null, plusOnesLimit: 0 },
+        { name: 'Caio', phone: null, plusOnesLimit: 0 },
+        { name: 'Eva', phone: null, plusOnesLimit: 0 },
+      ],
+      errors: [
+        { line: 3, reason: 'Linha mal formatada' },
+        { line: 5, reason: 'Linha mal formatada' },
+      ],
+    })
+  })
+
+  it('reports a malformed header line', () => {
+    expect(parseGuestsCsv('"nome;telefone\nAna;\n')).toEqual({
+      valid: [],
+      errors: [{ line: 1, reason: 'Linha mal formatada' }],
     })
   })
 
@@ -103,7 +135,20 @@ describe('buildGuestsCsv', () => {
 
   it('neutralizes spreadsheet formulas', () => {
     vi.stubEnv('APP_URL', 'https://convite.example.com')
-    const csv = buildGuestsCsv([{ ...guest, name: '=HYPERLINK("x")', message: null }])
-    expect(csv).not.toMatch(/\n=HYPERLINK/)
+    const rowsOf = (csv: string) => csv.slice(1).split('\r\n').slice(1)
+    const [quoted] = rowsOf(buildGuestsCsv([{ ...guest, name: '=HYPERLINK("x")', message: null }]))
+    expect(quoted.startsWith(`"'=HYPERLINK(""x"")";`)).toBe(true)
+
+    const [a, b] = rowsOf(
+      buildGuestsCsv([
+        { ...guest, name: '=1+1', message: '-2+3' },
+        { ...guest, name: 'Ana', message: '@SUM(A1)' },
+      ]),
+    )
+    // compare decoded cells (papaparse also quotes the escaped cells)
+    const cells = (row: string) => Papa.parse<string[]>(row, { delimiter: ';' }).data[0]
+    expect(cells(a)[0]).toBe("'=1+1")
+    expect(cells(a)[5]).toBe("'-2+3")
+    expect(cells(b)[5]).toBe("'@SUM(A1)")
   })
 })

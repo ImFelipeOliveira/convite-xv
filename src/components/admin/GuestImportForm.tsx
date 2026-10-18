@@ -41,7 +41,7 @@ export function GuestImportForm() {
       </div>
       <p role="status" className="text-sm">
         {state?.error && <span className="text-error">{state.error}</span>}
-        {state && (!state.error || state.imported > 0 || state.errors.length > 0) && (
+        {state && !state.error && (
           <span className="block">{formatImportSummary(state)}</span>
         )}
       </p>

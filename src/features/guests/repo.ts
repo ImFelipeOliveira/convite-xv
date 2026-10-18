@@ -54,6 +54,20 @@ export async function createGuest(d: {
   }
 }
 
+/** Inserts all guests or none (one transaction): used by the CSV import. */
+export async function createGuests(
+  rows: Array<{ name: string; phone: string | null; plusOnesLimit: number }>,
+): Promise<number> {
+  if (rows.length === 0) return 0
+  return db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(guests)
+      .values(rows.map((r) => ({ ...r, token: generateToken() })))
+      .returning({ id: guests.id })
+    return inserted.length
+  })
+}
+
 export async function updateGuest(
   id: string,
   d: Partial<{ name: string; phone: string | null; plusOnesLimit: number }>,
