@@ -46,3 +46,32 @@ export async function resetE2eSettings(): Promise<void> {
     await client.end()
   }
 }
+
+/**
+ * Inserts `count` guests named `${prefix} 01`…; the first `confirmed` of them answered "yes".
+ * Returns the names so the spec can delete them afterwards.
+ */
+export async function seedGuests(prefix: string, count: number, confirmed = 0): Promise<string[]> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const names = Array.from({ length: count }, (_, i) => `${prefix} ${String(i + 1).padStart(2, '0')}`)
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    await drizzle(client)
+      .insert(guests)
+      .values(
+        names.map((name, i) => ({
+          name,
+          // 22-char base62 tokens, unique per seeded guest
+          token: `Seed${prefix.replace(/[^0-9A-Za-z]/g, '').slice(0, 8)}${String(i).padStart(4, '0')}`
+            .padEnd(22, '0')
+            .slice(0, 22),
+          plusOnesLimit: 1,
+          ...(i < confirmed ? { rsvpStatus: 'yes' as const, respondedAt: new Date() } : {}),
+        })),
+      )
+  } finally {
+    await client.end()
+  }
+  return names
+}

@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { requireAdmin } from '@/features/admin-auth/guard'
 import { logger } from '@/lib/logger'
@@ -40,7 +39,7 @@ function text(formData: FormData, name: string): string {
 
 const idSchema = z.uuid()
 
-/** Creates a guest, or updates one when the form carries an `id` (then redirects to the list). */
+/** Creates a guest, or updates one when the form carries an `id`. */
 export async function saveGuestAction(
   _prev: GuestFormState,
   formData: FormData,
@@ -74,7 +73,7 @@ export async function saveGuestAction(
   if (!guest) return { ok: false, error: 'Convidado não encontrado.', values }
   logger.info({ event: 'admin.guest_updated', guestId: guest.id, adminId }, 'guest updated')
   revalidatePath(GUESTS_PATH)
-  redirect(GUESTS_PATH)
+  return { ok: true, message: 'Convidado atualizado.' }
 }
 
 export async function deleteGuestAction(id: string): Promise<{ ok: boolean }> {

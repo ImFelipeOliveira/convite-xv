@@ -14,10 +14,12 @@
     "seed:admin": "tsx scripts/seed-admin.ts"
   },
   "dependencies": {
+    "@tanstack/react-table": "^9.3.1",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.4",
     "jose": "^6.2.12",
     "libphonenumber-js": "^1.13.15",
+    "lucide-react": "^1.58.0",
     "motion": "^14.3.0",
     "nanoid": "^6.0.2",
     "next": "16.4.2",

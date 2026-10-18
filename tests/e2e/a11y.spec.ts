@@ -61,13 +61,28 @@ test.describe('admin', () => {
 
   test('guest list has no serious accessibility violations', async ({ page }) => {
     await page.goto('/admin/login')
+    expect(await seriousViolations(page), '/admin/login').toEqual([])
     await page.getByLabel('E-mail').fill(E2E_ADMIN_EMAIL)
-    await page.getByLabel('Senha').fill(E2E_ADMIN_PASSWORD)
+    await page.getByLabel('Senha', { exact: true }).fill(E2E_ADMIN_PASSWORD)
     await page.getByRole('button', { name: 'Entrar' }).click()
     await expect(page).toHaveURL(/\/admin$/)
     await page.goto('/admin/guests') // full load: no hidden previous page in the DOM
     await expect(page.getByRole('heading', { name: 'Convidados' })).toBeVisible()
     expect(await seriousViolations(page)).toEqual([])
+
+    // the guest sheet open over the list
+    await page.getByRole('button', { name: 'Adicionar convidado' }).first().click()
+    await expect(page.getByRole('form', { name: 'Novo convidado' })).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+
+    for (const [path, heading] of [
+      ['/admin', 'Resumo'],
+      ['/admin/settings', 'Configurações'],
+    ]) {
+      await page.goto(path)
+      await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible()
+      expect(await seriousViolations(page), path).toEqual([])
+    }
   })
 })
 

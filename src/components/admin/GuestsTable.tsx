@@ -1,0 +1,328 @@
+'use client'
+
+import { Download, FileUp, Link2, MessageCircle, Pencil, Trash2, UserPlus, Users } from 'lucide-react'
+import { useMemo, useState, useTransition } from 'react'
+import { deleteGuestAction } from '@/features/guests/actions'
+import { createDataTableColumnHelper, DataTable, type DataTableFilter } from './data-table/DataTable'
+import { compareText, formatBoaVistaDateTime } from './data-table/helpers'
+import { buttonClass, focusRing } from './styles'
+import { GuestForm } from './GuestForm'
+import { GuestImportForm } from './GuestImportForm'
+import { RsvpBadge, type RsvpStatusValue } from './ui/Badge'
+import { Button } from './ui/Button'
+import { PageHeader } from './ui/PageHeader'
+import { ConfirmDialog } from './ui/ConfirmDialog'
+import { Sheet } from './ui/Modal'
+import { useToast } from './ui/Toast'
+
+/** Only what the table shows or its actions need (already authorized on the server). */
+export type GuestRow = {
+  id: string
+  name: string
+  /** formatted for display, '' when missing */
+  phone: string
+  plusOnesLimit: number
+  rsvpStatus: RsvpStatusValue
+  /** confirmed people (1 + plus-ones) when "yes", 0 when "no", null when pending */
+  people: number | null
+  openedAt: string | null
+  inviteUrl: string
+  whatsappUrl: string
+}
+
+type SheetState = { kind: 'new' } | { kind: 'edit'; guest: GuestRow } | { kind: 'import' } | null
+
+const helper = createDataTableColumnHelper<GuestRow>()
+
+const FILTERS: DataTableFilter[] = [
+  {
+    columnId: 'rsvpStatus',
+    label: 'Resposta',
+    options: [
+      { value: 'pending', label: 'Pendente' },
+      { value: 'yes', label: 'Sim' },
+      { value: 'no', label: 'Não' },
+    ],
+  },
+]
+
+const iconButton = `grid size-11 shrink-0 place-items-center rounded-full text-wine transition-[background-color,color,transform] duration-(--dur-micro) ease-(--ease-letter) hover:bg-blush hover:text-seal active:translate-y-px active:bg-petal/60 ${focusRing}`
+
+function RowActions({
+  guest,
+  onEdit,
+  onDelete,
+}: {
+  guest: GuestRow
+  onEdit: (g: GuestRow) => void
+  onDelete: (g: GuestRow) => void
+}) {
+  const toast = useToast()
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(guest.inviteUrl)
+      toast.success('Link copiado')
+    } catch {
+      toast.error('Não foi possível copiar o link. Tente de novo.')
+    }
+  }
+  const labelled = 'max-sm:w-auto max-sm:gap-2 max-sm:px-3 max-sm:text-sm'
+  return (
+    <div className="flex flex-wrap items-center gap-1 sm:max-md:grid sm:max-md:grid-cols-2 sm:flex-nowrap sm:justify-end">
+      <button
+        type="button"
+        onClick={copyLink}
+        aria-label={`Copiar link de ${guest.name}`}
+        title="Copiar link"
+        className={`${iconButton} ${labelled}`}
+      >
+        <Link2 aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
+        <span aria-hidden="true" className="sm:hidden">
+          Copiar link
+        </span>
+      </button>
+      <a
+        href={guest.whatsappUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Enviar pelo WhatsApp para ${guest.name}`}
+        title="Enviar pelo WhatsApp"
+        className={`${iconButton} ${labelled}`}
+      >
+        <MessageCircle aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
+        <span aria-hidden="true" className="sm:hidden">
+          WhatsApp
+        </span>
+      </a>
+      <button
+        type="button"
+        onClick={() => onEdit(guest)}
+        aria-label={`Editar ${guest.name}`}
+        title="Editar"
+        className={`${iconButton} ${labelled}`}
+      >
+        <Pencil aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
+        <span aria-hidden="true" className="sm:hidden">
+          Editar
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onDelete(guest)}
+        aria-label={`Excluir ${guest.name}`}
+        title="Excluir"
+        className={`${iconButton} ${labelled} hover:!text-error max-sm:ml-auto`}
+      >
+        <Trash2 aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
+        <span aria-hidden="true" className="sm:hidden">
+          Excluir
+        </span>
+      </button>
+    </div>
+  )
+}
+
+export function GuestsTable({ guests, description }: { guests: GuestRow[]; description: string }) {
+  const [sheet, setSheet] = useState<SheetState>(null)
+  const [deleting, setDeleting] = useState<GuestRow | null>(null)
+  const [pending, startTransition] = useTransition()
+  const toast = useToast()
+
+  const columns = useMemo(
+    () =>
+      helper.columns([
+        helper.accessor('name', {
+          header: 'Nome',
+          enableSorting: true,
+          sortFn: (a, b) => compareText(a.original.name, b.original.name),
+          meta: { searchable: true, card: 'primary' },
+          cell: (info) => <span className="font-medium text-wine max-sm:text-[17px]">{info.getValue()}</span>,
+        }),
+        helper.accessor('phone', {
+          header: 'Telefone',
+          meta: { searchable: true, className: 'whitespace-nowrap tabular-nums' },
+          cell: (info) => info.getValue() || <span className="text-muted">—</span>,
+        }),
+        helper.accessor('plusOnesLimit', {
+          header: 'Limite',
+          enableSorting: true,
+          meta: { hideOnTablet: true, className: 'tabular-nums' },
+        }),
+        helper.accessor('rsvpStatus', {
+          header: 'Resposta',
+          meta: {},
+          cell: (info) => <RsvpBadge status={info.getValue()} />,
+        }),
+        helper.accessor('people', {
+          header: 'Pessoas',
+          meta: { hideOnSmallTablet: true, className: 'tabular-nums' },
+          cell: (info) => info.getValue() ?? <span className="text-muted">—</span>,
+        }),
+        helper.accessor('openedAt', {
+          header: 'Abriu o convite',
+          meta: { hideOnTablet: true, label: 'Abriu', className: 'whitespace-nowrap' },
+          cell: (info) =>
+            info.getValue() ? (
+              formatBoaVistaDateTime(info.getValue())
+            ) : (
+              <span className="text-muted">Ainda não</span>
+            ),
+        }),
+        helper.display({
+          id: 'actions',
+          header: () => <span className="sr-only">Ações</span>,
+          meta: { card: 'full', align: 'end', className: 'sm:w-px' },
+          cell: ({ row }) => (
+            <RowActions
+              guest={row.original}
+              onEdit={(g) => setSheet({ kind: 'edit', guest: g })}
+              onDelete={(g) => setDeleting(g)}
+            />
+          ),
+        }),
+      ]),
+    [],
+  )
+
+  function confirmDelete() {
+    if (!deleting) return
+    const target = deleting
+    startTransition(async () => {
+      const result = await deleteGuestAction(target.id)
+      if (result.ok) {
+        toast.success('Convidado excluído.')
+        setDeleting(null)
+      } else {
+        toast.error('Não foi possível excluir o convidado. Tente de novo.')
+      }
+    })
+  }
+
+  const closeSheet = () => setSheet(null)
+
+  const emptyState = (
+    <div className="flex flex-col items-center gap-5 border border-dashed border-hairline-strong bg-paper px-6 py-16 text-center">
+      <span aria-hidden="true" className="grid size-14 place-items-center rounded-full bg-blush text-seal">
+        <Users className="size-6" strokeWidth={1.5} />
+      </span>
+      <div className="flex flex-col gap-1.5">
+        <p className="text-lg font-medium">Nenhum convidado ainda</p>
+        <p className="max-w-[44ch] text-[15px] text-muted">
+          Adicione os convidados um a um ou importe a planilha da família. Cada um recebe um link pessoal.
+        </p>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button
+          icon={<UserPlus aria-hidden="true" className="size-[18px]" />}
+          onClick={() => setSheet({ kind: 'new' })}
+        >
+          Adicionar convidado
+        </Button>
+        <Button
+          variant="secondary"
+          icon={<FileUp aria-hidden="true" className="size-[18px]" />}
+          onClick={() => setSheet({ kind: 'import' })}
+        >
+          Importar planilha
+        </Button>
+      </div>
+    </div>
+  )
+
+  return (
+    <>
+      <PageHeader
+        title="Convidados"
+        description={description}
+        actions={
+          <>
+            <Button
+              icon={<UserPlus aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />}
+              onClick={() => setSheet({ kind: 'new' })}
+            >
+              Adicionar convidado
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<FileUp aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />}
+              onClick={() => setSheet({ kind: 'import' })}
+            >
+              Importar planilha
+            </Button>
+            <a href="/admin/guests/export" download className={buttonClass('ghost')}>
+              <Download aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
+              Exportar CSV
+            </a>
+          </>
+        }
+      />
+
+      <DataTable
+        data={guests}
+        columns={columns}
+        getRowId={(g) => g.id}
+        initialSorting={[{ id: 'name', desc: false }]}
+        searchLabel="Buscar convidado"
+        searchPlaceholder="Buscar por nome ou telefone"
+        filters={FILTERS}
+        emptyState={emptyState}
+        emptyMessage="Nenhum convidado encontrado com essa busca."
+      />
+
+      {sheet?.kind === 'new' && (
+        <Sheet
+          id="guest-sheet"
+          title="Novo convidado"
+          description="O link pessoal é criado ao salvar."
+          onClose={closeSheet}
+        >
+          <GuestForm onSaved={closeSheet} onCancel={closeSheet} />
+        </Sheet>
+      )}
+      {sheet?.kind === 'edit' && (
+        <Sheet id="guest-sheet" title="Editar convidado" description={sheet.guest.name} onClose={closeSheet}>
+          <GuestForm
+            guest={{
+              id: sheet.guest.id,
+              name: sheet.guest.name,
+              phone: sheet.guest.phone,
+              plusOnesLimit: sheet.guest.plusOnesLimit,
+            }}
+            onSaved={closeSheet}
+            onCancel={closeSheet}
+          />
+        </Sheet>
+      )}
+      {sheet?.kind === 'import' && (
+        <Sheet
+          id="import-sheet"
+          title="Importar planilha"
+          description="Adicione vários convidados de uma vez."
+          onClose={closeSheet}
+        >
+          <GuestImportForm
+            onImported={(r) => {
+              if (r.errors.length === 0) closeSheet()
+            }}
+          />
+        </Sheet>
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title="Excluir convidado?"
+          confirmLabel="Excluir"
+          pendingLabel="Excluindo…"
+          pending={pending}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleting(null)}
+        >
+          <p>
+            <strong className="font-medium text-wine">{deleting.name}</strong> sai da lista e o link pessoal
+            deixa de funcionar. Não dá para desfazer.
+          </p>
+        </ConfirmDialog>
+      )}
+    </>
+  )
+}

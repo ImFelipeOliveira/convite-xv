@@ -10,7 +10,7 @@ const OWN_GUESTS = ['Resumo Sim Um', 'Resumo Sim Dois', 'Resumo Aberto']
 async function signIn(page: Page) {
   await page.goto('/admin/login')
   await page.getByLabel('E-mail').fill(E2E_ADMIN_EMAIL)
-  await page.getByLabel('Senha').fill(E2E_ADMIN_PASSWORD)
+  await page.getByLabel('Senha', { exact: true }).fill(E2E_ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL(/\/admin$/)
 }
@@ -38,15 +38,17 @@ test.describe('admin summary, messages and settings', () => {
 
     // two confirmed (one with 2 plus-ones) + one pending guest who opened the invite
     await page.goto('/admin/guests')
-    const form = page.getByRole('form', { name: 'Novo convidado' })
     for (const [name, limit] of [
       ['Resumo Sim Um', '0'],
       ['Resumo Sim Dois', '2'],
       ['Resumo Aberto', '0'],
     ]) {
+      await page.getByRole('button', { name: 'Adicionar convidado' }).first().click()
+      const form = page.getByRole('form', { name: 'Novo convidado' })
       await form.getByLabel('Nome').fill(name)
       await form.getByLabel('Limite de acompanhantes').fill(limit)
-      await form.getByRole('button', { name: 'Adicionar convidado' }).click()
+      await form.getByRole('button', { name: 'Salvar' }).click()
+      await expect(form).toBeHidden()
       await expect(page.getByRole('row').filter({ hasText: name })).toBeVisible()
     }
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -89,8 +91,9 @@ test.describe('admin summary, messages and settings', () => {
 
     // summary
     await page.goto('/admin')
-    await expect(page.getByRole('heading', { name: 'Painel' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Resumo' })).toBeVisible()
     await expect(page.getByText('Pessoas confirmadas').locator('..')).toContainText('4')
+    await expect(page.getByRole('progressbar', { name: /Confirmados/ })).toBeVisible()
     const opened = page.getByRole('region', { name: 'Abriram e não responderam' })
     await expect(opened.getByText('Resumo Aberto')).toBeVisible()
     await expect(opened.getByText('Resumo Sim Um')).toHaveCount(0)
@@ -107,7 +110,7 @@ test.describe('admin summary, messages and settings', () => {
     const settingsForm = page.getByRole('form', { name: 'Configurações' })
     await settingsForm.getByLabel('Prazo para confirmar').fill('2026-12-10')
     await settingsForm.getByRole('button', { name: 'Salvar' }).click()
-    await expect(page.getByText('Configurações salvas.')).toBeVisible()
+    await expect(page.getByRole('status', { name: 'Notificações' })).toContainText('Configurações salvas.')
 
     await settingsForm.getByLabel('Mensagem do WhatsApp').fill('Sem o link')
     await settingsForm.getByRole('button', { name: 'Salvar' }).click()
