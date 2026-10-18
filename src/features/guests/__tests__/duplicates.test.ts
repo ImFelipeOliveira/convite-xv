@@ -77,6 +77,17 @@ describe('saveGuestAction duplicate phone', () => {
     expect(res).toEqual({ ok: true, message: 'Convidado atualizado.' })
   })
 
+  it('does not re-warn when editing other fields of a guest that already shares the phone', async () => {
+    await makeGuest({ name: 'Ana', phone: PHONE })
+    const bia = await makeGuest({ name: 'Bia', phone: PHONE })
+    const res = await saveGuestAction(
+      null,
+      form({ id: bia.id, name: 'Bia Souza', phone: '(95) 99123-4567', plusOnesLimit: '2' }),
+    )
+    expect(res).toEqual({ ok: true, message: 'Convidado atualizado.' })
+    expect((await listGuests()).find((g) => g.id === bia.id)?.name).toBe('Bia Souza')
+  })
+
   it('warns when an edit moves the phone onto another guest', async () => {
     await makeGuest({ name: 'Ana', phone: PHONE })
     const bia = await makeGuest({ name: 'Bia', phone: '+5595988887777' })

@@ -11,6 +11,7 @@ import {
   createGuest,
   createGuests,
   deleteGuest,
+  findGuestById,
   findGuestsByPhone,
   findGuestsByPhones,
   updateGuest,
@@ -75,9 +76,13 @@ export async function saveGuestAction(
   }
 
   // a shared phone is allowed (e.g. a couple), but only after the admin confirms it
+  // (editing other fields of a guest who already shares their stored number doesn't warn again)
   if (parsed.data.phone && text(formData, 'confirmDuplicatePhone') !== '1') {
-    const others = await findGuestsByPhone(parsed.data.phone, id || undefined)
-    if (others.length > 0) return { ok: false, duplicatePhone: { names: others.map((g) => g.name) }, values }
+    const current = id ? await findGuestById(id) : null
+    if (current?.phone !== parsed.data.phone) {
+      const others = await findGuestsByPhone(parsed.data.phone, id || undefined)
+      if (others.length > 0) return { ok: false, duplicatePhone: { names: others.map((g) => g.name) }, values }
+    }
   }
 
   if (!id) {

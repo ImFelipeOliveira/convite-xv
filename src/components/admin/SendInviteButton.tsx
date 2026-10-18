@@ -34,6 +34,12 @@ export function SendInviteButton({
   const retryRef = useRef<HTMLButtonElement>(null)
   const firstName = guest.name.trim().split(/\s+/)[0] ?? guest.name
 
+  const sharedWith = guest.duplicatePhoneWith ?? []
+  const needsSharedConfirm = !guest.lastInvite && sharedWith.length > 0
+  // the list may refresh under an open confirm (the other guest's number changed): drop it, so it
+  // never shows "também é de " with no names nor reopens by itself later (reset during render)
+  if (confirming && !guest.lastInvite && !needsSharedConfirm) setConfirming(false)
+
   useEffect(() => {
     if (confirming) confirmRef.current?.focus()
   }, [confirming])
@@ -66,9 +72,8 @@ export function SendInviteButton({
   const when = last ? formatBoaVistaDateTime(last.at) : ''
   // compact form for the table cell / card: "12/10 14:30"
   const short = when.replace(' às ', ' ')
-  const sharedWith = guest.duplicatePhoneWith ?? []
 
-  if (!last && confirming) {
+  if (confirming && needsSharedConfirm) {
     return (
       <div
         role="group"
@@ -107,7 +112,7 @@ export function SendInviteButton({
         icon={<Send aria-hidden="true" className="size-4" strokeWidth={1.75} />}
         pending={pending}
         pendingLabel="Enviando…"
-        onClick={sharedWith.length > 0 ? () => setConfirming(true) : send}
+        onClick={needsSharedConfirm ? () => setConfirming(true) : send}
         aria-label={`Enviar convite para ${guest.name}`}
       >
         Enviar convite
