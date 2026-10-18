@@ -6,7 +6,7 @@
 
 **Architecture:** Um app Next.js (App Router, TypeScript) é o monolito: Server Components leem o Postgres via Drizzle, Server Actions fazem as escritas (RSVP, painel), rotas de handler servem `.ics`, CSV e imagem OG. Lógica de domínio fica em `src/features/<área>/` como funções puras ou serviços testáveis com Vitest contra um Postgres de teste; a UI segue as pranchas do Claude Design.
 
-**Tech Stack:** Next.js (última estável via `create-next-app@latest`), React, TypeScript strict, pnpm, Tailwind CSS v4, Motion (`motion`), Drizzle ORM + `postgres` (postgres-js) + drizzle-kit, Zod, `nanoid`, `jose` (sessão), `bcryptjs`, `libphonenumber-js`, `papaparse`, Vitest, Playwright, Docker Compose (Postgres local).
+**Tech Stack:** pino (logging), Next.js (última estável via `create-next-app@latest`), React, TypeScript strict, pnpm, Tailwind CSS v4, Motion (`motion`), Drizzle ORM + `postgres` (postgres-js) + drizzle-kit, Zod, `nanoid`, `jose` (sessão), `bcryptjs`, `libphonenumber-js`, `papaparse`, Vitest, Playwright, Docker Compose (Postgres local).
 
 **Spec:** `docs/superpowers/specs/2026-10-17-convite-xv-design.md`
 **Design visual:** https://claude.ai/artifact/4JNcfs7qugLuMcH3m84ZMp (pranchas 01–07 e 10 são escopo desta fase). Para ler uma prancha: Artifact tool, `action: "read"`, `path: "project/<Nome>.dc.html"`.
@@ -365,6 +365,30 @@ const tokens = {
 - [ ] **Step 1: Write the failing test** — request a `/c/TesteE2E00000000000001` → HTML contém `<meta property="og:image"` com URL absoluta começando por `APP_URL`, `og:title` "Isabella · XV anos"; request à URL da imagem → status 200, `content-type: image/png`, tamanho < 300 000 bytes; HTML não contém o nome do convidado de teste em nenhuma tag `og:`.
 - [ ] **Step 2:** Rodar → FAIL. **Step 3:** Implementar. **Step 4:** Rodar → PASS.
 - [ ] **Step 5:** Commit `feat(invite): letter preview for WhatsApp`.
+
+---
+
+### Task 10b: Structured logging with pino (user request)
+
+**Files:**
+- Create: `src/lib/logger.ts`, `src/lib/__tests__/logger.test.ts`
+- Modify: `package.json` (deps `pino`; dev dep `pino-pretty`; `dev` script pipes through pino-pretty or uses its sync destination), `next.config.ts` (`serverExternalPackages: ['pino', 'pino-pretty']` if needed for Next 16 bundling — check node_modules/next/dist/docs), `.env.example` (`LOG_LEVEL=info`), `src/features/rsvp/actions.ts`, `src/proxy.ts`, `src/app/c/[token]/calendar.ics/route.ts`, `src/app/c/[token]/page.tsx`
+
+**Interfaces:**
+- Produces: `logger` (pino instance) and `childLogger(bindings: Record<string, unknown>)` from `@/lib/logger`.
+  - Level from `LOG_LEVEL` (default `info`; `silent` when `NODE_ENV=test` unless LOG_LEVEL is set).
+  - Production: plain JSON to stdout (no worker-thread transports — Railway collects stdout). Development: human-readable via pino-pretty (prefer piping the dev server output or `pino-pretty` as a sync stream; avoid `transport` worker threads inside Next).
+  - `base: { service: 'convite-xv' }`, ISO timestamps (`pino.stdTimeFunctions.isoTime`).
+  - `redact` with `censor: '[redacted]'` for paths: `phone`, `*.phone`, `token`, `*.token`, `password`, `*.password`, `passwordHash`, `*.passwordHash`, `cookie`, `*.cookie`, `headers.cookie`, `req.headers.cookie`, `authorization`, `*.authorization`, `message`, `*.message` (guest messages are private) — but keep pino's own log `msg`.
+- Log events (event name in `event` field, message in pt-free English):
+  - `rsvp.submitted` info `{ guestId, status, plusOnes, phoneAdded: boolean }` on ok; `rsvp.rejected` warn `{ error }` (+ guestId when known) on ok:false; unexpected exceptions → `rsvp.error` error `{ err }` and still return `{ ok:false, error:'invalid' }` (this also resolves the deferred Task 4 minor that DB errors weren't mapped).
+  - `rate_limit.exceeded` warn `{ route: 'invite'|'calendar'|'rsvp', ip }` in proxy, calendar route, rsvp action.
+  - `invite.opened` info `{ guestId, firstOpen: boolean }` when markOpened runs for a non-bot; `invite.preview_bot` debug `{ ua }` when skipped.
+  - Never log guest names, phones, tokens or messages.
+
+- [ ] **Step 1: Write the failing test** `logger.test.ts`: build a logger via an exported `createLogger(destination)` writing to an in-memory stream; log `{ phone: '+5595991234567', token: 'abc', guest: { phone: 'x', message: 'oi' }, guestId: 'g1' }` and assert the JSON line has `phone: '[redacted]'`, `token: '[redacted]'`, `guest.phone: '[redacted]'`, `guest.message: '[redacted]'`, `guestId: 'g1'`, `service: 'convite-xv'`, and an ISO `time`. Assert level comes from `LOG_LEVEL` (stub env `LOG_LEVEL=warn` → `info` lines not written).
+- [ ] **Step 2:** Run → FAIL. **Step 3:** Implement and wire the events. **Step 4:** `pnpm test`, `pnpm build`, and full `pnpm test:e2e` (not concurrently) pass; `pnpm dev` shows pretty logs (paste a sample line in the report); `NODE_ENV=production` sample shows JSON with redaction.
+- [ ] **Step 5:** Commit `feat: structured logging with pino` and push.
 
 ---
 
