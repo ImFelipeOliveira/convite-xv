@@ -25,4 +25,17 @@ describe('generateIcs', () => {
     expect(ics).not.toMatch(/(?<!\r)\n/)
     expect(ics.endsWith('\r\n')).toBe(true)
   })
+
+  it('escapes semicolons and newlines in TEXT values', () => {
+    const out = generateIcs({ name: 'Ana; Bia\nCris', link: 'https://example.com/c/x' })
+    expect(out).toContain('Ana\\; Bia\\nCris')
+  })
+
+  it('folds long lines to at most 75 octets with a leading space', () => {
+    const out = generateIcs({ name: 'Ana '.repeat(60), link: 'https://example.com/c/x' })
+    const lines = out.split('\r\n').slice(0, -1)
+    expect(lines.some((l) => l.startsWith(' '))).toBe(true)
+    for (const l of lines) expect(Buffer.byteLength(l)).toBeLessThanOrEqual(75)
+    expect(out.replace(/\r\n /g, '')).toContain('Ana Ana Ana')
+  })
 })
