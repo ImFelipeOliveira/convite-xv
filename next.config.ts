@@ -34,6 +34,8 @@ const PERMISSIONS_POLICY = [
   'browsing-topics=()',
 ].join(', ')
 
+const PAGE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
 const nextConfig: NextConfig = {
   /* config options here */
   output: 'standalone',
@@ -53,11 +55,16 @@ const nextConfig: NextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: PERMISSIONS_POLICY },
-          // no page may be framed (clickjacking on the invite's Pix code, the panel). Deliberately no
-          // script-src/default-src: Next streams inline scripts, so a full CSP would need nonces.
+          // no page may be framed (clickjacking on the invite's Pix code, the panel)
           { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'" },
         ],
+      },
+      {
+        // Deliberately no script-src/default-src: Next streams inline scripts, so a full CSP would need
+        // nonces. /media/* is left out: a config header would replace the route's own sandboxing CSP
+        // (which carries frame-ancestors 'none' as well, see src/app/media/[...key]/route.ts).
+        source: '/:path((?!media/).*)',
+        headers: [{ key: 'Content-Security-Policy', value: PAGE_CSP }],
       },
       {
         // the invite URL carries the guest token: never send it as a referrer, not even the origin's path

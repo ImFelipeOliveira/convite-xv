@@ -27,8 +27,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ key:
     'Content-Type': 'image/webp',
     'Cache-Control': 'public, max-age=31536000, immutable',
     'X-Content-Type-Options': 'nosniff',
-    // opened directly, the response can't run or load anything
-    'Content-Security-Policy': "default-src 'none'; sandbox",
+    // opened directly, the response can't run or load anything, nor be framed
+    'Content-Security-Policy': "default-src 'none'; sandbox; frame-ancestors 'none'",
   })
   if (object.contentLength !== undefined) headers.set('Content-Length', String(object.contentLength))
   const body = Buffer.isBuffer(object.body) ? new Uint8Array(object.body) : object.body

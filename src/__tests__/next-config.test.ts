@@ -29,12 +29,24 @@ describe('security headers (next.config)', () => {
       const h = await headersFor(path)
       expect(h['x-content-type-options']).toBe('nosniff')
       expect(h['x-frame-options']).toBe('DENY')
-      expect(h['content-security-policy']).toBe("frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
       expect(h['permissions-policy']).toMatch(/camera=\(\)/)
       expect(h['permissions-policy']).toMatch(/microphone=\(\)/)
       expect(h['permissions-policy']).toMatch(/geolocation=\(\)/)
     },
   )
+
+  it.each(['/', '/c/AnyToken0000000000000', '/admin', '/admin/guests', '/api/health', '/mediakit'])(
+    'sends frame-ancestors none (plus base-uri/form-action) on %s',
+    async (path) => {
+      expect((await headersFor(path))['content-security-policy']).toBe(
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      )
+    },
+  )
+
+  it('leaves /media/* to its route, whose own CSP sandboxes the image and forbids framing', async () => {
+    expect((await headersFor('/media/gifts/x.webp'))['content-security-policy']).toBeUndefined()
+  })
 
   it('never sends a script-src CSP (it would break Next inline scripts)', async () => {
     expect((await headersFor('/'))['content-security-policy']).not.toMatch(/script-src|default-src/)

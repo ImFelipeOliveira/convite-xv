@@ -48,7 +48,7 @@ describe('GET /media/[...key]', () => {
     expect(res.headers.get('content-type')).toBe('image/webp')
     expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
     expect(res.headers.get('x-content-type-options')).toBe('nosniff')
-    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox")
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox; frame-ancestors 'none'")
     expect(res.headers.get('content-length')).toBe('10')
     expect(await res.text()).toBe('webp-bytes')
   })
