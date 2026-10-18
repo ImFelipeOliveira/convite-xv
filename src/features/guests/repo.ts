@@ -52,7 +52,7 @@ export async function updateGuest(
 ): Promise<Guest> {
   const [row] = await db
     .update(guests)
-    .set({ ...d, updatedAt: new Date() })
+    .set({ ...d, updatedAt: sql`now()` })
     .where(eq(guests.id, id))
     .returning()
   return row
