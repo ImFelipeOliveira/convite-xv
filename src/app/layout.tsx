@@ -34,6 +34,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="pt-BR"
+      // Opening's inline script flags returning visitors (data-xv-opened) before hydration
+      suppressHydrationWarning
       className={`${bodoni.variable} ${jost.variable} ${pinyon.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>

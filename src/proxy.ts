@@ -10,6 +10,7 @@ const NO_SUCH_ROUTE = '/invite-not-found'
 export async function proxy(request: NextRequest) {
   const notFound = () => NextResponse.rewrite(new URL(NO_SUCH_ROUTE, request.url))
 
+  // a rate-limited client intentionally gets the same 404 as an unknown token (no enumeration signal)
   if (!rateLimit(`invite:${getClientIp(request.headers)}`, { max: 60, windowMs: 60_000 }).ok) {
     return notFound()
   }

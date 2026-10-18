@@ -101,10 +101,6 @@ export function Opening({
 
   return (
     <>
-      <div className={opened ? STAGE_CLASS[mode] : 'stage'} inert={!opened} aria-hidden={!opened || undefined}>
-        {children}
-      </div>
-
       {phase !== 'open' && (
         <>
           <script
@@ -194,7 +190,7 @@ export function Opening({
             </div>
 
             <div
-              className={`absolute top-[calc(50%-70px)] left-[calc(50%-90px)] h-[180px] w-[180px]${opened ? ' is-broken' : ''}`}
+              className={`absolute top-[calc(50%-70px)] left-[calc(50%-90px)] h-[180px] w-[180px]${doorsMove ? ' is-broken' : ''}`}
             >
               <svg viewBox="0 0 180 180" width="180" height="180" aria-hidden="true" className="seal-ring absolute top-0 left-0">
                 <defs>
@@ -243,6 +239,11 @@ export function Opening({
           </div>
         </>
       )}
+
+      {/* after the gate in the DOM, so on a first visit the content can't paint before the doors */}
+      <div className={opened ? STAGE_CLASS[mode] : 'stage'} inert={!opened} aria-hidden={!opened || undefined}>
+        {children}
+      </div>
     </>
   )
 }
