@@ -1,9 +1,9 @@
 'use client'
 
 import { ExternalLink } from 'lucide-react'
-import { useState } from 'react'
 import { formatApproxPrice } from '@/features/gifts/admin-view'
 import type { GiftView } from '@/features/gifts/view'
+import { useImageFailed } from '@/lib/use-image-failed'
 
 // One gift as a paper tag (prancha 08): free (paper, "Reservar"), mine (wine, ribbon + bow, "Desfazer")
 // or taken (muted, struck through, no action). `celebrate` plays the ribbon only right after the server
@@ -40,10 +40,10 @@ export function GiftTag({
   onReserve: (gift: GiftView) => void
   onUndo: (gift: GiftView) => void
 }) {
-  const [imageBroken, setImageBroken] = useState(false)
+  const { failed: imageFailed, imgRef, onError: onImageError } = useImageFailed(gift.imageUrl)
   const s = STYLE[gift.state]
   const mine = gift.state === 'mine'
-  const showImage = gift.imageUrl && !imageBroken
+  const showImage = gift.imageUrl && !imageFailed
   const showStore = gift.purchaseUrl && gift.state !== 'taken'
 
   return (
@@ -83,7 +83,8 @@ export function GiftTag({
             alt=""
             loading="lazy"
             referrerPolicy="no-referrer"
-            onError={() => setImageBroken(true)}
+            ref={imgRef}
+            onError={onImageError}
             className="h-full w-full object-cover"
           />
         </span>

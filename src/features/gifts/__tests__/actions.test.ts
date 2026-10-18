@@ -60,6 +60,17 @@ describe('reserveGiftAction', () => {
     expect(hook.calls).toEqual([])
   })
 
+  it('treats a gift the guest already reserved (another tab) as reserved, without re-running the hook', async () => {
+    const guest = await makeGuest()
+    const g = await createGift({ ...base, name: 'Perfume' })
+    await reserveGiftAction(null, form({ token: guest.token, giftId: g.id }))
+    hook.calls = []
+    const res = await reserveGiftAction(null, form({ token: guest.token, giftId: g.id }))
+    expect(res.ok).toBe(true)
+    expect(res.gifts?.find((x) => x.id === g.id)?.state).toBe('mine')
+    expect(hook.calls).toEqual([])
+  })
+
   it('answers not_found for an unknown token', async () => {
     const g = await createGift({ ...base, name: 'Perfume' })
     const res = await reserveGiftAction(null, form({ token: 'NaoExiste0000000000000', giftId: g.id }))

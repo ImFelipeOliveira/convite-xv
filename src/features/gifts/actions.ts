@@ -58,8 +58,11 @@ async function run(op: Op, formData: FormData): Promise<GiftActionResult> {
     if (op === 'reserve') {
       const outcome = await reserveGift(giftId, guest.id)
       if (outcome !== 'reserved') {
+        const list = await views(guest.id)
+        // already this guest's (reserved in another tab): nothing changed, but it is theirs
+        if (list.some((g) => g.id === giftId && g.state === 'mine')) return { ok: true, gifts: list }
         logger.info({ event: 'gift.reserve_rejected', guestId: guest.id, giftId, reason: outcome }, 'gift reserve rejected')
-        return { ok: false, error: outcome === 'taken' ? 'taken' : 'invalid', gifts: await views(guest.id) }
+        return { ok: false, error: outcome === 'taken' ? 'taken' : 'invalid', gifts: list }
       }
     } else if (!(await releaseGift(giftId, guest.id))) {
       // not this guest's reservation (or already free / deleted): nothing changes

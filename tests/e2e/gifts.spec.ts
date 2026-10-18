@@ -20,7 +20,7 @@ test.use({ viewport: { width: 390, height: 844 }, extraHTTPHeaders: { 'x-forward
 test.beforeEach(async () => {
   await seedGifts([
     { name: PERFUME, category: 'Beleza', purchaseUrl: STORE_URL },
-    { name: SKINCARE, category: 'Beleza' },
+    { name: SKINCARE, category: 'Beleza', imageUrl: 'https://127.0.0.1:9/quebrada.jpg' },
     { name: BAG, category: 'Moda' },
     { name: HEADPHONES, category: 'Tecnologia', priceCents: 25000 },
   ])
@@ -129,6 +129,12 @@ test('"Ver na loja" opens the purchase link in a new tab', async ({ page }) => {
   expect(shown).toBe('Ver na loja')
   // gifts without a link show none
   await expect(tag(page, SKINCARE).getByRole('link')).toHaveCount(0)
+})
+
+test('a photo that fails to load is dropped from the tag', async ({ page }) => {
+  await openGifts(page)
+  await expect(tag(page, SKINCARE)).toBeVisible()
+  await expect(tag(page, SKINCARE).locator('img')).toHaveCount(0)
 })
 
 test('shows the approximate price', async ({ page }) => {
