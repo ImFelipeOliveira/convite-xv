@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useTransition } from 'react'
 import { sendInviteAction } from '@/features/whatsapp/actions'
 import { inviteErrorMessage } from '@/features/whatsapp/invite-result'
 import { formatBoaVistaDateTime } from './data-table/helpers'
+import { useSkewGuard } from './skew-recovery'
 import { Badge } from './ui/Badge'
 import { Button } from './ui/Button'
 import { useToast } from './ui/Toast'
@@ -19,6 +20,7 @@ export function SendInviteButton({
 }) {
   const toast = useToast()
   const [pending, startTransition] = useTransition()
+  const guard = useSkewGuard()
   const [confirming, setConfirming] = useState(false)
   const resendRef = useRef<HTMLButtonElement>(null)
   const confirmRef = useRef<HTMLButtonElement>(null)
@@ -39,7 +41,8 @@ export function SendInviteButton({
     startTransition(async () => {
       const fd = new FormData()
       fd.set('guestId', guest.id)
-      const result = await sendInviteAction(null, fd)
+      const result = await guard(() => sendInviteAction(null, fd))
+      if (!result) return
       if (result.ok) toast.success(`Convite enviado para ${firstName}.`)
       else toast.error(inviteErrorMessage(result.error))
       setConfirming(false)

@@ -4,6 +4,7 @@ import { ArrowRight, History, RotateCw } from 'lucide-react'
 import Link from 'next/link'
 import { useMemo, useTransition } from 'react'
 import { retryDispatchAction } from '@/features/whatsapp/actions'
+import { useSkewGuard } from './skew-recovery'
 import {
   DISPATCH_KIND_LABEL,
   DISPATCH_STATUS_LABEL,
@@ -63,6 +64,7 @@ const helper = createDataTableColumnHelper<DispatchRow>()
 function RetryButton({ row }: { row: DispatchRow }) {
   const toast = useToast()
   const [pending, startTransition] = useTransition()
+  const guard = useSkewGuard()
   return (
     <Button
       variant="secondary"
@@ -74,7 +76,8 @@ function RetryButton({ row }: { row: DispatchRow }) {
       aria-label={`Tentar de novo — ${DISPATCH_KIND_LABEL[row.kind]} de ${row.guestName}`}
       onClick={() =>
         startTransition(async () => {
-          const result = await retryDispatchAction(row.id)
+          const result = await guard(() => retryDispatchAction(row.id))
+          if (!result) return
           if (result.ok) toast.success('Lembrete agendado de novo.')
           else toast.error('Este envio não pode ser repetido. Atualize a página.')
         })

@@ -40,6 +40,7 @@ Não rode `pnpm test` e `pnpm test:e2e` ao mesmo tempo: ambos usam o banco `conv
 | `DATABASE_URL_TEST` | só em testes | Banco usado por Vitest/Playwright. |
 | `APP_URL` | sim em produção | URL pública (ex.: `https://convite.example.com`). Usada em links, calendário e prévia do WhatsApp. Também é lida no **build** (veja Deploy). |
 | `AUTH_SECRET` | sim | Segredo da sessão do admin, mínimo 32 caracteres. |
+| `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | recomendada em produção | Chave fixa das Server Actions: base64 de 32 bytes (`openssl rand -base64 32`). Lida no **build**; sem ela o build funciona, mas cada deploy gera uma chave nova. Veja Deploy. |
 | `LOG_LEVEL` | não | Nível do pino (`info` por padrão). |
 | `FEATURES` | não | Flags de funcionalidades separadas por vírgula; vazio por padrão. |
 | `EVOLUTION_URL` | para WhatsApp | URL da Evolution API (produção: `http://evolution.railway.internal:8080`; local: `http://localhost:8080`). Sem ela, o painel mostra o WhatsApp como não configurado. |
@@ -120,6 +121,9 @@ Cada ambiente (`staging`, `production`) tem dois serviços: **Postgres** e **web
 - `DATABASE_URL`: referência ao Postgres do mesmo ambiente.
 - `AUTH_SECRET`, `APP_URL`, `LOG_LEVEL`, `FEATURES`: variáveis do serviço `web`.
 - **Build arg `APP_URL`**: o Next lê `APP_URL` durante o `next build` (metadados da prévia do convite), e o Railway repassa as variáveis do serviço como build args. Ela precisa estar definida no serviço e ser igual à usada em runtime; ao mudar o domínio, faça um novo deploy.
+- **`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`** (serviço `web`, chega ao build como build arg): gere uma vez com `openssl rand -base64 32` e **não troque** a cada deploy. Mantém estáveis as referências das Server Actions entre builds e réplicas. Se faltar, o build não falha (o Next gera uma chave por build).
+- **Version skew**: o `next.config.ts` usa `RAILWAY_DEPLOYMENT_ID` (ou `RAILWAY_GIT_COMMIT_SHA`) como `deploymentId`, então uma aba aberta de um deploy anterior recarrega sozinha na próxima navegação. Se uma ação do painel cair numa versão nova (“Failed to find Server Action”), o painel mostra “O painel foi atualizado. Recarregando…”, guarda o rascunho do formulário aberto no `sessionStorage` e o restaura depois de recarregar.
+- Sessão do admin: cookie `xv_admin` de 30 dias, renovado (novos 30 dias) quando tem mais de 24 h e o admin usa o painel.
 - Health check: `GET /api/health` → `200 {"ok":true}` (executa `SELECT 1`).
 - Start: a imagem roda `node scripts/migrate.js && node server.js`, ou seja, migra o banco a cada start.
 - Rate limit por IP lê `X-Real-IP` (definido pelo edge do Railway) e, na falta dele, a entrada mais à direita do `X-Forwarded-For`. Se colocar outro proxy/CDN na frente, ajuste `getClientIp`.

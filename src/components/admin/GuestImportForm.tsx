@@ -4,6 +4,7 @@ import { FileSpreadsheet } from 'lucide-react'
 import { useActionState, useEffect, useState } from 'react'
 import { importGuestsAction, type ImportGuestsState } from '@/features/guests/actions'
 import { formatImportSummary } from '@/features/guests/import-report'
+import { useSkewSafeFormAction } from './skew-recovery'
 import { fieldErrorClass, helperClass, labelClass, requiredMark } from './styles'
 import { Button } from './ui/Button'
 import { useToast } from './ui/Toast'
@@ -15,7 +16,9 @@ export function GuestImportForm({
 }: {
   onImported?: (state: NonNullable<ImportGuestsState>) => void
 }) {
-  const [state, action, pending] = useActionState<ImportGuestsState, FormData>(importGuestsAction, null)
+  // the chosen file can't be kept across a reload: on version skew it just reloads
+  const safeAction = useSkewSafeFormAction(importGuestsAction)
+  const [state, action, pending] = useActionState<ImportGuestsState, FormData>(safeAction, null)
   const [fileName, setFileName] = useState<string | null>(null)
   const toast = useToast()
 

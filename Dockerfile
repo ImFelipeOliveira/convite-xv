@@ -14,6 +14,15 @@ COPY . .
 # Railway passes service variables as build args, so setting APP_URL on the service is enough.
 ARG APP_URL
 ENV APP_URL=$APP_URL
+# version skew protection: next.config.ts uses the Railway deployment id (or commit SHA) as deploymentId
+ARG RAILWAY_DEPLOYMENT_ID
+ARG RAILWAY_GIT_COMMIT_SHA
+ENV RAILWAY_DEPLOYMENT_ID=$RAILWAY_DEPLOYMENT_ID
+ENV RAILWAY_GIT_COMMIT_SHA=$RAILWAY_GIT_COMMIT_SHA
+# stable Server Actions key (base64, 32 bytes), embedded by `next build`; optional (Next generates a
+# per-build key when unset), but keeping it fixed keeps action references valid across deploys
+ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=$NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 # the db client reads DATABASE_URL at import time during page-data collection; postgres.js connects
 # lazily, so a placeholder is enough (build stage only, never reaches the runtime image)
 ENV DATABASE_URL=postgres://build:build@localhost:5432/build

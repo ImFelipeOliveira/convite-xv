@@ -12,6 +12,7 @@ import { GiftForm } from './GiftForm'
 import { Badge } from './ui/Badge'
 import { Button } from './ui/Button'
 import { ConfirmDialog } from './ui/ConfirmDialog'
+import { useReopenDraftSheet, useSkewGuard } from './skew-recovery'
 import { Sheet } from './ui/Modal'
 import { PageHeader } from './ui/PageHeader'
 import { useToast } from './ui/Toast'
@@ -149,6 +150,13 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
   const [deletePending, startDelete] = useTransition()
   const [releasePending, startRelease] = useTransition()
   const toast = useToast()
+  const guard = useSkewGuard()
+  // reloaded after a deploy mid-edit: reopen the sheet that had the draft
+  useReopenDraftSheet('gift:', (rest) => {
+    if (rest === 'new') return setSheet({ kind: 'new' })
+    const gift = gifts.find((g) => g.id === rest)
+    if (gift) setSheet({ kind: 'edit', gift })
+  })
 
   const categories = useMemo(
     () => [...new Set(gifts.map((g) => g.category))].sort(compareText),
@@ -249,7 +257,8 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
     if (!deleting) return
     const target = deleting
     startDelete(async () => {
-      const result = await deleteGiftAction(target.id)
+      const result = await guard(() => deleteGiftAction(target.id))
+      if (!result) return
       if (result.ok) {
         toast.success(result.changed ? 'Presente excluído.' : 'Esse presente já tinha sido excluído.')
         // the row (and its trigger) is gone: continue from the search field
@@ -265,7 +274,8 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
     if (!releasing) return
     const target = releasing
     startRelease(async () => {
-      const result = await releaseGiftAction(target.id)
+      const result = await guard(() => releaseGiftAction(target.id))
+      if (!result) return
       if (result.ok) {
         toast.success(result.changed ? 'Reserva liberada.' : 'Essa reserva já estava liberada.')
         // the "Liberar reserva" button disappears with the reservation

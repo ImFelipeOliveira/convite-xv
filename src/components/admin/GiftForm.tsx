@@ -1,8 +1,9 @@
 'use client'
 
 import { ImageOff } from 'lucide-react'
-import { useActionState, useEffect, useId, useState } from 'react'
+import { useActionState, useEffect, useId, useRef, useState } from 'react'
 import { saveGiftAction, type GiftFormState } from '@/features/gifts/admin-actions'
+import { useDraftRestore, useSkewSafeFormAction } from './skew-recovery'
 import { inputClass } from './styles'
 import { Button } from './ui/Button'
 import { Field, fieldDescribedBy } from './ui/Field'
@@ -57,7 +58,11 @@ function PhotoPreview({ url }: { url: string }) {
 }
 
 export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
-  const [state, action, pending] = useActionState<GiftFormState, FormData>(saveGiftAction, null)
+  const draftKey = gift ? `gift:${gift.id}` : 'gift:new'
+  const safeAction = useSkewSafeFormAction(saveGiftAction, draftKey)
+  const [state, action, pending] = useActionState<GiftFormState, FormData>(safeAction, null)
+  const formRef = useRef<HTMLFormElement>(null)
+  useDraftRestore(formRef, draftKey)
   const toast = useToast()
   const uid = useId()
 
@@ -90,7 +95,7 @@ export function GiftForm({ gift, categories, onSaved, onCancel }: Props) {
   const listId = `${uid}-categories`
 
   return (
-    <form action={action} aria-label={gift ? 'Editar presente' : 'Novo presente'} className="flex flex-col gap-6">
+    <form ref={formRef} action={action} aria-label={gift ? 'Editar presente' : 'Novo presente'} className="flex flex-col gap-6">
       {gift && <input type="hidden" name="id" value={gift.id} />}
       <fieldset disabled={pending} className="flex min-w-0 flex-col gap-5">
         <Field id={`${prefix}-name`} label="Nome" required error={errors.name}>
