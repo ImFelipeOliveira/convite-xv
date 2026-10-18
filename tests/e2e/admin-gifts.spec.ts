@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
-import { countGifts, deleteGiftsByName, reserveGiftForE2eGuest, resetE2eGuestRsvp, setE2eGuestRsvp } from './db'
+import {
+  countGifts,
+  deleteGiftsByName,
+  releaseGiftsByName,
+  reserveGiftForE2eGuest,
+  resetE2eGuestRsvp,
+  seedGifts,
+  setE2eGuestRsvp,
+} from './db'
 import { ADMIN_STORAGE_STATE, E2E_GUEST_NAME } from './fixtures'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
@@ -8,7 +16,10 @@ test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.26' }, storageState
 
 const GIFT = 'Fone sem fio'
 const GIFT_EDITED = 'Fone sem fio Bluetooth'
-const OWN_GIFTS = [GIFT, GIFT_EDITED]
+const ORDERED = ['Ordem Zeta', 'Ordem Alfa', 'Ordem Beta', 'Ordem Gama']
+const STALE = 'Presente Desatualizado'
+const BROKEN_IMAGE = 'Presente Foto Quebrada'
+const OWN_GIFTS = [GIFT, GIFT_EDITED, ...ORDERED, STALE, BROKEN_IMAGE]
 const AMAZON = 'https://www.amazon.com.br/dp/B0EXEMPLO1'
 const IMAGE = 'https://m.media-amazon.com/images/I/exemplo.jpg'
 
@@ -71,7 +82,7 @@ test.describe('admin gifts', () => {
     const link = row.getByRole('link', { name: /Abrir/ })
     await expect(link).toHaveAttribute('href', AMAZON)
     await expect(link).toHaveAttribute('target', '_blank')
-    await expect(link).toHaveAttribute('rel', /noopener/)
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer nofollow')
     const thumb = row.locator('img')
     await expect(thumb).toHaveAttribute('referrerpolicy', 'no-referrer')
     await expect(thumb).toHaveAttribute('loading', 'lazy')
@@ -147,6 +158,68 @@ test.describe('admin gifts', () => {
     await del.getByRole('button', { name: 'Excluir' }).click()
     await expect(toast(page)).toContainText('Presente excluído.')
     await expect(edited).toHaveCount(0)
+  })
+
+  test('lists gifts by category, then order, then name (like the invite)', async ({ page }) => {
+    await seedGifts([
+      { name: 'Ordem Zeta', category: 'AAA Ordem 1', sortOrder: 0 },
+      { name: 'Ordem Gama', category: 'AAA Ordem 2', sortOrder: 0 },
+      { name: 'Ordem Beta', category: 'AAA Ordem 1', sortOrder: 2 },
+      { name: 'Ordem Alfa', category: 'AAA Ordem 1', sortOrder: 2 },
+    ])
+    await page.goto('/admin/gifts')
+    const names = page.getByRole('row').filter({ hasText: /Ordem (Zeta|Alfa|Beta|Gama)/ })
+    await expect(names).toHaveCount(4)
+    const order = await names.evaluateAll((rows) => rows.map((r) => r.textContent?.match(/Ordem (Zeta|Alfa|Beta|Gama)/)?.[0]))
+    expect(order).toEqual(['Ordem Zeta', 'Ordem Alfa', 'Ordem Beta', 'Ordem Gama'])
+    await deleteGiftsByName(ORDERED)
+  })
+
+  test('says so when the gift or reservation was already gone', async ({ page }) => {
+    await seedGifts([{ name: STALE, category: 'Diversos' }])
+    await reserveGiftForE2eGuest(STALE)
+    await page.goto('/admin/gifts')
+    const row = rowOf(page, STALE)
+
+    // released elsewhere while the dialog was open
+    await row.getByRole('button', { name: 'Liberar reserva' }).click()
+    const release = page.getByRole('dialog', { name: 'Liberar reserva?' })
+    await expect(release).toBeVisible()
+    await releaseGiftsByName([STALE])
+    await release.getByRole('button', { name: 'Liberar reserva' }).click()
+    await expect(toast(page)).toContainText('Essa reserva já estava liberada.')
+    await expect(release).toBeHidden()
+
+    // deleted elsewhere while the dialog was open
+    await row.getByRole('button', { name: 'Excluir' }).click()
+    const del = page.getByRole('dialog', { name: 'Excluir presente?' })
+    await expect(del).toBeVisible()
+    await deleteGiftsByName([STALE])
+    await del.getByRole('button', { name: 'Excluir' }).click()
+    await expect(toast(page)).toContainText('Esse presente já tinha sido excluído.')
+    await expect(del).toBeHidden()
+    await expect(row).toHaveCount(0)
+  })
+
+  test('a broken photo falls back to the placeholder icon', async ({ page }) => {
+    await seedGifts([{ name: BROKEN_IMAGE, category: 'Diversos', imageUrl: 'https://127.0.0.1:9/nao-existe.jpg' }])
+    await page.goto('/admin/gifts')
+    const row = rowOf(page, BROKEN_IMAGE)
+    await expect(row.getByTestId('thumbnail-placeholder')).toBeVisible()
+    await expect(row.locator('img')).toHaveCount(0)
+    await deleteGiftsByName([BROKEN_IMAGE])
+  })
+
+  test('the reserved filter says the reservation counts as confirmed', async ({ page }) => {
+    // the filters only exist with a non-empty catalog
+    await seedGifts([{ name: STALE, category: 'Diversos' }])
+    await page.goto('/admin/gifts')
+    await page.getByRole('button', { name: 'Filtros', exact: true }).click()
+    const sheet = page.getByRole('dialog', { name: 'Filtros' })
+    await expect(
+      sheet.getByRole('group', { name: 'Situação' }).getByRole('button', { name: 'Reservado (confirmado)' }),
+    ).toBeVisible()
+    await deleteGiftsByName([STALE])
   })
 
   test('desktop: nav entry and table columns', async ({ page }) => {

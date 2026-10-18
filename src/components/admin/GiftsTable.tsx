@@ -6,6 +6,7 @@ import { deleteGiftAction, releaseGiftAction } from '@/features/gifts/admin-acti
 import { formatApproxPrice, priceInputValue, type AdminGiftStatus } from '@/features/gifts/admin-view'
 import { createDataTableColumnHelper, DataTable, type DataTableFilter } from './data-table/DataTable'
 import { compareText } from './data-table/helpers'
+import { useImageFailed } from '@/lib/use-image-failed'
 import { focusRing } from './styles'
 import { GiftForm } from './GiftForm'
 import { Badge } from './ui/Badge'
@@ -38,7 +39,7 @@ const STATUS_FILTER: DataTableFilter = {
   label: 'Situação',
   options: [
     { value: 'free', label: 'Livre' },
-    { value: 'reserved', label: 'Reservado' },
+    { value: 'reserved', label: 'Reservado (confirmado)' },
     { value: 'declined', label: 'Reserva de quem recusou' },
   ],
 }
@@ -56,15 +57,24 @@ function StatusBadge({ gift }: { gift: GiftRow }) {
   return <Badge tone={gift.status === 'declined' ? 'rose' : 'gold'}>{reservedLabel(gift)}</Badge>
 }
 
-/** Fixed square box; the name sits next to it, so the image itself is decorative. */
+/** Fixed square box; the name sits next to it, so the image itself is decorative. A URL that fails to load shows the placeholder. */
 function Thumbnail({ url }: { url: string | null }) {
+  const { failed, imgRef, onError } = useImageFailed(url)
   return (
     <span className="grid aspect-square size-12 shrink-0 place-items-center overflow-hidden rounded-[2px] border border-hairline bg-blush/50 text-muted">
-      {url ? (
+      {url && !failed ? (
         // eslint-disable-next-line @next/next/no-img-element -- arbitrary store URLs, no next/image remote config
-        <img src={url} alt="" referrerPolicy="no-referrer" loading="lazy" className="size-full object-cover" />
+        <img
+          src={url}
+          alt=""
+          referrerPolicy="no-referrer"
+          loading="lazy"
+          ref={imgRef}
+          onError={onError}
+          className="size-full object-cover"
+        />
       ) : (
-        <ImageOff aria-hidden="true" className="size-[18px]" strokeWidth={1.5} />
+        <ImageOff data-testid="thumbnail-placeholder" aria-hidden="true" className="size-[18px]" strokeWidth={1.5} />
       )}
     </span>
   )
@@ -241,7 +251,7 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
     startDelete(async () => {
       const result = await deleteGiftAction(target.id)
       if (result.ok) {
-        toast.success('Presente excluído.')
+        toast.success(result.changed ? 'Presente excluído.' : 'Esse presente já tinha sido excluído.')
         // the row (and its trigger) is gone: continue from the search field
         returnFocus.current = searchRef.current
         setDeleting(null)
@@ -257,7 +267,7 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
     startRelease(async () => {
       const result = await releaseGiftAction(target.id)
       if (result.ok) {
-        toast.success('Reserva liberada.')
+        toast.success(result.changed ? 'Reserva liberada.' : 'Essa reserva já estava liberada.')
         // the "Liberar reserva" button disappears with the reservation
         returnFocus.current = searchRef.current
         setReleasing(null)
@@ -309,7 +319,7 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
         data={gifts}
         columns={columns}
         getRowId={(g) => g.id}
-        initialSorting={[{ id: 'name', desc: false }]}
+        // no initial sort: keep the server order (category, then order, then name), as the invite shows it
         searchInputRef={searchRef}
         regionLabel="Tabela de presentes"
         searchLabel="Buscar presente"

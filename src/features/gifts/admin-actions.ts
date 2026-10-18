@@ -59,20 +59,25 @@ export async function saveGiftAction(_prev: GiftFormState, formData: FormData): 
   return { ok: true, message: 'Presente salvo.' }
 }
 
-export async function deleteGiftAction(id: string): Promise<{ ok: boolean }> {
+/** `changed: false` = nothing to do (already gone / already free), so the UI can say so. */
+export type GiftChangeResult = { ok: true; changed: boolean } | { ok: false }
+
+export async function deleteGiftAction(id: string): Promise<GiftChangeResult> {
   const { adminId } = await requireAdmin()
   if (!idSchema.safeParse(id).success) return { ok: false }
   // idempotent: a gift already deleted elsewhere is gone either way
-  if (await deleteGift(id)) logger.info({ event: 'admin.gift_deleted', giftId: id, adminId }, 'gift deleted')
+  const changed = !!(await deleteGift(id))
+  if (changed) logger.info({ event: 'admin.gift_deleted', giftId: id, adminId }, 'gift deleted')
   revalidate()
-  return { ok: true }
+  return { ok: true, changed }
 }
 
-export async function releaseGiftAction(id: string): Promise<{ ok: boolean }> {
+export async function releaseGiftAction(id: string): Promise<GiftChangeResult> {
   const { adminId } = await requireAdmin()
   if (!idSchema.safeParse(id).success) return { ok: false }
   // idempotent: a reservation already released (another tab, or the guest) is free either way
-  if (await adminReleaseGift(id)) logger.info({ event: 'admin.gift_released', giftId: id, adminId }, 'gift released')
+  const changed = await adminReleaseGift(id)
+  if (changed) logger.info({ event: 'admin.gift_released', giftId: id, adminId }, 'gift released')
   revalidate()
-  return { ok: true }
+  return { ok: true, changed }
 }

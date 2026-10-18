@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { resetE2eGuestRsvp } from './db'
+import { deleteGiftsByName, reserveGiftForE2eGuest, resetE2eGuestRsvp, seedGifts } from './db'
 import { ADMIN_STORAGE_STATE, E2E_GUEST_TOKEN } from './fixtures'
 
 const invitePath = `/c/${E2E_GUEST_TOKEN}`
@@ -84,6 +84,33 @@ test.describe('admin', () => {
       await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible()
       expect(await seriousViolations(page), path).toEqual([])
     }
+  })
+})
+
+test.describe('admin gifts', () => {
+  test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.15' }, storageState: ADMIN_STORAGE_STATE })
+  const A11Y_GIFT = 'Presente Acessibilidade'
+  test.afterEach(() => deleteGiftsByName([A11Y_GIFT]))
+
+  test('gift rows, the gift sheet and the delete dialog have no serious accessibility violations', async ({ page }) => {
+    await seedGifts([
+      { name: A11Y_GIFT, category: 'Diversos', priceCents: 12000, purchaseUrl: 'https://loja.example.com/a11y' },
+    ])
+    await reserveGiftForE2eGuest(A11Y_GIFT)
+    await page.goto('/admin/gifts')
+    const row = page.getByRole('row').filter({ hasText: A11Y_GIFT })
+    await expect(row).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+
+    await page.getByRole('button', { name: 'Adicionar presente' }).first().click()
+    await expect(page.getByRole('form', { name: 'Novo presente' })).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('form', { name: 'Novo presente' })).toBeHidden()
+
+    await row.getByRole('button', { name: 'Excluir' }).click()
+    await expect(page.getByRole('dialog', { name: 'Excluir presente?' })).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
   })
 })
 

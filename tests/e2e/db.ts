@@ -252,3 +252,15 @@ export async function insertGuestWithToken(name: string, token: string): Promise
     await client.end()
   }
 }
+
+/** Frees the gifts named `names` behind the UI's back (stale-dialog tests). */
+export async function releaseGiftsByName(names: string[]): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    await drizzle(client).update(gifts).set({ guestId: null, reservedAt: null }).where(inArray(gifts.name, names))
+  } finally {
+    await client.end()
+  }
+}
