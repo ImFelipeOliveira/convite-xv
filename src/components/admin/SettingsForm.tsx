@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect, useState } from 'react'
+import { useActionState, useEffect, useRef, useState } from 'react'
 import { saveSettingsAction, type SettingsFormState } from '@/features/settings/actions'
 import { PIX_THANKS_MESSAGE_DEFAULT } from '@/features/pix/defaults'
 import { useSkewSafeForm } from './skew-recovery'
@@ -63,7 +63,37 @@ export function SettingsForm({ initial }: Props) {
   const values = failed?.values ?? initial
   const errors = failed?.fieldErrors ?? {}
   // live "{nome} · Asaas" preview while the admin types (the input itself stays uncontrolled)
+  const receiverRef = useRef<HTMLInputElement>(null)
   const [receiverPreview, setReceiverPreview] = useState(values.pixReceiverName)
+
+  // Keep the preview in step with the input when its value changes without a keystroke: React resets the
+  // form after every action (a failed save re-renders it with the submitted/server values), and a draft
+  // restored after a version-skew reload is written straight into the DOM. Reads the input after the reset.
+  useEffect(() => {
+    const form = formRef.current
+    if (!form) return
+    const sync = () => {
+      if (receiverRef.current) setReceiverPreview(receiverRef.current.value)
+    }
+    // the reset event fires before the values change; the second pass runs after a blocked-reload refill
+    // (useSkewSafeForm re-applies the draft in its own reset handler, also on a 0 ms timeout)
+    const syncAfterReset = () =>
+      setTimeout(() => {
+        sync()
+        setTimeout(sync, 0)
+      }, 0)
+    sync() // a draft restored on mount (useSkewSafeForm's effect runs first)
+    form.addEventListener('reset', syncAfterReset)
+    return () => form.removeEventListener('reset', syncAfterReset)
+  }, [formRef])
+
+  // a new action result (failed save → values from the server) also lands in the uncontrolled input
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (receiverRef.current) setReceiverPreview(receiverRef.current.value)
+    }, 0)
+    return () => clearTimeout(id)
+  }, [state])
   const a11y = (key: keyof Values) => ({
     id: `settings-${key}`,
     'aria-invalid': !!errors[key],
@@ -325,6 +355,7 @@ export function SettingsForm({ initial }: Props) {
               name="pixReceiverName"
               maxLength={80}
               required
+              ref={receiverRef}
               defaultValue={values.pixReceiverName}
               onChange={(e) => setReceiverPreview(e.target.value)}
               {...a11y('pixReceiverName')}

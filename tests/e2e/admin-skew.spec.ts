@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type APIRequest, type Page, type Route } from '@playwright/test'
+import { expect, test, type APIRequest, type Page } from '@playwright/test'
 import { SignJWT } from 'jose'
 import { deleteGiftsByName, deleteGuestsByName, insertGuest } from './db'
-import { ADMIN_STORAGE_STATE } from './fixtures'
+import { ADMIN_STORAGE_STATE, answerAsUnknownAction } from './fixtures'
 
 // version skew (a tab from the previous deploy) and sliding session renewal
 test.use({ extraHTTPHeaders: { 'x-forwarded-for': '203.0.113.41' }, storageState: ADMIN_STORAGE_STATE })
@@ -16,17 +16,6 @@ const GIFT_IMAGE = 'https://example.com/skew-presente.jpg'
 const MEDIA_SRC = /^\/media\/gifts\/[0-9a-f-]{36}\.webp$/
 const toast = (page: Page) => page.getByRole('status', { name: 'Notificações' })
 const rowOf = (page: Page, name: string) => page.getByRole('row').filter({ hasText: name })
-
-/** What Next answers for a Server Action id this deployment doesn't know (action-handler.js). */
-async function answerAsUnknownAction(route: Route) {
-  const req = route.request()
-  if (req.method() !== 'POST' || !req.headers()['next-action']) return route.fallback()
-  return route.fulfill({
-    status: 409,
-    headers: { 'x-nextjs-action-not-found': '1', 'content-type': 'text/plain' },
-    body: 'Server Action unavailable.',
-  })
-}
 
 test.describe('admin version skew', () => {
   test.afterAll(async () => {

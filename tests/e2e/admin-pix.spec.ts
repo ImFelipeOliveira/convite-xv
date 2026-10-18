@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { deletePixFixtures, resetE2eSettings, seedPixPayments, type SeedPix } from './db'
-import { ADMIN_STORAGE_STATE } from './fixtures'
+import { ADMIN_STORAGE_STATE, answerAsUnknownAction } from './fixtures'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
 // signed in through the saved admin session (auth.setup.ts); the gate test opts out of it
@@ -124,8 +124,27 @@ test.describe('admin pix', () => {
     // too long: refused inline
     await form.getByLabel('Mensagem de agradecimento do Pix').evaluate((el) => el.removeAttribute('maxlength'))
     await form.getByLabel('Mensagem de agradecimento do Pix').fill('a'.repeat(401))
+    await form.getByLabel('Nome de quem recebe').fill('Nome Recusado')
     await form.getByRole('button', { name: 'Salvar' }).click()
     await expect(form.getByText('Use até 400 caracteres.')).toBeVisible()
+    // the form re-renders with the submitted values after the failed save: the preview follows the input
+    await expect(form.getByLabel('Nome de quem recebe')).toHaveValue('Nome Recusado')
+    await expect(form.getByText('Aparece como “Nome Recusado · Asaas”', { exact: false })).toBeVisible()
+
+    // a skew reload restores the draft straight into the DOM: the preview follows it too (ruling P6b)
+    await page.goto('/admin/settings')
+    await expect(form.getByLabel('Nome de quem recebe')).toHaveValue('Maria E2E Souza')
+    await form.getByLabel('Nome de quem recebe').fill('Rascunho Recebedor')
+    await page.route('**/admin/settings', answerAsUnknownAction)
+    const reloaded = page.waitForEvent('load')
+    await form.getByRole('button', { name: 'Salvar' }).click()
+    await expect(page.getByRole('status', { name: 'Notificações' })).toContainText('O painel foi atualizado. Recarregando…')
+    await page.unroute('**/admin/settings', answerAsUnknownAction)
+    await reloaded
+    await expect(form.getByLabel('Nome de quem recebe')).toHaveValue('Rascunho Recebedor')
+    await expect(form.getByText('Aparece como “Rascunho Recebedor · Asaas”', { exact: false })).toBeVisible()
+    await page.goto('/admin/settings') // drop the restored, unsaved draft
+    await expect(form.getByText('Aparece como “Maria E2E Souza · Asaas”', { exact: false })).toBeVisible()
 
     invite = await openInvitePix(browser, PENDING.token)
     await expect(invite.section.getByText('Maria E2E Souza · Asaas')).toBeVisible()
