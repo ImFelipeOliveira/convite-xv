@@ -1,16 +1,16 @@
 // "Has this guest already given something?" — used to skip/cancel the gift WhatsApp messages.
+import { guestHasActivePaidPix } from '@/features/pix/repo'
 import { guestHasGift } from './repo'
 
 type GivenCheck = (guestId: string) => Promise<boolean>
 
 /**
- * Whether the guest has a Pix with status `paid` (or `notice_sent`).
- * TODO(pix-merge): OR paid pix — the Pix tables live in the parallel Pix branch; on merge, replace
- * this body with the query (status in ('paid', 'notice_sent')). Nothing else needs to change.
+ * Whether the guest has a Pix with status `paid` that was not refunded afterwards.
+ * A refund (status stays `paid`, `refundedAt` set) gives the money back, so it no longer counts as a
+ * gift: same rule as the admin "Pix recebidos" total. Another paid, unrefunded Pix still counts.
  */
 export async function guestHasPaidPix(guestId: string): Promise<boolean> {
-  void guestId
-  return false
+  return guestHasActivePaidPix(guestId)
 }
 
 /** Every way a guest can have given: a reserved gift, or a paid Pix. */

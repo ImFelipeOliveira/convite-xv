@@ -1,12 +1,17 @@
+import { findGuestById } from '@/features/guests/repo'
+import { syncGiftMessages } from '@/features/whatsapp/reminders'
 import { logger } from '@/lib/logger'
 
 /**
  * Runs once a guest's Pix turns `paid`: called by whichever path made the transition (the Asaas webhook
  * after its transaction commits, or the status poll fallback), never by both.
+ * The guest now counts as having given (see guestHasPaidPix), so syncing their gift messages cancels
+ * the pending `gift_list`/`gift_nudge` dispatches. Trigger `'gift'`: never (re)schedules `gift_list`.
  * Best effort: the caller catches and logs failures; a payment is never rolled back because of this.
  */
-export async function afterPixPaid(guestId: string): Promise<void> {
-  // TODO(gifts-merge): call syncGiftMessages(guest, now, 'gift') (src/features/whatsapp/reminders.ts,
-  // branch fase-3) to cancel the guest's gift nudge, loading the guest by id first.
+export async function afterPixPaid(guestId: string, now: Date = new Date()): Promise<void> {
+  const guest = await findGuestById(guestId)
+  if (!guest) return
+  await syncGiftMessages(guest, now, 'gift')
   logger.info({ event: 'pix.after_paid', guestId }, 'pix after paid')
 }

@@ -286,3 +286,13 @@ export async function markPaymentRefunded(id: string, now: Date, q: Executor = d
     .set({ refundedAt: now, updatedAt: now })
     .where(and(eq(pixPayments.id, id), eq(pixPayments.status, 'paid'), isNull(pixPayments.refundedAt)))
 }
+
+/** Whether the guest has a paid Pix that was not refunded (gift messages stop for them). */
+export async function guestHasActivePaidPix(guestId: string, q: Executor = db): Promise<boolean> {
+  const [row] = await q
+    .select({ id: pixPayments.id })
+    .from(pixPayments)
+    .where(and(eq(pixPayments.guestId, guestId), eq(pixPayments.status, 'paid'), isNull(pixPayments.refundedAt)))
+    .limit(1)
+  return !!row
+}
