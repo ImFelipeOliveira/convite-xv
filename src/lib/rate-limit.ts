@@ -30,8 +30,10 @@ export function rateLimit(
 }
 
 export function getClientIp(headers: Headers): string {
-  // Railway's edge sets x-real-ip to the client address; fall back to the
-  // right-most x-forwarded-for entry (the one appended by the trusted proxy)
+  // Railway's edge overwrites x-real-ip with the client address (verified in
+  // production 2026-10-18: spoofed x-real-ip / x-forwarded-for did not bypass
+  // the limiter). Fallback: right-most x-forwarded-for entry. Re-verify if a
+  // CDN or another proxy is ever placed in front of Railway.
   const realIp = headers.get('x-real-ip')?.trim()
   if (realIp) return realIp
   const parts = headers.get('x-forwarded-for')?.split(',') ?? []
