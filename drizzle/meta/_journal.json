@@ -43,6 +43,13 @@
       "when": 1792344892939,
       "tag": "0005_puzzling_meltdown",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792349375529,
+      "tag": "0006_pix_admin",
+      "breakpoints": true
     }
   ]
 }

@@ -181,11 +181,15 @@ describe('processAsaasWebhook', () => {
       duplicate: false,
       result: 'refund_after_paid',
     })
-    expect((await payment(row.id)).status).toBe('paid')
+    expect(await payment(row.id)).toMatchObject({ status: 'paid', refundedAt: LATER })
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({ event: 'pix.refund_after_paid', paymentId: row.id }),
       expect.any(String),
     )
+    // a partial refund afterwards keeps the first refund time
+    const muchLater = new Date(LATER.getTime() + 60_000)
+    await processAsaasWebhook(event('PAYMENT_PARTIALLY_REFUNDED', { id: row.asaasPaymentId! }), deps(muchLater))
+    expect((await payment(row.id)).refundedAt).toEqual(LATER)
   })
 
   it('a payment received after we expired it turns paid (the money arrived)', async () => {

@@ -227,7 +227,7 @@ test.describe('admin gifts', () => {
     await page.goto('/admin/gifts')
     const nav = page.getByRole('navigation', { name: 'Painel' })
     const links = nav.getByRole('link')
-    await expect(links).toHaveText(['Resumo', 'Convidados', 'Presentes', 'Recados', 'WhatsApp', 'Configurações'])
+    await expect(links).toHaveText(['Resumo', 'Convidados', 'Presentes', 'Pix', 'Recados', 'WhatsApp', 'Configurações'])
     await expect(nav.getByRole('link', { name: 'Presentes' })).toHaveAttribute('aria-current', 'page')
   })
 })

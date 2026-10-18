@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { PIX_RECEIVER_NAME_DEFAULT } from '../../features/pix/defaults'
 import {
   check,
   date,
@@ -92,7 +93,8 @@ export const settings = pgTable(
     // generic Asaas customer ("Convidados — 15 anos da Isabella") used for every Pix charge
     asaasCustomerId: text('asaas_customer_id'),
     pixThanksMessage: text('pix_thanks_message'),
-    pixReceiverName: text('pix_receiver_name'),
+    // shown under the invite's QR ("{name} · Asaas") so guests can match the name their bank shows
+    pixReceiverName: text('pix_receiver_name').default(PIX_RECEIVER_NAME_DEFAULT),
   },
   (t) => [check('settings_single_row', sql`${t.id} = 1`)],
 )
@@ -158,6 +160,8 @@ export const pixPayments = pgTable(
     copyPaste: text('copy_paste'),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     paidAt: timestamp('paid_at', { withTimezone: true }),
+    // a refund that arrived after the payment was paid (status stays `paid`; the admin sees "Estornado")
+    refundedAt: timestamp('refunded_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

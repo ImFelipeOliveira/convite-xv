@@ -84,6 +84,7 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
           guestFirstName={guest.name.trim().split(/\s+/)[0]}
           requireCpf={requirePayerCpf()}
           thanksMessage={settings.pixThanksMessage}
+          receiverName={settings.pixReceiverName}
           initialPayment={pix.current}
         />
       ) : (

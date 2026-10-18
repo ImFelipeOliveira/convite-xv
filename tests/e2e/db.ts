@@ -2,7 +2,16 @@
 import { and, eq, inArray, like, ne, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import { gifts, guests, messageDispatches, pixPayments, settings, type DispatchKind, type RsvpStatus } from '../../src/server/db/schema'
+import {
+  gifts,
+  guests,
+  messageDispatches,
+  pixPayments,
+  settings,
+  type DispatchKind,
+  type PixStatus,
+  type RsvpStatus,
+} from '../../src/server/db/schema'
 import { E2E_GUEST_TOKEN } from './fixtures'
 
 /**
@@ -292,6 +301,72 @@ export async function deletePixPaymentsForTokens(tokens: string[]): Promise<void
     const d = drizzle(client)
     const rows = await d.select({ id: guests.id }).from(guests).where(inArray(guests.token, tokens))
     if (rows.length > 0) await d.delete(pixPayments).where(inArray(pixPayments.guestId, rows.map((r) => r.id)))
+  } finally {
+    await client.end()
+  }
+}
+
+export type SeedPix = {
+  guestName: string
+  /** 22-char token of the guest created for this payment */
+  token: string
+  amountCents: number
+  status: PixStatus
+  refundedAt?: Date | null
+  expiresAt?: Date | null
+  paidAt?: Date | null
+  createdAt?: Date
+  /** a payable QR (base64 PNG + copy-paste code) */
+  withQr?: boolean
+}
+
+/**
+ * Replaces every Pix payment with `list` (one new guest per entry, named `guestName`, leftovers with the
+ * same names/tokens removed first). Undo with deletePixFixtures.
+ */
+export async function seedPixPayments(list: SeedPix[]): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const d = drizzle(client)
+    await d.delete(pixPayments)
+    await d
+      .delete(guests)
+      .where(and(inArray(guests.token, list.map((p) => p.token)), ne(guests.token, E2E_GUEST_TOKEN)))
+    for (const p of list) {
+      const [guest] = await d
+        .insert(guests)
+        .values({ name: p.guestName, token: p.token, plusOnesLimit: 0 })
+        .returning({ id: guests.id })
+      await d.insert(pixPayments).values({
+        guestId: guest.id,
+        amountCents: p.amountCents,
+        status: p.status,
+        asaasPaymentId: `pay_e2e_admin_${p.token}`,
+        refundedAt: p.refundedAt ?? null,
+        expiresAt: p.expiresAt ?? null,
+        paidAt: p.paidAt ?? (p.status === 'paid' ? new Date() : null),
+        createdAt: p.createdAt ?? new Date(),
+        qrImage: p.withQr ? 'iVBORw0KGgo=' : null,
+        copyPaste: p.withQr ? `00020126fake-${p.token}` : null,
+      })
+    }
+  } finally {
+    await client.end()
+  }
+}
+
+/** Removes the Pix payments and guests seedPixPayments created. */
+export async function deletePixFixtures(tokens: string[]): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) throw new Error('DATABASE_URL_TEST is not set')
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    const d = drizzle(client)
+    const rows = await d.select({ id: guests.id }).from(guests).where(inArray(guests.token, tokens))
+    if (rows.length > 0) await d.delete(pixPayments).where(inArray(pixPayments.guestId, rows.map((r) => r.id)))
+    await d.delete(guests).where(and(inArray(guests.token, tokens), ne(guests.token, E2E_GUEST_TOKEN)))
   } finally {
     await client.end()
   }

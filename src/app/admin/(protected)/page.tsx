@@ -6,6 +6,7 @@ import {
   Eye,
   Gift,
   MessageSquareHeart,
+  QrCode,
   Send,
   Settings,
   UserPlus,
@@ -18,6 +19,8 @@ import { PageHeader } from '@/components/admin/ui/PageHeader'
 import { StatCard } from '@/components/admin/ui/StatCard'
 import { requireAdmin } from '@/features/admin-auth/guard'
 import { countGifts } from '@/features/gifts/repo'
+import { formatCents } from '@/features/pix/format'
+import { countPaidPix } from '@/features/pix/repo'
 import { getSummary, listGuests } from '@/features/guests/repo'
 
 export const metadata: Metadata = { title: 'Resumo | Painel' }
@@ -32,7 +35,12 @@ const QUICK_LINKS = [
 
 export default async function AdminHomePage() {
   await requireAdmin()
-  const [summary, guests, giftCounts] = await Promise.all([getSummary(), listGuests(), countGifts()])
+  const [summary, guests, giftCounts, paidPix] = await Promise.all([
+    getSummary(),
+    listGuests(),
+    countGifts(),
+    countPaidPix(),
+  ])
   const openedPending = guests.filter((g) => g.openedAt && g.rsvpStatus === 'pending')
   const answered = summary.yes + summary.no
   const percent = summary.total ? Math.round((summary.yes / summary.total) * 100) : 0
@@ -118,27 +126,49 @@ export default async function AdminHomePage() {
         />
       </div>
 
-      <Link
-        href="/admin/gifts"
-        className={`group flex items-center gap-4 border border-hairline bg-paper p-5 shadow-paper transition-[background-color,border-color] duration-(--dur-micro) ease-(--ease-letter) hover:border-seal/60 hover:bg-blush/50 active:bg-blush sm:p-6 ${focusRing}`}
-      >
-        <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-blush text-seal">
-          <Gift className={icon} strokeWidth={1.75} />
-        </span>
-        <span className="flex flex-1 flex-col gap-0.5">
-          <span className="text-base font-medium tabular-nums">
-            Presentes reservados {giftCounts.reserved} de {giftCounts.total}
+      <div className="grid gap-3 sm:gap-4 lg:grid-cols-2">
+        <Link
+          href="/admin/gifts"
+          className={`group flex items-center gap-4 border border-hairline bg-paper p-5 shadow-paper transition-[background-color,border-color] duration-(--dur-micro) ease-(--ease-letter) hover:border-seal/60 hover:bg-blush/50 active:bg-blush sm:p-6 ${focusRing}`}
+        >
+          <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-blush text-seal">
+            <Gift className={icon} strokeWidth={1.75} />
           </span>
-          <span className="text-sm text-muted">
-            {giftCounts.total === 0 ? 'Monte a lista de presentes com links de compra.' : 'Ver a lista de presentes'}
+          <span className="flex flex-1 flex-col gap-0.5">
+            <span className="text-base font-medium tabular-nums">
+              Presentes reservados {giftCounts.reserved} de {giftCounts.total}
+            </span>
+            <span className="text-sm text-muted">
+              {giftCounts.total === 0 ? 'Monte a lista de presentes com links de compra.' : 'Ver a lista de presentes'}
+            </span>
           </span>
-        </span>
-        <ChevronRight
-          aria-hidden="true"
-          className="size-5 text-muted transition-transform duration-(--dur-micro) group-hover:translate-x-0.5"
-          strokeWidth={1.75}
-        />
-      </Link>
+          <ChevronRight
+            aria-hidden="true"
+            className="size-5 text-muted transition-transform duration-(--dur-micro) group-hover:translate-x-0.5"
+            strokeWidth={1.75}
+          />
+        </Link>
+
+        <Link
+          href="/admin/pix"
+          className={`group flex items-center gap-4 border border-hairline bg-paper p-5 shadow-paper transition-[background-color,border-color] duration-(--dur-micro) ease-(--ease-letter) hover:border-seal/60 hover:bg-blush/50 active:bg-blush sm:p-6 ${focusRing}`}
+        >
+          <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-blush text-seal">
+            <QrCode className={icon} strokeWidth={1.75} />
+          </span>
+          <span className="flex flex-1 flex-col gap-0.5">
+            <span className="text-base font-medium tabular-nums">
+              Pix recebidos: {paidPix.count} · {formatCents(paidPix.totalCents)}
+            </span>
+            <span className="text-sm text-muted">Ver os Pix do convite</span>
+          </span>
+          <ChevronRight
+            aria-hidden="true"
+            className="size-5 text-muted transition-transform duration-(--dur-micro) group-hover:translate-x-0.5"
+            strokeWidth={1.75}
+          />
+        </Link>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <section

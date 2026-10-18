@@ -13,6 +13,8 @@ const valid = {
   rsvpPreferredDate: '2026-11-21',
   rsvpNudgeText: 'Ainda não respondeu? {link}',
   rsvpFinalText: 'Último dia! {link}',
+  pixThanksMessage: 'Obrigada pelo presente!',
+  pixReceiverName: 'Felipe Oliveira Souza',
 }
 const parse = (over: Record<string, string>) =>
   settingsFormSchema(TODAY).safeParse({ ...valid, ...over })
@@ -111,6 +113,23 @@ describe('settings form schema', () => {
     expect(s.rsvpFinalText).toBe(
       'Oi, {nome}! O prazo para confirmar presença nos 15 anos da Isabella termina em {prazo}. Responda pelo seu convite: {link}',
     )
+  })
+
+  it('pix settings: thanks message up to 400 (blank → null), receiver name required up to 80', () => {
+    expect(messages(parse({ pixThanksMessage: 'a'.repeat(401) }))).toContain('Use até 400 caracteres.')
+    expect(parse({ pixThanksMessage: 'a'.repeat(400) }).success).toBe(true)
+    const blank = parse({ pixThanksMessage: '  ' })
+    expect(blank.success && blank.data.pixThanksMessage).toBeNull()
+    expect(messages(parse({ pixReceiverName: ' ' }))).toContain('Informe o nome de quem recebe.')
+    expect(messages(parse({ pixReceiverName: 'a'.repeat(81) }))).toContain('Use até 80 caracteres.')
+    const trimmed = parse({ pixReceiverName: '  Maria Souza ' })
+    expect(trimmed.success && trimmed.data.pixReceiverName).toBe('Maria Souza')
+  })
+
+  it('defaults the Pix receiver name (shown under the QR) and leaves the thanks message unset', async () => {
+    const s = await getSettings()
+    expect(s.pixReceiverName).toBe('Felipe Oliveira Souza')
+    expect(s.pixThanksMessage).toBeNull()
   })
 
   it('computes today in America/Boa_Vista', () => {

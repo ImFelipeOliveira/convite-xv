@@ -240,3 +240,49 @@ export async function markPaymentPaid(id: string, now: Date, q: Executor = db): 
     .returning()
   return row ?? null
 }
+
+export type AdminPixPayment = Pick<
+  PixPayment,
+  'id' | 'amountCents' | 'status' | 'expiresAt' | 'paidAt' | 'refundedAt' | 'createdAt'
+> & {
+  /** null once the guest was deleted (the payment stays, guest_id set null) */
+  guestName: string | null
+}
+
+/** Every payment for the admin overview, newest first (never the QR or the copy-paste code). */
+export async function listPixPaymentsAdmin(q: Executor = db): Promise<AdminPixPayment[]> {
+  return q
+    .select({
+      id: pixPayments.id,
+      amountCents: pixPayments.amountCents,
+      status: pixPayments.status,
+      expiresAt: pixPayments.expiresAt,
+      paidAt: pixPayments.paidAt,
+      refundedAt: pixPayments.refundedAt,
+      createdAt: pixPayments.createdAt,
+      guestName: guests.name,
+    })
+    .from(pixPayments)
+    .leftJoin(guests, eq(guests.id, pixPayments.guestId))
+    .orderBy(desc(pixPayments.createdAt), desc(pixPayments.id))
+}
+
+/** Paid (and not refunded) Pix: how many and the total, for the admin summary. */
+export async function countPaidPix(q: Executor = db): Promise<{ count: number; totalCents: number }> {
+  const [row] = await q
+    .select({
+      count: sql<number>`count(*)::int`,
+      totalCents: sql<number>`coalesce(sum(${pixPayments.amountCents}), 0)::int`,
+    })
+    .from(pixPayments)
+    .where(and(eq(pixPayments.status, 'paid'), isNull(pixPayments.refundedAt)))
+  return row
+}
+
+/** Records a refund that arrived after the payment was paid (first one only; the status stays `paid`). */
+export async function markPaymentRefunded(id: string, now: Date, q: Executor = db): Promise<void> {
+  await q
+    .update(pixPayments)
+    .set({ refundedAt: now, updatedAt: now })
+    .where(and(eq(pixPayments.id, id), eq(pixPayments.status, 'paid'), isNull(pixPayments.refundedAt)))
+}

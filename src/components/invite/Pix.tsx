@@ -11,6 +11,7 @@ import {
 import { isValidCpf } from '@/features/pix/cpf'
 import { formatCents, parseReais } from '@/features/pix/format'
 import { looksLikeThousands, maskCpf, normalizeReaisInput, qrImageSrc } from '@/features/pix/input'
+import { PIX_RECEIVER_NAME_DEFAULT, PIX_THANKS_MESSAGE_DEFAULT } from '@/features/pix/defaults'
 import { PIX_MAX_CENTS, PIX_MIN_CENTS } from '@/features/pix/limits'
 import type { PixView } from '@/features/pix/service'
 import { useGiftChoice } from './GiftChoice'
@@ -34,7 +35,6 @@ const MAX_MESSAGE = 'O valor máximo é R$ 10.000,00.'
 const THOUSANDS_HINT = 'Digite sem ponto (ex.: 1000,00).'
 const CPF_MESSAGE = 'CPF inválido. Confira os números.'
 const EXPIRED_MESSAGE = 'Este Pix expirou. Gere um novo.'
-const DEFAULT_THANKS = 'Seu carinho chegou. Obrigada por fazer parte desse dia!'
 
 const GENERATE_ERRORS: Record<Exclude<PixActionError, 'below_minimum' | 'above_maximum' | 'invalid_cpf' | 'cpf_required'>, string> = {
   busy: 'Muitas solicitações agora. Tente em alguns segundos.',
@@ -82,6 +82,7 @@ export function Pix({
   guestFirstName,
   requireCpf,
   thanksMessage,
+  receiverName,
   initialPayment,
 }: {
   id: string
@@ -89,6 +90,8 @@ export function Pix({
   guestFirstName: string
   requireCpf: boolean
   thanksMessage: string | null
+  /** the Asaas account holder, shown under the QR ("{name} · Asaas") to match what the bank shows */
+  receiverName: string | null
   /** the guest's still payable pending charge or newest paid one (server-side) */
   initialPayment: PixView | null
 }) {
@@ -529,6 +532,9 @@ export function Pix({
                   />
                 </div>
               )}
+              <p data-testid="pix-receiver" className="mt-[18px] mb-0 font-sans text-[12px] leading-[1.5] text-gold-text">
+                {receiverName?.trim() || PIX_RECEIVER_NAME_DEFAULT} · Asaas
+              </p>
 
               {payment.copyPaste && (
                 <div className="mt-6 flex w-full flex-col gap-2 text-left">
@@ -692,7 +698,7 @@ export function Pix({
                 className="pix-rise mt-4 mb-0 max-w-[300px] text-[17px] leading-[1.55] whitespace-pre-line text-deep-rose italic"
                 style={{ animationDelay: '1.25s' }}
               >
-                {thanksMessage?.trim() || DEFAULT_THANKS}
+                {thanksMessage?.trim() || PIX_THANKS_MESSAGE_DEFAULT}
               </p>
               <p
                 className="pix-rise mt-3 mb-0 max-w-[300px] font-sans text-[12px] leading-[1.5] text-gold-text"

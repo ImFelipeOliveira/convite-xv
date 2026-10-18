@@ -16,6 +16,8 @@ const FIELDS = [
   'rsvpPreferredDate',
   'rsvpNudgeText',
   'rsvpFinalText',
+  'pixThanksMessage',
+  'pixReceiverName',
 ] as const
 type Field = (typeof FIELDS)[number]
 

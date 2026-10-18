@@ -9,6 +9,7 @@ import {
   insertWebhookEvent,
   isWebhookEventProcessed,
   markPaymentPaid,
+  markPaymentRefunded,
   markWebhookEventProcessed,
   settlePendingPayment,
 } from './repo'
@@ -103,8 +104,8 @@ type Applied = { result: WebhookResult; paymentId: string | null; guestId: strin
 
 /**
  * Applies one Asaas event. Paid is never downgraded: OVERDUE/DELETED after paid are ignored, and a refund
- * after paid keeps `paid` but logs `pix.refund_after_paid` (decision: the guest did send the gift, the
- * admin sees the refund in Asaas and in the logs). A payment received after we expired/cancelled it turns
+ * after paid keeps `paid`, records `refunded_at` (the admin page shows "Estornado" and leaves it out of the
+ * received total) and logs `pix.refund_after_paid`. A payment received after we expired/cancelled it turns
  * `paid` (the money arrived). A paid event is confirmed with Asaas first (status paid and value equal to
  * our amount; otherwise `ignored`, logged `pix.webhook_unconfirmed`, not recorded so a redelivery is looked
  * at again). On a new `paid`, the after-paid hook runs once, after commit, best effort. An unknown
@@ -168,7 +169,11 @@ export async function processAsaasWebhook(
         const paid = await markPaymentPaid(row.id, now, tx)
         return { result: paid ? 'paid' : 'unchanged', ...ids }
       }
-      if (row.status === 'paid' && REFUNDS.has(evt.event)) return { result: 'refund_after_paid', ...ids }
+      if (row.status === 'paid' && REFUNDS.has(evt.event)) {
+        // stays paid; the admin sees "Estornado" (refunded_at)
+        await markPaymentRefunded(row.id, now, tx)
+        return { result: 'refund_after_paid', ...ids }
+      }
       // only a still-pending charge expires or is cancelled (never overwrites paid or another final status)
       const settled = await settlePendingPayment(row.id, target, now, tx)
       return { result: settled ? target : 'unchanged', ...ids }
