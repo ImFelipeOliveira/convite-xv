@@ -106,6 +106,10 @@ export const settings = pgTable(
     pixThanksMessage: text('pix_thanks_message'),
     // shown under the invite's QR ("{name} · Asaas") so guests can match the name their bank shows
     pixReceiverName: text('pix_receiver_name').default(PIX_RECEIVER_NAME_DEFAULT),
+    // invite background music uploaded by the admin (music/<uuid>.mp3|m4a in object storage, never in git)
+    musicKey: text('music_key'),
+    // where the music starts on the invite, in seconds (0–600)
+    musicStartSeconds: integer('music_start_seconds').notNull().default(0),
   },
   (t) => [check('settings_single_row', sql`${t.id} = 1`)],
 )

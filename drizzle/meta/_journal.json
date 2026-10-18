@@ -78,6 +78,13 @@
       "when": 1792353729684,
       "tag": "0010_pix_payer_cpf_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792357253444,
+      "tag": "0011_settings_music",
+      "breakpoints": true
     }
   ]
 }
