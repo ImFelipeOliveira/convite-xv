@@ -75,6 +75,14 @@ describe('sendText', () => {
     expect(await sendText(cfg, input, f)).toEqual({ ok: false, error: 'invalid_number' })
   })
 
+  it.each([
+    ['a generic 400 mentioning the number field', { response: { message: ['number is required'] } }],
+    ['a validation 400', { status: 400, error: 'Bad Request', response: { message: ['text must be a string'] } }],
+  ])('maps %s to provider_error (only exists:false means invalid_number)', async (_, body) => {
+    const f = vi.fn<typeof fetch>().mockResolvedValue(json(body, 400))
+    expect(await sendText(cfg, input, f)).toEqual({ ok: false, error: 'provider_error' })
+  })
+
   it('maps Connection Closed to not_connected', async () => {
     const f = vi
       .fn()

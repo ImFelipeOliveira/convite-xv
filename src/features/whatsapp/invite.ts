@@ -20,6 +20,8 @@ const defaultDeps: SendInviteDeps = { sendText, readEvolutionConfig }
 
 function toInviteError(e: EvolutionError): SendInviteError {
   if (e === 'not_connected' || e === 'invalid_number' || e === 'not_configured') return e
+  // no answer in time: the provider may have delivered it, so the admin must check before resending
+  if (e === 'timeout') return 'uncertain'
   return 'failed'
 }
 

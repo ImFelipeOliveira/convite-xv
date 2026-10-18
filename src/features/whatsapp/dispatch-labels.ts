@@ -21,12 +21,15 @@ const ERROR_LABEL: Record<string, string> = {
   not_configured: 'WhatsApp não configurado',
   not_connected: 'WhatsApp desconectado',
   invalid_number: 'Número sem WhatsApp',
-  timeout: 'Sem resposta do WhatsApp',
+  timeout: 'Sem resposta do WhatsApp (pode ter sido enviada)',
   unauthorized: 'Chave de acesso recusada',
   provider_error: 'Erro no servidor do WhatsApp',
   internal_error: 'Erro interno',
   interrupted: 'Envio interrompido',
   no_phone: 'Convidado sem telefone',
+  deadline_passed: 'Prazo de confirmação encerrado',
+  stale: 'Substituído pelo lembrete da véspera',
+  after_event: 'A festa já começou',
 }
 
 /** pt-BR label of a stored `errorCode` (unknown codes get a generic label, never the raw code). */

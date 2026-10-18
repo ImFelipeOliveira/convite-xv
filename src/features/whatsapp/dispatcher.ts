@@ -1,12 +1,15 @@
 // Sends the automatic WhatsApp messages (reminders D-7/D-1 and rsvp nudges) when due.
 // Runs inside the Next.js server process (started from src/instrumentation.ts).
+import { EVENT } from '@/features/event/event'
 import { findGuestById } from '@/features/guests/repo'
+import { isDeadlinePassed } from '@/features/rsvp/deadline'
 import { getSettings } from '@/features/settings/repo'
 import { logger } from '@/lib/logger'
 import type { Guest, MessageDispatch, Settings } from '@/server/db/schema'
 import { readEvolutionConfig } from './config'
 import {
   claimDueReminder,
+  deferDueReminders,
   deferReminder,
   markDispatchCancelled,
   markDispatchFailed,
@@ -17,7 +20,7 @@ import {
 } from './dispatches'
 import { getConnectionState, sendText } from './evolution'
 import { renderTemplate, varyGreeting } from './message'
-import { reminderTemplateValues } from './reminders'
+import { REMINDER_TIMES, reminderTemplateValues } from './reminders'
 
 export type DispatcherDeps = {
   now: () => Date
@@ -31,7 +34,7 @@ export type DispatcherDeps = {
 export type DispatcherTickResult = {
   sent: number
   failed: number
-  skipped: 'not_configured' | 'not_connected' | null
+  skipped: 'not_configured' | 'not_connected' | 'quiet_hours' | null
 }
 
 const MAX_ATTEMPTS = 3
@@ -46,6 +49,42 @@ const KIND_RULES: Record<ReminderKind, { rsvpStatus: Guest['rsvpStatus']; text: 
   reminder_d1: { rsvpStatus: 'yes', text: (s) => s.reminderD1Text },
   rsvp_nudge: { rsvpStatus: 'pending', text: (s) => s.rsvpNudgeText },
   rsvp_final: { rsvpStatus: 'pending', text: (s) => s.rsvpFinalText },
+}
+
+const BOA_VISTA_OFFSET_MS = 4 * 60 * MIN // UTC−4, no DST
+const SEND_FROM_HOUR = 9
+const SEND_UNTIL_HOUR = 20
+const EVENT_STARTS_AT = new Date(EVENT.startsAt)
+
+/** Automatic sends only happen between 09:00 and 20:00 (exclusive) in Boa Vista. */
+export function isWithinSendingHours(now: Date): boolean {
+  const hour = new Date(now.getTime() - BOA_VISTA_OFFSET_MS).getUTCHours()
+  return hour >= SEND_FROM_HOUR && hour < SEND_UNTIL_HOUR
+}
+
+/** The next 09:00 in Boa Vista strictly after `now` (same day before 09:00, else the next day). */
+export function nextSendingWindowStart(now: Date): Date {
+  const local = new Date(now.getTime() - BOA_VISTA_OFFSET_MS)
+  const startLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), SEND_FROM_HOUR)
+  const start = startLocal + BOA_VISTA_OFFSET_MS
+  return new Date(start > now.getTime() ? start : start + 24 * 60 * MIN)
+}
+
+export type StaleReason = 'deadline_passed' | 'stale' | 'after_event'
+
+/**
+ * Why a due message no longer makes sense at `now` (null = send it): nothing after the party
+ * starts; no D-7 once the D-1 time has come; no rsvp nudge/final notice after the deadline (the
+ * final notice is never due before RSVP_FINAL_TIME, so this also keeps it from announcing a
+ * deadline already gone when the deadline was moved earlier).
+ */
+export function staleReason(kind: ReminderKind, settings: Pick<Settings, 'rsvpDeadline'>, now: Date): StaleReason | null {
+  if (now.getTime() >= EVENT_STARTS_AT.getTime()) return 'after_event'
+  if (kind === 'reminder_d7' && now.getTime() >= REMINDER_TIMES.reminder_d1.getTime()) return 'stale'
+  if ((kind === 'rsvp_nudge' || kind === 'rsvp_final') && isDeadlinePassed(settings.rsvpDeadline, now)) {
+    return 'deadline_passed'
+  }
+  return null
 }
 
 /** Seed for varyGreeting: differs per guest and per attempt, so a retry is not byte-identical. */
@@ -75,14 +114,20 @@ function isEligible(guest: Guest | null, kind: ReminderKind): guest is Guest & {
 }
 
 /**
- * One pass: config → connection open → recover stuck rows → then, one row at a time:
- * pause 20–60 s if the previous iteration sent → claim → eligibility check → send at once
- * (at most 30 sends). A disconnect mid-tick stops it.
+ * One pass: recover stuck rows → config → sending hours (09:00–20:00 Boa Vista; outside them due
+ * rows move to the next 09:00 and nothing is sent) → connection open → then, one row at a time:
+ * pause 20–60 s if the previous iteration sent → hours check again → claim → eligibility and
+ * time-context check → send at once (at most 30 sends). A disconnect mid-tick stops it.
  */
 export async function runDispatcherTick(deps: DispatcherDeps): Promise<DispatcherTickResult> {
   const result: DispatcherTickResult = { sent: 0, failed: 0, skipped: null }
+  // first, so interrupted invites/reminders recover even while unconfigured or disconnected
+  await recoverStuckSending()
+
   const cfg = deps.readEvolutionConfig()
   if (!cfg) return { ...result, skipped: 'not_configured' }
+
+  if (await deferIfQuietHours(deps.now())) return { ...result, skipped: 'quiet_hours' }
 
   const state = await deps.getConnectionState(cfg)
   const stateName = state.ok ? state.value : state.error
@@ -92,15 +137,15 @@ export async function runDispatcherTick(deps: DispatcherDeps): Promise<Dispatche
   }
   pausedState = null
 
-  await recoverStuckSending(deps.now())
-
   let sends = 0
   let sentLast = false
   while (sends < MAX_SENDS_PER_TICK) {
     if (sentLast) await deps.sleep(20_000 + deps.random() * 40_000)
     sentLast = false
 
-    const row = await claimDueReminder(deps.now())
+    if (await deferIfQuietHours(deps.now())) return { ...result, skipped: 'quiet_hours' }
+
+    const row = await claimDueReminder()
     if (!row) break
     const kind = row.kind as ReminderKind
     const ids = { dispatchId: row.id, guestId: row.guestId, kind }
@@ -121,9 +166,26 @@ export async function runDispatcherTick(deps: DispatcherDeps): Promise<Dispatche
       continue
     }
 
+    let settings: Settings
+    try {
+      settings = await getSettings()
+    } catch (err) {
+      logger.error({ event: 'whatsapp.dispatcher_error', ...ids, err }, 'reminder settings load failed')
+      await retryOrFail(deps, row, ids, 'internal_error')
+      result.failed++
+      continue
+    }
+
+    const stale = staleReason(kind, settings, deps.now())
+    if (stale) {
+      await markDispatchCancelled(row.id, stale)
+      logger.info({ event: 'whatsapp.reminder_cancelled', ...ids, errorCode: stale }, 'reminder cancelled')
+      continue
+    }
+
     sends++
     sentLast = true
-    const outcome = await sendOne(deps, cfg, row, kind, guest)
+    const outcome = await sendOne(deps, cfg, row, kind, guest, settings)
     if (outcome === 'sent') result.sent++
     else if (outcome === 'not_connected') {
       logPaused('not_connected')
@@ -133,17 +195,26 @@ export async function runDispatcherTick(deps: DispatcherDeps): Promise<Dispatche
   return result
 }
 
+/** Outside 09:00–20:00 Boa Vista: due reminders wait for the next 09:00 (no attempt consumed). */
+async function deferIfQuietHours(now: Date): Promise<boolean> {
+  if (isWithinSendingHours(now)) return false
+  const at = nextSendingWindowStart(now)
+  const moved = await deferDueReminders(at)
+  if (moved > 0) logger.info({ event: 'whatsapp.reminders_deferred', count: moved, until: at.toISOString() }, 'reminders deferred to sending hours')
+  return true
+}
+
 async function sendOne(
   deps: DispatcherDeps,
   cfg: NonNullable<ReturnType<DispatcherDeps['readEvolutionConfig']>>,
   row: MessageDispatch,
   kind: ReminderKind,
   guest: Guest & { phone: string },
+  settings: Settings,
 ): Promise<Outcome> {
   const ids = { dispatchId: row.id, guestId: row.guestId, kind }
   let res: Awaited<ReturnType<DispatcherDeps['sendText']>>
   try {
-    const settings = await getSettings()
     const rendered = renderTemplate(
       KIND_RULES[kind].text(settings),
       reminderTemplateValues(settings, guest, deps.now()),
@@ -172,6 +243,12 @@ async function sendOne(
     await deferReminder(row.id, new Date(deps.now().getTime() + NOT_CONNECTED_DELAY_MS), 'not_connected')
     logger.warn({ event: 'whatsapp.reminder_failed', ...ids, errorCode: 'not_connected' }, 'reminder deferred')
     return 'not_connected'
+  }
+  if (res.error === 'timeout') {
+    // the provider may have delivered it: never retried automatically (the admin can re-arm it)
+    await markDispatchFailed(row.id, 'timeout')
+    logger.warn({ event: 'whatsapp.reminder_failed', ...ids, errorCode: 'timeout', attempts: row.attempts }, 'reminder failed')
+    return 'failed'
   }
   return retryOrFail(deps, row, ids, res.error)
 }

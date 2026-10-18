@@ -113,7 +113,15 @@ describe('sendInvite', () => {
     expect((await rows(g.id))[0].errorCode).toBe('not_connected')
   })
 
-  it.each(['timeout', 'unauthorized', 'provider_error'] as const)(
+  it('timeout returns uncertain (the message may have gone out) and records failed/timeout', async () => {
+    const g = await makeGuest({ phone: PHONE })
+    const d = deps({ ok: false, error: 'timeout' })
+    expect(await sendInvite(g.id, await makeAdmin(), d)).toEqual({ ok: false, error: 'uncertain' })
+    const [row] = await rows(g.id)
+    expect([row.status, row.errorCode]).toEqual(['failed', 'timeout'])
+  })
+
+  it.each(['unauthorized', 'provider_error'] as const)(
     '%s maps to failed and records the client error code',
     async (error) => {
       const g = await makeGuest({ phone: PHONE })
@@ -231,5 +239,8 @@ describe('inviteErrorMessage', () => {
     expect(inviteErrorMessage('blocked')).toBe('Envio em andamento. Aguarde um minuto.')
     expect(inviteErrorMessage('invalid_number')).toBe('Este número não tem WhatsApp.')
     expect(inviteErrorMessage('failed')).toBe('Não foi possível enviar agora. Tente de novo.')
+    expect(inviteErrorMessage('uncertain')).toBe(
+      'O WhatsApp demorou a responder — a mensagem pode ter sido enviada. Confira no celular antes de reenviar.',
+    )
   })
 })
