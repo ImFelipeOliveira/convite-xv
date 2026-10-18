@@ -35,4 +35,4 @@ COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/scripts/migrate.js ./scripts/migrate.js
 USER node
 EXPOSE 3000
-CMD ["sh", "-c", "node scripts/migrate.js && node server.js"]
+CMD ["sh", "-c", "node scripts/migrate.js && exec node server.js"]

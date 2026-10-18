@@ -20,8 +20,15 @@ export function sanitizeErr(err: unknown): Record<string, unknown> {
     const c = e.cause as Error & { code?: unknown }
     out.cause = { name: c.name, ...(c.code !== undefined ? { code: c.code } : {}) }
   }
-  const at = e.stack?.indexOf('\n    at ') ?? -1
-  if (e.stack && at >= 0) out.stack = e.stack.slice(at + 1)
+  // drop the header by line count (the message may span lines and embed fake "    at" frames), keep frames only
+  if (e.stack) {
+    const headerLines = String(e.message).split('\n').length
+    const frames = e.stack
+      .split('\n')
+      .slice(headerLines)
+      .filter((line) => /^\s+at\s/.test(line))
+    if (frames.length) out.stack = frames.join('\n')
+  }
   return out
 }
 

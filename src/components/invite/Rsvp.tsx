@@ -29,7 +29,7 @@ const label = 'font-sans text-[11px] font-medium tracking-[.22em] text-gold-text
 async function submit(prev: ActionState, formData: FormData): Promise<ActionState> {
   let result: RsvpActionResult
   try {
-    result = await submitRsvpAction(prev.result, formData)
+    result = await submitRsvpAction(null, formData)
   } catch {
     // network failure: same message as a generic error, the form stays filled
     result = { ok: false, error: 'invalid' }

@@ -76,4 +76,13 @@ describe('logger', () => {
     expect(lines).toHaveLength(1)
     expect(JSON.parse(lines[0]).msg).toBe('kept')
   })
+
+  it('does not leak a message that spoofs a stack frame', () => {
+    const { lines, stream } = capture()
+    const log = createLogger(stream, 'info')
+    log.error({ err: new Error('boom\n    at hack,TOKEN123\nmore TOKEN123') }, 'failed')
+    const row = JSON.parse(lines[0])
+    expect(lines[0]).not.toContain('TOKEN123')
+    expect(row.err.stack).toMatch(/^\s+at /)
+  })
 })

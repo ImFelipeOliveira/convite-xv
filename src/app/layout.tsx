@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Bodoni_Moda, Jost, Pinyon_Script } from "next/font/google";
+import { getAppUrl } from "@/lib/app-url";
 import "./globals.css";
 
 const bodoni = Bodoni_Moda({
@@ -25,6 +26,7 @@ const pinyon = Pinyon_Script({
 });
 
 export const metadata: Metadata = {
+  metadataBase: getAppUrl(),
   title: "Convite 15 anos da Isabella",
   description: "Convite pessoal para os 15 anos da Isabella.",
   robots: { index: false, follow: false },
