@@ -219,6 +219,11 @@ Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam e
 - Proteção contra clique duplo: não permitir novo envio para o mesmo convidado enquanto houver um `sending` ou um `sent` nos últimos 60 s.
 - Logs: `whatsapp.invite_sent|invite_failed` com `guestId`, `adminId`, `errorCode` — nunca telefone ou texto.
 
+### 8.5b Lembretes para confirmar presença [decidido 18/10]
+- Data "de preferência" configurável (padrão 21/11 — call: usuário citou 21/10, anterior ao envio dos convites; editável nas configurações); prazo final continua `rsvp_deadline` (13/12).
+- `rsvp_nudge`: 5 dias após o envio do convite, só para quem está pendente. `rsvp_final`: 10/12 às 10h (Boa Vista), só pendentes. Responder cancela ambos.
+- O convite mostra "responda de preferência até dd/mm. O prazo final é dd/mm." enquanto a data preferida não passou.
+
 ### 8.5 Lembretes WhatsApp [decidido: só confirmados]
 - Ao confirmar "sim" (com telefone), agenda jobs pg-boss com `singletonKey` por (guest, type):
   - **D-7** (20/12/2026, [call] 10h local): data, local, traje de banho, link do convite.

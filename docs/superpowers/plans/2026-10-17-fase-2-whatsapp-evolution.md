@@ -269,6 +269,17 @@ tests/e2e/admin-whatsapp.spec.ts
 
 ---
 
+### Addendum (user request 2026-10-18): RSVP nudges for guests who haven't answered
+
+Applies to Tasks 4, 5 and 6 (implement inside Task 4 for scheduling/schema, Task 5 for sending, Task 6-style UI in settings + invite copy as part of Task 4):
+- New dispatch kinds `rsvp_nudge` and `rsvp_final` (extend the `dispatch_kind` enum in an additive migration; the partial unique index `kind <> 'invite'` already makes them one-per-guest).
+- New settings columns (additive, with defaults): `rsvpPreferredDate date null` default `'2026-11-21'`; `rsvpNudgeText` default (exact): `Oi, {nome}! Ainda não recebemos sua confirmação para os 15 anos da Isabella. Se puder, responda até {preferencia} pelo seu convite: {link}`; `rsvpFinalText` default (exact): `Oi, {nome}! O prazo para confirmar presença nos 15 anos da Isabella termina em {prazo}. Responda pelo seu convite: {link}`. `renderTemplate` gains optional `{prazo}` (rsvpDeadline dd/mm) and `{preferencia}` (rsvpPreferredDate dd/mm).
+- Scheduling: when an invite dispatch is marked `sent` for a guest whose `rsvpStatus = 'pending'` → `upsertReminder(guest, 'rsvp_nudge', sentAt + 5 days)` unless that time is after `rsvpDeadline − 1 day`; and `upsertReminder(guest, 'rsvp_final', 2026-12-10T14:00:00Z)` if in the future. Any RSVP answer (yes or no) cancels both. Re-sending an invite does not create a second nudge (unique) and does not resurrect a sent one.
+- Dispatcher: before sending `rsvp_nudge`/`rsvp_final`, re-check the guest is still `pending` and has a phone; otherwise cancel. Texts from `rsvpNudgeText` / `rsvpFinalText`.
+- Settings page: field "Confirmar de preferência até" (date, optional, must be ≤ rsvpDeadline) and the two textareas (must contain {link}). Dispatch history labels: "Lembrete de confirmação" and "Aviso final de confirmação".
+- Invite RSVP screen: when `rsvpPreferredDate` is set and not past (Boa Vista), the greeting reads "Este convite é só seu — responda de preferência até {dd/mm}. O prazo final é {dd/mm}." otherwise the existing copy.
+- Tests: nudge scheduled exactly 5 days after the invite `sent_at`; none when that is past the cutoff; RSVP answer cancels both; resend keeps one nudge; dispatcher cancels a nudge for a guest who answered meanwhile; settings validation (preferred date after deadline rejected); invite copy shows the preferred date.
+
 ## Order and deadline
 
 Tasks 1 → 2 → 2b → 3 (invite sending usable) → 7 (deploy Evolution, connect the chip) → 4 → 5 → 6. Goal: invite sending live and tested with a real phone by **~25/11/2026**; reminders live before **20/12/2026** (first D-7 send).
