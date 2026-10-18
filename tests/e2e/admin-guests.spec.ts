@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { deleteGuestsByName, insertGuest, seedGuests } from './db'
 import { ADMIN_STORAGE_STATE, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
+import { expectOnlyListScrolls } from './list-scroll'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
 // signed in through the saved admin session (auth.setup.ts); the gate test opts out of it
@@ -392,6 +393,46 @@ test.describe('admin guests', () => {
       await expect(form).toBeHidden()
       await expect(search).toHaveValue(SEED_PREFIX)
       await expect(page.getByText('Mostrando 1–20 de 26')).toBeVisible()
+    })
+
+    test('only the list scrolls: header, search and pagination stay put (desktop and phone)', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await page.goto('/admin/guests')
+      await expectOnlyListScrolls(page, 'Tabela de convidados', { header: 'Nome' })
+      await expect(page.getByRole('heading', { name: 'Convidados' })).toBeInViewport()
+      await expect(page.getByLabel('Buscar')).toBeInViewport()
+
+      // the next page starts from the top of the list
+      await page.getByRole('button', { name: 'Próxima' }).click()
+      await expect(page.getByText(/^Mostrando 21–/)).toBeVisible()
+      expect(await page.getByRole('region', { name: 'Tabela de convidados' }).evaluate((el) => el.scrollTop)).toBe(0)
+
+      // editing a row deep in the list brings focus back to its (still visible) edit button
+      await page.getByRole('button', { name: 'Anterior' }).click()
+      await page.getByLabel('Buscar').fill(SEED_PREFIX)
+      const region = page.getByRole('region', { name: 'Tabela de convidados' })
+      const edit = rowOf(page, `${SEED_PREFIX} 18`).getByRole('button', { name: 'Editar' })
+      await edit.scrollIntoViewIfNeeded()
+      await edit.click()
+      const form = page.getByRole('form', { name: 'Editar convidado' })
+      await expect(form).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(form).toBeHidden()
+      await expect(edit).toBeFocused()
+      await expect(edit).toBeInViewport()
+      const [editBox, regionBox, thBox] = await Promise.all([
+        edit.boundingBox(),
+        region.boundingBox(),
+        region.getByRole('columnheader', { name: 'Nome' }).boundingBox(),
+      ])
+      expect(editBox!.y).toBeGreaterThanOrEqual(thBox!.y + thBox!.height - 1)
+      expect(editBox!.y + editBox!.height).toBeLessThanOrEqual(regionBox!.y + regionBox!.height + 1)
+
+      // phone: the cards scroll inside the same bounded region
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto('/admin/guests')
+      await expectOnlyListScrolls(page, 'Tabela de convidados')
+      await expect(page.getByRole('heading', { name: 'Convidados' })).toBeInViewport()
     })
 
     test('mobile: drawer navigation, stacked cards and no horizontal scroll', async ({ page }) => {

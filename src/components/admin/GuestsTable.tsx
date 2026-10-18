@@ -425,6 +425,7 @@ export function GuestsTable({ guests, description }: { guests: GuestRow[]; descr
         initialSorting={[{ id: 'name', desc: false }]}
         searchInputRef={searchRef}
         regionLabel="Tabela de convidados"
+        scrollBody
         searchLabel="Buscar convidado"
         searchPlaceholder="Buscar por nome ou telefone"
         searchPlaceholderPhone="Buscar convidado"

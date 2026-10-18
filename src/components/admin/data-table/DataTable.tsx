@@ -33,12 +33,14 @@ import {
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
   type Ref,
+  type RefObject,
 } from 'react'
 import { buttonClass, focusRing, inputClass } from '../styles'
 import { CloseButton, Modal } from '../ui/Modal'
@@ -108,6 +110,11 @@ type Props<T extends RowData> = {
   searchInputRef?: Ref<HTMLInputElement>
   /** Accessible name of the (horizontally scrollable) table region. */
   regionLabel?: string
+  /**
+   * Only the rows scroll: the region is capped to what is left of the viewport under the page header and
+   * toolbar (above the pagination), with a sticky header row. For long lists (guests, gifts).
+   */
+  scrollBody?: boolean
 }
 
 // rows whose value equals the selected option (undefined = no filter)
@@ -136,6 +143,19 @@ const tabletHidden = 'sm:max-xl:hidden'
 const smallTabletHidden = 'sm:max-lg:hidden'
 const stickyEndCell =
   'sm:sticky sm:right-0 sm:z-[1] sm:bg-paper sm:shadow-[-10px_0_10px_-10px_rgba(90,33,54,.25)]'
+// scrollBody: the region holds at most the viewport minus everything around it (--dt-offset, measured;
+// the fallback fits the usual header + toolbar before hydration), never under 20rem. contain: scrolling
+// past the list's ends never drags the page; touch momentum on older iOS; tabbing to a row never parks
+// it under the sticky header. Phones: a hair of padding so the cards' shadows aren't clipped.
+const scrollBodyRegion =
+  'overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] max-h-[max(20rem,calc(100dvh-var(--dt-offset,22rem)))] sm:scroll-pt-12 max-sm:-mx-1 max-sm:px-1 max-sm:py-1 max-sm:scroll-py-2'
+// sticky header row above the rows (z 3) and above the sticky actions cells (z 1; its own corner z 4).
+// The bottom line is an inset shadow: a collapsed border would stay behind while the header sticks.
+const stickyHeaderCell = 'sm:sticky sm:top-0 sm:z-[3] shadow-[inset_0_-1px_0_var(--hairline-strong)]'
+const stickyHeaderLifted =
+  'sm:shadow-[inset_0_-1px_0_var(--hairline-strong),0_8px_10px_-8px_rgba(90,33,54,.28)]'
+const edgeFade =
+  'pointer-events-none absolute inset-x-0 h-6 from-paper to-transparent transition-opacity duration-(--dur-micro) sm:inset-x-px'
 const hiddenClass = (meta?: DataTableColumnMeta) =>
   meta?.hideOnTablet ? tabletHidden : meta?.hideOnSmallTablet ? smallTabletHidden : ''
 
@@ -154,6 +174,65 @@ function useIsPhone(): boolean {
   )
 }
 
+type Edges = { top: boolean; bottom: boolean }
+
+/**
+ * scrollBody: keeps `--dt-offset` on the region equal to everything that is not the region on the page
+ * (the space above it plus the pagination and the page's bottom padding below), so the capped region
+ * makes the page fit the viewport exactly: one scrollbar, the list's. Re-measured whenever the layout
+ * around it changes (filters wrapping, a longer description, rotation). Also tracks whether there is
+ * more to scroll above / below, for the edge fades.
+ */
+function useScrollBody(
+  enabled: boolean,
+  mounted: boolean,
+  rootRef: RefObject<HTMLDivElement | null>,
+  regionRef: RefObject<HTMLDivElement | null>,
+): [Edges, () => void] {
+  const [edges, setEdges] = useState<Edges>({ top: false, bottom: false })
+  const updateEdges = () => {
+    const region = regionRef.current
+    if (!region) return
+    const top = region.scrollTop > 1
+    const bottom = region.scrollTop + region.clientHeight < region.scrollHeight - 1
+    setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }))
+  }
+  const updateEdgesRef = useRef(updateEdges)
+  useEffect(() => {
+    updateEdgesRef.current = updateEdges
+  })
+  useLayoutEffect(() => {
+    const region = regionRef.current
+    const root = rootRef.current
+    if (!enabled || !mounted || !region || !root) return
+    const main = region.closest('main')
+    const measure = () => {
+      const box = region.getBoundingClientRect()
+      const above = box.top + window.scrollY
+      const below =
+        root.getBoundingClientRect().bottom - box.bottom + (main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0)
+      region.style.setProperty('--dt-offset', `${Math.ceil(above + below)}px`)
+      updateEdgesRef.current()
+    }
+    measure()
+    let frame = 0
+    const schedule = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(measure)
+    }
+    const observer = new ResizeObserver(schedule)
+    observer.observe(root)
+    if (main) observer.observe(main)
+    window.addEventListener('resize', schedule)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener('resize', schedule)
+    }
+  }, [enabled, mounted, rootRef, regionRef])
+  return [edges, updateEdges]
+}
+
 export function DataTable<T extends RowData>({
   data,
   columns,
@@ -170,8 +249,11 @@ export function DataTable<T extends RowData>({
   pageSize = 20,
   searchInputRef,
   regionLabel = 'Tabela',
+  scrollBody = false,
 }: Props<T>) {
   const uid = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const regionRef = useRef<HTMLDivElement>(null)
   const [pageIndexRequested, setPageIndex] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const filtersButtonRef = useRef<HTMLButtonElement>(null)
@@ -239,9 +321,16 @@ export function DataTable<T extends RowData>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, filters])
 
+  const rows = table.getRowModel().rows
+  const hasRegion = !(data.length === 0 && emptyState) && rows.length > 0
+  const [edges, updateEdges] = useScrollBody(scrollBody, hasRegion, rootRef, regionRef)
+  // another page, search or filter: start the list from its top
+  useEffect(() => {
+    if (scrollBody && regionRef.current) regionRef.current.scrollTop = 0
+  }, [scrollBody, pageIndex, globalFilter, filtersKey])
+
   if (data.length === 0 && emptyState) return <>{emptyState}</>
 
-  const rows = table.getRowModel().rows
   const hasActiveFilters = globalFilter !== '' || table.state.columnFilters.length > 0
 
   const activeFilters = table.state.columnFilters.length
@@ -296,7 +385,7 @@ export function DataTable<T extends RowData>({
     })
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={rootRef} className="flex flex-col gap-4">
       {/* toolbar */}
       <div
         className={`flex flex-col gap-3 ${
@@ -422,95 +511,121 @@ export function DataTable<T extends RowData>({
         </div>
       ) : (
         // wide tables scroll inside their own box; the page itself never scrolls sideways.
-        // (being a scroll container, the box can't keep the header pinned to the page)
-        <div
-          role="region"
-          aria-label={regionLabel}
-          tabIndex={0}
-          className={`sm:overflow-x-auto sm:border sm:border-hairline sm:bg-paper sm:shadow-paper ${focusRing}`}
-        >
-          <table role="table" className="dt-table w-full border-collapse text-left text-[15px]">
-            <thead role="rowgroup">
-              {table.getHeaderGroups().map((group) => (
-                <tr role="row" key={group.id}>
-                  {group.headers
-                    .filter((header) => !header.column.columnDef.meta?.hidden)
-                    .map((header) => {
-                    const meta = header.column.columnDef.meta
-                    const canSort = header.column.getCanSort()
-                    const dir = header.column.getIsSorted()
-                    return (
-                      <th
-                        role="columnheader"
-                        key={header.id}
-                        scope="col"
-                        aria-sort={
-                          canSort
-                            ? dir === 'asc'
-                              ? 'ascending'
-                              : dir === 'desc'
-                                ? 'descending'
-                                : 'none'
-                            : undefined
-                        }
-                        className={`border-b border-hairline-strong bg-blush px-4 py-0 text-[13px] font-medium whitespace-nowrap text-muted ${
-                          meta?.align === 'end' ? 'text-right' : ''
-                        } ${meta?.stickyEnd ? 'sm:sticky sm:right-0 sm:z-[2]' : ''} ${hiddenClass(meta)}`}
-                      >
-                        {canSort ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className={`group -mx-2 inline-flex min-h-12 items-center gap-1.5 rounded-sm px-2 transition-colors duration-(--dur-micro) hover:text-wine ${focusRing} ${
-                              dir ? 'text-wine' : ''
-                            }`}
-                          >
-                            <FlexRender header={header} />
-                            {sortIcon(dir)}
-                          </button>
-                        ) : (
-                          <span className="inline-flex min-h-12 items-center">
-                            <FlexRender header={header} />
-                          </span>
-                        )}
-                      </th>
-                    )
-                  })}
-                </tr>
-              ))}
-            </thead>
-            <tbody role="rowgroup">
-              {rows.map((row) => (
-                <tr
-                  role="row"
-                  key={row.id}
-                  className="transition-colors duration-(--dur-micro) sm:border-b sm:border-hairline sm:last:border-b-0 sm:hover:bg-blush/45"
-                >
-                  {row
-                    .getAllCells()
-                    .filter((cell) => !cell.column.columnDef.meta?.hidden)
-                    .map((cell) => {
-                    const meta = cell.column.columnDef.meta
-                    const header = cell.column.columnDef.header
-                    const label = meta?.label ?? (typeof header === 'string' ? header : undefined)
-                    return (
-                      <td
-                        role="cell"
-                        key={cell.id}
-                        data-label={meta?.card ? undefined : label}
-                        data-card={meta?.card}
-                        className={`px-4 py-2 align-middle sm:h-16 ${meta?.align === 'end' ? 'sm:text-right' : ''} ${hiddenClass(
-                          meta,
-                        )} ${meta?.stickyEnd ? stickyEndCell : ''} ${meta?.className ?? ''}`}
-                      >
-                        <FlexRender cell={cell} />
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        // (being a scroll container, the box can't keep the header pinned to the page; with scrollBody
+        // the rows scroll inside it too, under a sticky header row)
+        <div className={scrollBody ? 'relative' : undefined}>
+          <div
+            ref={regionRef}
+            role="region"
+            aria-label={regionLabel}
+            tabIndex={0}
+            onScroll={scrollBody ? updateEdges : undefined}
+            className={`sm:overflow-x-auto sm:border sm:border-hairline sm:bg-paper sm:shadow-paper ${focusRing} ${
+              scrollBody ? scrollBodyRegion : ''
+            }`}
+          >
+            <table role="table" className="dt-table w-full border-collapse text-left text-[15px]">
+              <thead role="rowgroup">
+                {table.getHeaderGroups().map((group) => (
+                  <tr role="row" key={group.id}>
+                    {group.headers
+                      .filter((header) => !header.column.columnDef.meta?.hidden)
+                      .map((header) => {
+                      const meta = header.column.columnDef.meta
+                      const canSort = header.column.getCanSort()
+                      const dir = header.column.getIsSorted()
+                      return (
+                        <th
+                          role="columnheader"
+                          key={header.id}
+                          scope="col"
+                          aria-sort={
+                            canSort
+                              ? dir === 'asc'
+                                ? 'ascending'
+                                : dir === 'desc'
+                                  ? 'descending'
+                                  : 'none'
+                              : undefined
+                          }
+                          className={`bg-blush px-4 py-0 text-[13px] font-medium whitespace-nowrap text-muted ${
+                            meta?.align === 'end' ? 'text-right' : ''
+                          } ${
+                            scrollBody
+                              ? `${stickyHeaderCell} ${meta?.stickyEnd ? 'sm:right-0 sm:z-[4]' : ''} ${
+                                  edges.top ? stickyHeaderLifted : ''
+                                }`
+                              : `border-b border-hairline-strong ${meta?.stickyEnd ? 'sm:sticky sm:right-0 sm:z-[2]' : ''}`
+                          } ${hiddenClass(meta)}`}
+                        >
+                          {canSort ? (
+                            <button
+                              type="button"
+                              onClick={header.column.getToggleSortingHandler()}
+                              className={`group -mx-2 inline-flex min-h-12 items-center gap-1.5 rounded-sm px-2 transition-colors duration-(--dur-micro) hover:text-wine ${focusRing} ${
+                                dir ? 'text-wine' : ''
+                              }`}
+                            >
+                              <FlexRender header={header} />
+                              {sortIcon(dir)}
+                            </button>
+                          ) : (
+                            <span className="inline-flex min-h-12 items-center">
+                              <FlexRender header={header} />
+                            </span>
+                          )}
+                        </th>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </thead>
+              <tbody role="rowgroup">
+                {rows.map((row) => (
+                  <tr
+                    role="row"
+                    key={row.id}
+                    className="transition-colors duration-(--dur-micro) sm:border-b sm:border-hairline sm:last:border-b-0 sm:hover:bg-blush/45"
+                  >
+                    {row
+                      .getAllCells()
+                      .filter((cell) => !cell.column.columnDef.meta?.hidden)
+                      .map((cell) => {
+                      const meta = cell.column.columnDef.meta
+                      const header = cell.column.columnDef.header
+                      const label = meta?.label ?? (typeof header === 'string' ? header : undefined)
+                      return (
+                        <td
+                          role="cell"
+                          key={cell.id}
+                          data-label={meta?.card ? undefined : label}
+                          data-card={meta?.card}
+                          className={`px-4 py-2 align-middle sm:h-16 ${meta?.align === 'end' ? 'sm:text-right' : ''} ${hiddenClass(
+                            meta,
+                          )} ${meta?.stickyEnd ? stickyEndCell : ''} ${meta?.className ?? ''}`}
+                        >
+                          <FlexRender cell={cell} />
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {scrollBody && (
+            <>
+              {/* phones: no header row, so a fade hints at cards above too */}
+              <div
+                aria-hidden="true"
+                className={`${edgeFade} top-0 bg-linear-to-b sm:hidden ${edges.top ? 'opacity-100' : 'opacity-0'}`}
+              />
+              <div
+                aria-hidden="true"
+                className={`${edgeFade} bottom-0 bg-linear-to-t sm:bottom-px ${edges.bottom ? 'opacity-100' : 'opacity-0'}`}
+              />
+            </>
+          )}
         </div>
       )}
 

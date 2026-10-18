@@ -10,6 +10,7 @@ import {
   setE2eGuestRsvp,
 } from './db'
 import { ADMIN_STORAGE_STATE, E2E_GUEST_NAME, E2E_GUEST_TOKEN } from './fixtures'
+import { expectOnlyListScrolls } from './list-scroll'
 
 // sign-in is limited to 5 attempts per client IP: each admin spec uses its own fake IP
 // signed in through the saved admin session (auth.setup.ts); the gate test opts out of it
@@ -256,6 +257,8 @@ test.describe('admin gifts', () => {
     const served = await page.request.get(src)
     expect(served.headers()['content-type']).toBe('image/webp')
     expect(served.headers()['cache-control']).toBe('public, max-age=31536000, immutable')
+    // the route's own sandboxing CSP survives the site-wide security headers
+    expect(served.headers()['content-security-policy']).toContain('sandbox')
 
     await form.getByRole('button', { name: 'Salvar' }).click()
     await expect(toast(page)).toContainText('Presente salvo.')
@@ -310,6 +313,28 @@ test.describe('admin gifts', () => {
       sheet.getByRole('group', { name: 'Situação' }).getByRole('button', { name: 'Reservado (confirmado)' }),
     ).toBeVisible()
     await deleteGiftsByName([STALE])
+  })
+
+  test('only the gift list scrolls, on desktop and on a phone', async ({ page }) => {
+    const many = Array.from({ length: 18 }, (_, i) => ({
+      name: `Rolagem ${String(i + 1).padStart(2, '0')}`,
+      category: 'Rolagem',
+      priceCents: 10000 + i,
+      purchaseUrl: AMAZON,
+    }))
+    await seedGifts(many)
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await page.goto('/admin/gifts')
+      await expectOnlyListScrolls(page, 'Tabela de presentes', { header: 'Presente' })
+      await expect(page.getByRole('heading', { name: 'Presentes' })).toBeInViewport()
+
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto('/admin/gifts')
+      await expectOnlyListScrolls(page, 'Tabela de presentes')
+    } finally {
+      await deleteGiftsByName(many.map((g) => g.name))
+    }
   })
 
   test('desktop: nav entry and table columns', async ({ page }) => {

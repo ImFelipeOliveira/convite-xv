@@ -338,6 +338,7 @@ export function GiftsTable({ gifts, description }: { gifts: GiftRow[]; descripti
         // no initial sort: keep the server order (category, then order, then name), as the invite shows it
         searchInputRef={searchRef}
         regionLabel="Tabela de presentes"
+        scrollBody
         searchLabel="Buscar presente"
         searchPlaceholder="Buscar por presente, categoria ou convidado"
         searchPlaceholderPhone="Buscar presente"
