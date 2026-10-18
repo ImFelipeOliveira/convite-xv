@@ -8,7 +8,7 @@ import { isDeadlinePassed } from './deadline'
 import { rsvpSchema } from './schema'
 
 export type RsvpResult =
-  | { ok: true; guest: Guest }
+  | { ok: true; guest: Guest; phoneAdded: boolean }
   | {
       ok: false
       error: 'not_found' | 'deadline_passed' | 'over_limit' | 'invalid_phone' | 'invalid'
@@ -48,5 +48,5 @@ export async function submitRsvp(input: unknown, now = new Date()): Promise<Rsvp
     })
     .where(eq(guests.id, guest.id))
     .returning()
-  return { ok: true, guest: updated }
+  return { ok: true, guest: updated, phoneAdded: Boolean(phone) }
 }

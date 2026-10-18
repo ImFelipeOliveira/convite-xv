@@ -9,11 +9,14 @@ export async function findGuestByToken(token: string): Promise<Guest | null> {
   return row ?? null
 }
 
-export async function markOpened(id: string): Promise<void> {
-  await db
+/** Returns true when this call set openedAt (the first open). */
+export async function markOpened(id: string): Promise<boolean> {
+  const rows = await db
     .update(guests)
     .set({ openedAt: new Date() })
     .where(and(eq(guests.id, id), isNull(guests.openedAt)))
+    .returning({ id: guests.id })
+  return rows.length > 0
 }
 
 function isUniqueViolation(err: unknown): boolean {

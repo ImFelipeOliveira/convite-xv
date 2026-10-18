@@ -1,6 +1,7 @@
 import { findGuestByToken } from '@/features/guests/repo'
 import { getAppUrl } from '@/lib/app-url'
 import { getClientIp, rateLimit } from '@/lib/rate-limit'
+import { logger } from '@/lib/logger'
 import { generateIcs } from '@/features/event/ics'
 
 export async function GET(
@@ -9,6 +10,7 @@ export async function GET(
 ) {
   const ip = getClientIp(request.headers)
   if (!rateLimit(`ics:${ip}`, { max: 60, windowMs: 60_000 }).ok) {
+    logger.warn({ event: 'rate_limit.exceeded', route: 'calendar', ip }, 'rate limit exceeded')
     return new Response('Not found', { status: 404 })
   }
   const { token } = await params

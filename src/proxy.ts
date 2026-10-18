@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findGuestByToken } from '@/features/guests/repo'
+import { logger } from '@/lib/logger'
 import { getClientIp, rateLimit } from '@/lib/rate-limit'
 
 // With Cache Components the invite page streams its shell before the guest lookup finishes,
@@ -11,7 +12,9 @@ export async function proxy(request: NextRequest) {
   const notFound = () => NextResponse.rewrite(new URL(NO_SUCH_ROUTE, request.url))
 
   // a rate-limited client intentionally gets the same 404 as an unknown token (no enumeration signal)
-  if (!rateLimit(`invite:${getClientIp(request.headers)}`, { max: 60, windowMs: 60_000 }).ok) {
+  const ip = getClientIp(request.headers)
+  if (!rateLimit(`invite:${ip}`, { max: 60, windowMs: 60_000 }).ok) {
+    logger.warn({ event: 'rate_limit.exceeded', route: 'invite', ip }, 'rate limit exceeded')
     return notFound()
   }
   const token = request.nextUrl.pathname.split('/')[2] ?? ''

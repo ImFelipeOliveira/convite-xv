@@ -14,6 +14,7 @@ import { toRsvpGuestView } from '@/features/rsvp/view'
 import { getSettings } from '@/features/settings/repo'
 import { getAppUrl } from '@/lib/app-url'
 import { isLinkPreviewBot } from '@/lib/bots'
+import { logger } from '@/lib/logger'
 
 // Rate limit and the 404 status for unknown tokens live in src/proxy.ts (the shell streams
 // before this lookup, so notFound() here can't change the status). The gate needs the guest,
@@ -37,7 +38,13 @@ export default async function InvitePage({ params }: PageProps<'/c/[token]'>) {
   const { token } = await params
   const guest = await findGuestByToken(token)
   if (!guest) notFound()
-  if (!isLinkPreviewBot((await headers()).get('user-agent') ?? '')) await markOpened(guest.id)
+  const ua = (await headers()).get('user-agent') ?? ''
+  if (isLinkPreviewBot(ua)) {
+    logger.debug({ event: 'invite.preview_bot', ua }, 'invite preview bot skipped')
+  } else {
+    const firstOpen = await markOpened(guest.id)
+    logger.info({ event: 'invite.opened', guestId: guest.id, firstOpen }, 'invite opened')
+  }
   const settings = await getSettings()
   const now = await requestTime()
 

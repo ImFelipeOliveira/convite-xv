@@ -1,6 +1,7 @@
 'use server'
 
 import { headers } from 'next/headers'
+import { logger } from '@/lib/logger'
 import { getClientIp, rateLimit } from '@/lib/rate-limit'
 import { submitRsvp, type RsvpResult } from './service'
 import { toRsvpGuestView, type RsvpGuestView } from './view'
@@ -22,15 +23,35 @@ export async function submitRsvpAction(
   const token = field(formData, 'token') ?? ''
   const ip = getClientIp(await headers())
   if (!rateLimit(`rsvp:${ip}:${token}`, { max: 10, windowMs: 60_000 }).ok) {
+    logger.warn({ event: 'rate_limit.exceeded', route: 'rsvp', ip }, 'rate limit exceeded')
     return { ok: false, error: 'invalid' }
   }
   const plusOnesRaw = field(formData, 'plusOnes')
-  const result = await submitRsvp({
-    token,
-    status: field(formData, 'status'),
-    plusOnes: plusOnesRaw === undefined || plusOnesRaw === '' ? undefined : Number(plusOnesRaw),
-    message: field(formData, 'message'),
-    phone: field(formData, 'phone'),
-  })
-  return result.ok ? { ok: true, guest: toRsvpGuestView(result.guest) } : result
+  try {
+    const result = await submitRsvp({
+      token,
+      status: field(formData, 'status'),
+      plusOnes: plusOnesRaw === undefined || plusOnesRaw === '' ? undefined : Number(plusOnesRaw),
+      message: field(formData, 'message'),
+      phone: field(formData, 'phone'),
+    })
+    if (!result.ok) {
+      logger.warn({ event: 'rsvp.rejected', error: result.error }, 'rsvp rejected')
+      return result
+    }
+    logger.info(
+      {
+        event: 'rsvp.submitted',
+        guestId: result.guest.id,
+        status: result.guest.rsvpStatus,
+        plusOnes: result.guest.plusOnes,
+        phoneAdded: result.phoneAdded,
+      },
+      'rsvp submitted',
+    )
+    return { ok: true, guest: toRsvpGuestView(result.guest) }
+  } catch (err) {
+    logger.error({ event: 'rsvp.error', err }, 'rsvp failed unexpectedly')
+    return { ok: false, error: 'invalid' }
+  }
 }

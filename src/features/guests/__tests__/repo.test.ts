@@ -26,12 +26,12 @@ describe('guests repo', () => {
 
   it('markOpened keeps the first timestamp', async () => {
     const g = await makeGuest()
-    await markOpened(g.id)
+    expect(await markOpened(g.id)).toBe(true)
     const [a] = await listGuests()
     const t1 = a.openedAt
     expect(t1).toBeInstanceOf(Date)
     await new Promise((r) => setTimeout(r, 20))
-    await markOpened(g.id)
+    expect(await markOpened(g.id)).toBe(false)
     const [b] = await listGuests()
     expect(b.openedAt?.getTime()).toBe(t1?.getTime())
   })
