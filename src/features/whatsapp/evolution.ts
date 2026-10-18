@@ -125,13 +125,18 @@ export async function fetchQr(
  * The QR image from a connect answer. Evolution v2 sends `base64` either as a full data URL or as
  * raw base64 (sometimes nested under `qrcode`); `code`/`pairingCode`/`count` alone mean no image yet.
  */
+const PNG_DATA_URL = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/
+const BASE64 = /^[A-Za-z0-9+/=]+$/
+
 function toQrDataUrl(body: unknown): string | null {
   const raw = pick(body, 'base64') ?? pick(body, 'qrcode', 'base64')
   if (typeof raw !== 'string') return null
   const value = raw.trim()
   if (!value) return null
-  if (value.startsWith('data:image/')) return value
-  return /^[A-Za-z0-9+/=\s]+$/.test(value) ? `data:image/png;base64,${value.replace(/\s/g, '')}` : null
+  // only a PNG data URL ever reaches the <img src>: anything else (other schemes/types) is dropped
+  if (PNG_DATA_URL.test(value)) return value
+  const raw64 = value.replace(/\s/g, '')
+  return BASE64.test(raw64) ? `data:image/png;base64,${raw64}` : null
 }
 
 export async function logout(

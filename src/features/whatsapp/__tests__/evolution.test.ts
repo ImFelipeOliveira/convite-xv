@@ -151,6 +151,14 @@ describe('connectQr', () => {
     })
   })
 
+  it.each(['javascript:alert(1)', 'http://x/y.png', 'data:text/html,<b>', 'data:image/svg+xml,<svg/>'])(
+    'drops a non-png qr value (%s)',
+    async (base64) => {
+      const f = vi.fn().mockResolvedValueOnce(json({}, 403)).mockResolvedValueOnce(json({ base64 }))
+      expect(await connectQr(cfg, f)).toEqual({ ok: true, value: { qrDataUrl: null } })
+    },
+  )
+
   it('returns null qr when only a count comes back (qr not ready yet)', async () => {
     const f = vi.fn().mockResolvedValueOnce(json({}, 403)).mockResolvedValueOnce(json({ count: 0 }))
     expect(await connectQr(cfg, f)).toEqual({ ok: true, value: { qrDataUrl: null } })

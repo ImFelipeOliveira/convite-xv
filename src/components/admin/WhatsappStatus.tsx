@@ -20,9 +20,12 @@ import { Badge, type BadgeTone } from './ui/Badge'
 import { Button, Spinner } from './ui/Button'
 import { useToast } from './ui/Toast'
 
-/** Status checks while the QR is up; the QR image itself is refreshed every 5th check (~15 s). */
+/** Status checks while the QR is up. */
 const POLL_MS = 3000
-const QR_REFRESH_EVERY = 5
+/** A fresh QR is fetched only once the shown one is this old (WhatsApp rotates it ~20 s), never mid-scan. */
+const QR_REFRESH_AFTER_MS = 20_000
+/** Consecutive `close` answers needed before the QR counts as dead (a single one may be a blip). */
+const CLOSE_STREAK_TO_EXPIRE = 2
 /** After this the QR stops refreshing and the admin is offered a new one. */
 const QR_LIFETIME_MS = 2 * 60 * 1000
 
@@ -99,10 +102,13 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
   // while the QR is up: check every 3 s (stops when connected, or after 2 min)
   const qrActive = qr !== null && !qr.expired
   const qrStartedAt = qr?.startedAt
+  // when the QR on screen was received (initial connect or the last refresh)
+  const qrFetchedAt = useRef(0)
   useEffect(() => {
     if (!qrActive || qrStartedAt === undefined) return
     let cancelled = false
     let tick = 0
+    let closeStreak = 0
     let timer: ReturnType<typeof setTimeout>
     const schedule = () => {
       timer = setTimeout(run, POLL_MS)
@@ -115,15 +121,20 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
       }
       tick += 1
       try {
-        const result = await whatsappStatusAction(tick % QR_REFRESH_EVERY === 0)
+        const result = await whatsappStatusAction(Date.now() - qrFetchedAt.current >= QR_REFRESH_AFTER_MS)
         if (cancelled) return
         if (result.state === 'open') return onConnected()
-        if (result.state === 'close') {
+        // the first poll right after generating may still see the old `close`: ignore it
+        closeStreak = result.state === 'close' && tick > 1 ? closeStreak + 1 : 0
+        if (closeStreak >= CLOSE_STREAK_TO_EXPIRE) {
           // WhatsApp gave up on this pairing: a new QR is needed
           setQr((q) => (q ? { ...q, expired: true } : q))
           return
         }
-        if (result.qrDataUrl) setQr((q) => (q ? { ...q, url: result.qrDataUrl! } : q))
+        if (result.qrDataUrl) {
+          qrFetchedAt.current = Date.now()
+          setQr((q) => (q ? { ...q, url: result.qrDataUrl! } : q))
+        }
       } catch {
         // network hiccup: keep trying until the QR lifetime ends
       }
@@ -149,6 +160,7 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
       connectedRef.current = false
       setWaitingHint(null)
       setState('connecting')
+      qrFetchedAt.current = Date.now()
       setQr({ url: result.qrDataUrl, startedAt: Date.now(), expired: false })
       requestAnimationFrame(() => qrHeadingRef.current?.focus())
     })
@@ -158,6 +170,11 @@ export function WhatsappStatus({ initialState }: { initialState: WhatsappState }
     startChecking(async () => {
       const result = await whatsappStatusAction(false)
       if (result.state === 'open') return onConnected()
+      if (result.state === 'not_configured') {
+        setQr(null)
+        setState('not_configured')
+        return
+      }
       if (result.state === 'unavailable') {
         setWaitingHint('O servidor do WhatsApp não respondeu. Tente de novo em instantes.')
         return
