@@ -192,6 +192,11 @@ Dados fixos do evento (data, local, coordenadas, links Maps/Waze, traje) ficam e
 - Animação da fita só após resposta do servidor [design].
 - [call] Sem limite de reservas por convidado.
 
+### 8.3b Presentes — pedidos de 18/10 [decidido]
+- Painel: CRUD de presentes com nome, categoria, preço aproximado (opcional), foto (opcional) e **link de compra sugerido** (opcional; Amazon ou qualquer loja, só `https://`). No convite, cada presente com link mostra "Ver na loja" (abre em nova aba, `rel="noopener noreferrer nofollow"`); reservar continua no site.
+- **Lembrete de presente** (`kind = gift_nudge`): para convidados com `rsvp_status = yes` que **não reservaram presente nem têm Pix pago/avisado**; agendado 5 dias após a confirmação [call], só se antes de 20/12; reservar um presente ou pagar Pix cancela; texto editável nas configurações, menciona a lista (link do convite, âncora dos presentes) e a opção Pix.
+- Pix: **Asaas dinâmico** [decidido 18/10]; Pix pago também conta como "já presenteou".
+
 ### 8.4 Pix via Asaas [design 09, decidido Asaas]
 1. Convidado escolhe valor (R$ 70/100/150/200/300 ou outro ≥ R$ 70).
 2. Server Action `generatePix(token, amount)`:
