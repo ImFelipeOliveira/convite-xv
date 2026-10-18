@@ -100,6 +100,10 @@ describe('dispatches repo', () => {
     const entry = map.get(g.id)
     expect(entry?.status).toBe('sent')
     expect(entry?.at).toBeInstanceOf(Date)
+    expect(Number.isNaN(entry!.at.getTime())).toBe(false)
+    // at = sentAt of the latest row, written by the DB clock
+    const sent = (await rows(g.id)).find((r) => r.id === b.id)
+    expect(entry!.at.getTime()).toBe(sent!.sentAt!.getTime())
   })
 
   it('listDispatches filters, includes guestName, newest first', async () => {

@@ -41,8 +41,8 @@ export async function markDispatchSent(id: string, providerMessageId: string): P
       status: 'sent',
       providerMessageId,
       errorCode: null,
-      sentAt: new Date(),
-      updatedAt: new Date(),
+      sentAt: sql`now()`,
+      updatedAt: sql`now()`,
     })
     .where(eq(messageDispatches.id, id))
 }
@@ -50,7 +50,7 @@ export async function markDispatchSent(id: string, providerMessageId: string): P
 export async function markDispatchFailed(id: string, errorCode: string): Promise<void> {
   await db
     .update(messageDispatches)
-    .set({ status: 'failed', errorCode, updatedAt: new Date() })
+    .set({ status: 'failed', errorCode, updatedAt: sql`now()` })
     .where(eq(messageDispatches.id, id))
 }
 
@@ -105,7 +105,7 @@ export async function upsertReminder(
     .onConflictDoUpdate({
       target: [messageDispatches.guestId, messageDispatches.kind],
       targetWhere: sql`${messageDispatches.kind} <> 'invite'`,
-      set: { status: 'scheduled', scheduledFor, attempts: 0, errorCode: null, updatedAt: new Date() },
+      set: { status: 'scheduled', scheduledFor, attempts: 0, errorCode: null, updatedAt: sql`now()` },
       setWhere: sql`${messageDispatches.status} in ('cancelled', 'scheduled')`,
     })
 }
@@ -113,7 +113,7 @@ export async function upsertReminder(
 export async function cancelReminders(guestId: string): Promise<void> {
   await db
     .update(messageDispatches)
-    .set({ status: 'cancelled', updatedAt: new Date() })
+    .set({ status: 'cancelled', updatedAt: sql`now()` })
     .where(
       and(
         eq(messageDispatches.guestId, guestId),
@@ -146,7 +146,7 @@ export async function claimDueReminder(now: Date): Promise<MessageDispatch | nul
 export async function rescheduleReminder(id: string, at: Date, errorCode: string): Promise<void> {
   await db
     .update(messageDispatches)
-    .set({ status: 'scheduled', scheduledFor: at, errorCode, updatedAt: new Date() })
+    .set({ status: 'scheduled', scheduledFor: at, errorCode, updatedAt: sql`now()` })
     .where(eq(messageDispatches.id, id))
 }
 
