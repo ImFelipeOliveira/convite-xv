@@ -107,6 +107,7 @@ describe('buildGuestsCsv', () => {
     respondedAt: new Date('2026-12-13T03:05:00Z'),
     openedAt: null,
     asaasCustomerId: null,
+    asaasCustomerCpfHash: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   }
